@@ -18,6 +18,7 @@ export class WebServer {
   private clients: Set<WebSocket>;
   private eventEmitter: OrchestratorEventEmitter;
   private autoOpen: boolean;
+  private latestInitEvent: OrchestratorEvent | null = null;
 
   constructor(config: WebServerConfig) {
     this.port = config.port || 3742;
@@ -48,6 +49,11 @@ export class WebServer {
       console.log('New client connected');
       this.clients.add(ws);
 
+      if (this.latestInitEvent && ws.readyState === WebSocket.OPEN) {
+        console.log('Sending cached init event to new client');
+        ws.send(JSON.stringify(this.latestInitEvent));
+      }
+
       ws.on('close', () => {
         console.log('Client disconnected');
         this.clients.delete(ws);
@@ -60,6 +66,9 @@ export class WebServer {
     });
 
     this.eventEmitter.on('event', (event: OrchestratorEvent) => {
+      if (event.type === 'init') {
+        this.latestInitEvent = event;
+      }
       this.broadcast(event);
     });
   }
