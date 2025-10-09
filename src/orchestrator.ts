@@ -174,7 +174,7 @@ export class Orchestrator {
       });
 
       this.parser.updateStepPhase(step.number, 'implementation');
-      this.pushPlanFileChanges();
+      this.amendPlanFileAndPush();
       step.phase = 'implementation';
 
       this.eventEmitter.emit('event', {
@@ -202,7 +202,7 @@ export class Orchestrator {
       await this.ensureBuildPasses();
 
       this.parser.updateStepPhase(step.number, 'review');
-      this.pushPlanFileChanges();
+      this.amendPlanFileAndPush();
       step.phase = 'review';
 
       this.eventEmitter.emit('event', {
@@ -230,7 +230,7 @@ export class Orchestrator {
       await this.performCodeReview();
 
       this.parser.updateStepPhase(step.number, 'done');
-      this.pushPlanFileChanges();
+      this.amendPlanFileAndPush();
       step.phase = 'done';
 
       this.eventEmitter.emit('event', {
@@ -328,6 +328,36 @@ export class Orchestrator {
     throw new Error('Build verification exhausted all retry attempts');
   }
 
+  private reviewHasIssues(reviewOutput: string): boolean {
+    const structuredMarkerPass = /\[STEPCAT_REVIEW_RESULT:\s*PASS\s*\]/i;
+    const structuredMarkerFail = /\[STEPCAT_REVIEW_RESULT:\s*FAIL\s*\]/i;
+
+    if (structuredMarkerPass.test(reviewOutput)) {
+      return false;
+    }
+    if (structuredMarkerFail.test(reviewOutput)) {
+      return true;
+    }
+
+    const normalized = reviewOutput
+      .toLowerCase()
+      .replace(/[.,;:!?]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const noIssuesPatterns = [
+      /^no issues found$/,
+      /^no issues$/,
+      /^no issues? (?:were? )?(?:found|detected|identified)$/,
+      /^(?:i found )?no issues?$/,
+      /^there (?:are|were) no issues?$/
+    ];
+
+    const hasNoIssues = noIssuesPatterns.some(pattern => pattern.test(normalized));
+
+    return !hasNoIssues;
+  }
+
   private async performCodeReview(): Promise<void> {
     this.eventEmitter.emit('event', {
       type: 'review_start',
@@ -349,7 +379,7 @@ export class Orchestrator {
     this.log(reviewResult.output);
     this.log('─'.repeat(80));
 
-    const hasIssues = !reviewResult.output.toLowerCase().includes('no issues found');
+    const hasIssues = this.reviewHasIssues(reviewResult.output);
 
     this.eventEmitter.emit('event', {
       type: 'review_complete',
@@ -380,14 +410,15 @@ export class Orchestrator {
     this.log('✓ Build passed after review fixes', 'success');
   }
 
-  private pushPlanFileChanges(): void {
+  private amendPlanFileAndPush(): void {
     try {
       execSync(`git add "${this.planFile}"`, { cwd: this.workDir, stdio: 'inherit' });
-      execSync('git commit -m "Update plan file phase markers"', { cwd: this.workDir, stdio: 'inherit' });
-      execSync('git push', { cwd: this.workDir, stdio: 'inherit' });
-      this.log('✓ Pushed plan file updates to GitHub', 'success');
+      execSync('git commit --amend --no-edit', { cwd: this.workDir, stdio: 'inherit' });
+      execSync('git push --force-with-lease', { cwd: this.workDir, stdio: 'inherit' });
+      this.log('✓ Amended commit with plan file and pushed to GitHub', 'success');
     } catch (error) {
-      this.log(`⚠ Failed to push plan file updates: ${error instanceof Error ? error.message : String(error)}`, 'warn');
+      this.log(`⚠ Failed to amend and push: ${error instanceof Error ? error.message : String(error)}`, 'warn');
+      throw new Error('Failed to amend commit with plan file and push to GitHub');
     }
   }
 }

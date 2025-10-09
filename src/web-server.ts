@@ -357,6 +357,11 @@ export class WebServer {
       border-color: var(--green-500);
     }
 
+    .phase.warning {
+      background: var(--orange-100);
+      border-color: var(--orange-500);
+    }
+
     .phase-header {
       display: flex;
       align-items: center;
@@ -371,6 +376,10 @@ export class WebServer {
 
     .phase.completed .phase-header {
       color: var(--green-500);
+    }
+
+    .phase.warning .phase-header {
+      color: var(--orange-500);
     }
 
     .phase-icon {
@@ -392,6 +401,11 @@ export class WebServer {
 
     .phase.completed .phase-icon {
       background: var(--green-500);
+      color: white;
+    }
+
+    .phase.warning .phase-icon {
+      background: var(--orange-500);
       color: white;
     }
 
@@ -759,10 +773,16 @@ export class WebServer {
         case 'build_attempt':
           handleBuildAttempt(event);
           break;
-      case 'error':
+        case 'review_start':
+          handleReviewStart(event);
+          break;
+        case 'review_complete':
+          handleReviewComplete(event);
+          break;
+        case 'error':
           handleError(event);
           break;
-      case 'all_complete':
+        case 'all_complete':
           handleAllComplete(event);
           break;
       }
@@ -872,6 +892,30 @@ export class WebServer {
       githubProgress.style.background = 'linear-gradient(90deg, var(--purple-500), var(--purple-400))';
     }
 
+    function handleReviewStart(event) {
+      const step = state.steps.find(s => s.number === event.stepNumber);
+      if (step) {
+        step.reviewInProgress = true;
+      }
+      renderSteps();
+      addLog('🔍 Starting Codex code review...', 'info', event.timestamp);
+    }
+
+    function handleReviewComplete(event) {
+      const step = state.steps.find(s => s.number === event.stepNumber);
+      if (step) {
+        step.reviewInProgress = false;
+        step.reviewHasIssues = event.hasIssues;
+      }
+      renderSteps();
+
+      if (event.hasIssues) {
+        addLog('⚠️  Code review identified issues - addressing feedback...', 'warn', event.timestamp);
+      } else {
+        addLog('✓ Code review passed with no issues', 'success', event.timestamp);
+      }
+    }
+
     function handleError(event) {
       addLog(\`ERROR: \${event.error}\`, 'error', event.timestamp);
 
@@ -913,13 +957,31 @@ export class WebServer {
         const phasesHTML = phases.map(phase => {
           const phaseCompleted = completedPhases.includes(phase.id);
           const phaseActive = currentPhase === phase.id;
-          const phaseClass = phaseCompleted ? 'completed' : phaseActive ? 'active' : '';
+          let phaseClass = phaseCompleted ? 'completed' : phaseActive ? 'active' : '';
+          let phaseLabel = phase.label;
+          let phaseIconContent = phaseCompleted ? '✓' : phaseActive ? '⟳' : phase.icon;
+
+          if (phase.id === 'review') {
+            if (step.reviewInProgress) {
+              phaseClass = 'active';
+              phaseIconContent = '🔄';
+              phaseLabel = '3. Code Review (Running...)';
+            } else if (step.reviewHasIssues !== undefined) {
+              if (step.reviewHasIssues) {
+                phaseClass = phaseCompleted ? 'completed' : 'warning';
+                phaseIconContent = '⚠️';
+                phaseLabel = '3. Code Review (Issues Found)';
+              } else if (phaseCompleted || currentPhase === 'review') {
+                phaseLabel = '3. Code Review (No Issues)';
+              }
+            }
+          }
 
           return \`
             <div class="phase \${phaseClass}">
               <div class="phase-header">
-                <div class="phase-icon">\${phaseCompleted ? '✓' : phaseActive ? '⟳' : phase.icon}</div>
-                <span>\${phase.label}</span>
+                <div class="phase-icon">\${phaseIconContent}</div>
+                <span>\${phaseLabel}</span>
               </div>
             </div>
           \`;
@@ -929,7 +991,7 @@ export class WebServer {
           <div class="step-card \${isActive ? 'active' : ''} \${isCompleted ? 'completed' : ''}" style="animation-delay: \${step.number * 0.1}s">
             <div class="step-header">
               <div class="step-number">\${step.number}</div>
-              <div class="step-title">\${step.title}</div>
+              <div class="step-title">\${escapeHtml(step.title)}</div>
               <div class="step-status">
                 \${isCompleted ? '✓ Complete' : isActive ? '⟳ In Progress' : '◯ Pending'}
               </div>

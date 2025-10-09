@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events';
-import { Step } from './step-parser';
 
 export interface StepCatEvent {
   type: string;

@@ -6,11 +6,13 @@ Step-by-step agent orchestration solution that automates implementation of multi
 
 Stepcat orchestrates the implementation of complex development tasks by:
 1. Parsing a markdown file containing numbered steps
-2. Using Claude Code to implement each step
+2. Using Claude Code to implement each step (one commit per step)
 3. Waiting for GitHub Actions to pass
 4. Using Codex to review the implementation
-5. Using Claude Code to address any review comments
+5. Using Claude Code to address any review comments (via `git commit --amend`)
 6. Moving to the next step
+
+All fixes and plan file updates are applied via `git commit --amend` to maintain a clean git history with one commit per step.
 
 ## Installation
 
@@ -180,22 +182,42 @@ test:
 
 Claude Code will execute these commands after implementing each step to ensure code quality.
 
+## Git Commit Policy
+
+**One Commit Per Step**: Stepcat maintains a clean git history with exactly one commit per step.
+
+- **Initial commit**: Claude Code creates the initial implementation commit
+- **Build fixes**: If builds fail, fixes are applied via `git commit --amend` (not new commits)
+- **Review fixes**: If Codex finds issues, fixes are applied via `git commit --amend` (not new commits)
+- **Phase markers**: Plan file updates (`[implementation]`, `[review]`, `[done]`) are amended into the step commit
+- **Pushing**: The orchestrator handles all pushes; agents never push themselves
+
+This approach ensures a linear, readable git history where each commit represents a complete, tested, reviewed step.
+
 ## How It Works
 
 For each pending step in the plan:
 
-1. **Implementation**: Claude Code is invoked with the step number and full plan file content embedded in the prompt
-2. **Build Verification**: Waits for GitHub Actions to complete (max 30 minutes)
-3. **Build Fix Loop**: If builds fail, Claude Code is asked to fix and amend the commit (max 3 attempts)
-4. **Code Review**: Codex reviews the last commit with plan file path (Codex reads the file directly)
-5. **Review Fixes**: Claude Code addresses any issues found by Codex
-6. **Mark Complete**: Orchestrator marks the step as `[done]` in the plan file
-7. **Next Step**: Moves to the next pending step
+1. **Implementation**: Claude Code is invoked with the step number and full plan file content embedded in the prompt. Creates initial commit. Orchestrator amends plan file marker `[implementation]` into the commit and pushes.
 
-**Notes**:
+2. **Build Verification**: Orchestrator waits for GitHub Actions to complete (max 30 minutes).
+
+3. **Build Fix Loop**: If builds fail, Claude Code is asked to fix and amend the commit (max 3 attempts). Orchestrator pushes the amended commit. Repeats until build passes.
+
+4. **Code Review**: Orchestrator amends plan file marker `[review]` into the commit and pushes. Codex reviews the last commit with the plan file path (Codex reads the file directly). Uses structured markers `[STEPCAT_REVIEW_RESULT: PASS/FAIL]` for reliable detection.
+
+5. **Review Fixes**: If Codex identifies issues, Claude Code addresses them by amending the commit (not creating a new one). Orchestrator pushes and verifies builds still pass.
+
+6. **Mark Complete**: Orchestrator amends plan file marker `[done]` into the commit and pushes.
+
+7. **Next Step**: Moves to the next pending step.
+
+**Key Points**:
 - Claude Code receives the full plan content embedded in prompts for context
 - Codex receives the plan file path and reads it directly
-- Steps progress through phases: pending → [implementation] → [review] → [done]
+- Steps progress through phases: `pending` → `[implementation]` → `[review]` → `[done]`
+- Phase markers are part of the step commit (amended in), not separate commits
+- All fixes (build and review) amend the single step commit to maintain clean history
 - Phase markers enable resumability if Stepcat is interrupted
 
 ## Environment Variables
