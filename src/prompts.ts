@@ -34,7 +34,7 @@ ${reviewComments}
 
 Please review these comments and fix any legitimate issues.
 
-IMPORTANT: If you make changes, create a new commit (do NOT amend) and push. Keep the commit history clean and logical.`,
+IMPORTANT: If you make changes, use git commit --amend to amend the previous commit, then force push the changes. There should be only one commit for this step.`,
 
   codexReview: (planFilePath: string) => `You are reviewing the last commit in this repository. The implementation plan is available at: ${planFilePath}
 
