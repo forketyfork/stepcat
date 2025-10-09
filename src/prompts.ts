@@ -14,7 +14,7 @@ After implementation:
 2. Commit your changes with a clear commit message starting with relative file path and implementation step, e.g.:
 
 ---
-Plan: docs/plans/DB.md
+Plan: docs/plans/PLAN.md
 Step: 3
 Stage: implementation
 
@@ -42,7 +42,7 @@ IMPORTANT:
 - Commit your changes by appending a clear commit message to an existing one, starting with relative file path and implementation step, e.g.:
 
 ---
-Plan: docs/plans/DB.md
+Plan: docs/plans/PLAN.md
 Step: 3
 Stage: build fix
 
@@ -67,7 +67,7 @@ IMPORTANT:
 - Commit your changes by appending a clear commit message to an existing one, starting with relative file path and implementation step, e.g.:
 
 ---
-Plan: docs/plans/DB.md
+Plan: docs/plans/PLAN.md
 Step: 3
 Stage: code review fix
 

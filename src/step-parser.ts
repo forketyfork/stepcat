@@ -98,6 +98,10 @@ export class StepParser {
     return this.filePath;
   }
 
+  getContent(): string {
+    return this.content;
+  }
+
   updateStepPhase(stepNumber: number, newPhase: StepPhase): void {
     const lines = this.content.split("\n");
     let updated = false;
