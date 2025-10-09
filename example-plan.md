@@ -2,7 +2,19 @@
 
 This is an example implementation plan file for Stepcat. Replace this with your actual implementation plan.
 
-Steps will be automatically marked with [done] as they are completed.
+Stepcat tracks progress through phase markers:
+- No marker: Pending (not started)
+- [implementation]: Implementation complete, awaiting build
+- [review]: Build passed, awaiting code review
+- [done]: All phases complete
+
+Example of steps in different phases:
+```
+## Step 1: Setup [done]
+## Step 2: Core Features [review]
+## Step 3: Tests [implementation]
+## Step 4: Documentation
+```
 
 ## Step 1: Project Setup
 
@@ -42,5 +54,7 @@ Polish the implementation:
 
 ---
 
-Note: Stepcat will automatically mark steps as done by appending [done] to the step heading.
-Example: "## Step 1: Project Setup [done]"
+Note: Stepcat automatically updates phase markers as work progresses:
+- After implementation: "## Step 1: Project Setup [implementation]"
+- After build verification: "## Step 1: Project Setup [review]"
+- After code review: "## Step 1: Project Setup [done]"

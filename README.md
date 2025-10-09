@@ -112,15 +112,25 @@ Stepcat will parse these steps and implement them one by one.
 
 ### Step Completion Tracking
 
-Stepcat automatically tracks completed steps by marking them with `[done]` in the plan file:
+Stepcat tracks progress through three phases for each step:
+
+1. **[implementation]** - Implementation complete, awaiting build verification
+2. **[review]** - Build passed, awaiting code review
+3. **[done]** - All phases complete, step finished
 
 ```markdown
 ## Step 1: Setup Project Structure [done]
+## Step 2: Add Core Features [review]
+## Step 3: Add Tests [implementation]
+## Step 4: Add Documentation
 ```
 
-**Resumability**: If Stepcat is interrupted or fails, simply run it again with the same plan file. It will automatically skip completed steps and resume from where it left off.
+**Resumability**: If Stepcat is interrupted or fails, simply run it again with the same plan file. It will automatically resume from the current phase of the interrupted step.
 
-**Manual Control**: You can manually mark steps as `[done]` to skip them, or remove the `[done]` marker to re-run a step.
+**Manual Control**: You can manually edit phase markers to:
+- Skip to a later phase: Change `[implementation]` to `[review]` or `[done]`
+- Re-run a phase: Change `[review]` back to `[implementation]`
+- Skip a step entirely: Mark as `[done]`
 
 ## Customizing Prompts
 
@@ -174,17 +184,19 @@ Claude Code will execute these commands after implementing each step to ensure c
 
 For each pending step in the plan:
 
-1. **Implementation**: Claude Code is invoked with the step number and plan file path (agents read the file themselves)
+1. **Implementation**: Claude Code is invoked with the step number and full plan file content embedded in the prompt
 2. **Build Verification**: Waits for GitHub Actions to complete (max 30 minutes)
 3. **Build Fix Loop**: If builds fail, Claude Code is asked to fix and amend the commit (max 3 attempts)
-4. **Code Review**: Codex reviews the last commit with plan file as context
+4. **Code Review**: Codex reviews the last commit with plan file path (Codex reads the file directly)
 5. **Review Fixes**: Claude Code addresses any issues found by Codex
-6. **Mark Complete**: Claude Code marks the step as `[done]` in the plan file
+6. **Mark Complete**: Orchestrator marks the step as `[done]` in the plan file
 7. **Next Step**: Moves to the next pending step
 
 **Notes**:
-- The implementation plan file path is passed to agents rather than pasting the full content into prompts. This is more efficient and allows agents to read the file directly.
-- Completed steps are marked with `[done]` and automatically skipped on subsequent runs.
+- Claude Code receives the full plan content embedded in prompts for context
+- Codex receives the plan file path and reads it directly
+- Steps progress through phases: pending → [implementation] → [review] → [done]
+- Phase markers enable resumability if Stepcat is interrupted
 
 ## Environment Variables
 

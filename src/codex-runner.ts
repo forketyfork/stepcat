@@ -23,6 +23,9 @@ export class CodexRunner {
       );
     }
 
+    console.log('Note: Using assumed CLI flags: exec --cd');
+    console.log('If these flags are incorrect for your version, please update src/codex-runner.ts');
+
     return localBin;
   }
 

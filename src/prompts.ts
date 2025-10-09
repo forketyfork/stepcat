@@ -9,11 +9,12 @@ Please implement Step ${stepNumber} following the plan exactly as described.
 
 After implementation:
 1. Run \`just build\`, \`just lint\` and \`just test\` on the project, fix issues if any
-2. Check off the step in the implementation plan
-3. Commit your changes with a clear commit message
-4. Push the changes to GitHub
+2. Commit your changes with a clear commit message
+3. Push the changes to GitHub
 
-IMPORTANT: Make sure to commit and push your changes before completing this task.`,
+IMPORTANT: Make sure to commit and push your changes before completing this task.
+
+Note: The orchestrator will automatically update the plan file phase markers, so do not modify the plan file yourself.`,
 
   buildFix: (buildErrors: string) => `The GitHub Actions build has failed with the following errors:
 
@@ -33,7 +34,7 @@ ${reviewComments}
 
 Please review these comments and fix any legitimate issues.
 
-IMPORTANT: If you make changes, use git commit --amend to amend the previous commit, then force push the changes. There should be only one commit for this step.`,
+IMPORTANT: If you make changes, create a new commit (do NOT amend) and push. Keep the commit history clean and logical.`,
 
   codexReview: (planFilePath: string) => `You are reviewing the last commit in this repository. The implementation plan is available at: ${planFilePath}
 

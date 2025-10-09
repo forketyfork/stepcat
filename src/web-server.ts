@@ -772,7 +772,16 @@ export class WebServer {
       state.totalSteps = event.totalSteps;
       state.completedSteps = event.doneSteps;
       state.remainingSteps = event.pendingSteps;
-      state.steps = event.steps;
+      state.steps = event.steps.map(s => ({
+        ...s,
+        status: s.phase === 'done' ? 'completed' : 'pending',
+        completedPhases: s.phase === 'done' ? ['implementation', 'build', 'review'] :
+                        s.phase === 'review' ? ['implementation', 'build'] :
+                        s.phase === 'implementation' ? ['implementation'] : [],
+        currentPhase: s.phase === 'implementation' ? 'implementation' :
+                     s.phase === 'review' ? 'review' :
+                     s.phase === 'done' ? null : null
+      }));
 
       updateStatusBanner();
       renderSteps();
