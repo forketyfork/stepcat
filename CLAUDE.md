@@ -14,6 +14,7 @@ just build          # Build the project (npm run build)
 just lint           # Run ESLint
 just test           # Run Jest tests
 just dev --file plan.md --dir /path/to/project  # Run in dev mode with ts-node
+just dev --file plan.md --dir /path/to/project --ui  # Run with web UI
 just ci             # Run full CI check (lint + test + build)
 ```
 
@@ -31,6 +32,15 @@ just install-local      # Build and npm link for local testing
 just uninstall-local    # Remove npm link
 ```
 
+### Web UI
+```bash
+# Launch with web UI (opens browser automatically)
+stepcat --file plan.md --dir /path/to/project --ui
+
+# Custom port without auto-open
+stepcat --file plan.md --dir /path/to/project --ui --port 8080 --no-auto-open
+```
+
 ## Architecture
 
 ### Core Components
@@ -41,7 +51,9 @@ just uninstall-local    # Remove npm link
   1. **Implementation Phase**: Invokes Claude Code with step number and plan content
   2. **Build Verification Phase**: Waits for GitHub Actions, retries fixes if needed (up to `maxBuildAttempts`)
   3. **Code Review Phase**: Runs Codex review, then Claude Code to address issues
-- Configuration: `OrchestratorConfig` includes timeouts, max attempts, paths
+- Configuration: `OrchestratorConfig` includes timeouts, max attempts, paths, event emitter, silent mode
+- Emits events via `OrchestratorEventEmitter` for real-time UI updates
+- Supports `silent` mode for web UI (suppresses console.log, only emits events)
 
 **StepParser** (`src/step-parser.ts`): Parses markdown plan files
 - Expects format: `## Step N: Title` (case-insensitive)
@@ -73,6 +85,19 @@ just uninstall-local    # Remove npm link
 - `buildFix(buildErrors)`: Fix build failures and amend commit
 - `reviewFix(reviewComments)`: Address Codex review feedback
 - `codexReview(planContent)`: Review last commit with plan context
+
+**Events** (`src/events.ts`): Event system for real-time UI updates
+- `OrchestratorEventEmitter`: EventEmitter subclass with typed events
+- Event types: `init`, `step_start`, `step_complete`, `phase_start`, `phase_complete`, `log`, `github_check`, `build_attempt`, `review_start`, `review_complete`, `all_complete`, `error`
+- All events include timestamp and type discriminator
+
+**WebServer** (`src/web-server.ts`): HTTP server with WebSocket support
+- Express server serving embedded HTML/CSS/JS
+- WebSocket server for real-time event broadcasting
+- Embedded beautiful purple/pastel UI with animations
+- Features: step tracking, phase indicators, GitHub status, activity log
+- Auto-opens browser (configurable)
+- Default port: 3742 (configurable)
 
 ### Key Behaviors
 

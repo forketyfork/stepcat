@@ -26,22 +26,31 @@ npm install --save-dev stepcat
 
 ## Usage
 
+### CLI Mode (Default)
+
+Run Stepcat with terminal output:
+
 ```bash
 stepcat --file plan.md --dir /path/to/project
 ```
 
-### Options
+### Web UI Mode
 
-- `-f, --file <path>` - Path to the implementation plan file (required)
-- `-d, --dir <path>` - Path to the work directory (required)
-- `-t, --token <token>` - GitHub token (optional, defaults to `GITHUB_TOKEN` env var)
-
-### Example
+Launch the beautiful web interface for real-time progress visualization:
 
 ```bash
-export GITHUB_TOKEN=your_token_here
-stepcat --file implementation-plan.md --dir ./my-project
+stepcat --file plan.md --dir /path/to/project --ui
 ```
+
+The web UI features:
+- 🎨 **Beautiful purple/pastel design** with smooth animations
+- 📊 **Real-time progress tracking** for all steps and phases
+- 🔄 **Live GitHub Actions status** with visual progress indicators
+- 📋 **Activity log** with color-coded messages
+- ⚡ **WebSocket-powered** instant updates
+- 📱 **Responsive design** that works on all devices
+
+The UI automatically opens in your default browser at `http://localhost:3742` (customizable with `--port`).
 
 ### CLI Options
 
@@ -51,8 +60,26 @@ stepcat --file implementation-plan.md --dir ./my-project
 - `--max-build-attempts <number>` - Maximum build fix attempts (default: 3)
 - `--build-timeout <minutes>` - GitHub Actions check timeout in minutes (default: 30)
 - `--agent-timeout <minutes>` - Agent execution timeout in minutes (default: 30)
+- `--ui` - Launch web UI (default: false)
+- `--port <number>` - Web UI port (default: 3742)
+- `--no-auto-open` - Don't automatically open browser when using --ui
 
-**Example with custom timeouts:**
+### Examples
+
+**Basic usage with web UI:**
+
+```bash
+export GITHUB_TOKEN=your_token_here
+stepcat --file implementation-plan.md --dir ./my-project --ui
+```
+
+**Custom port without auto-opening browser:**
+
+```bash
+stepcat --file plan.md --dir ./project --ui --port 8080 --no-auto-open
+```
+
+**CLI mode with custom timeouts:**
 
 ```bash
 stepcat --file plan.md --dir ./project \

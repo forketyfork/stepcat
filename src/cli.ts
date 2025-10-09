@@ -2,6 +2,8 @@
 
 import { Command } from 'commander';
 import { Orchestrator } from './orchestrator';
+import { OrchestratorEventEmitter } from './events';
+import { WebServer } from './web-server';
 import { resolve } from 'path';
 
 const program = new Command();
@@ -16,20 +18,26 @@ program
   .option('--max-build-attempts <number>', 'Maximum build fix attempts (default: 3)', parseInt)
   .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseInt)
   .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseInt)
+  .option('--ui', 'Launch web UI (default: false)')
+  .option('--port <number>', 'Web UI port (default: 3742)', parseInt)
+  .option('--no-auto-open', 'Do not automatically open browser when using --ui')
   .action(async (options) => {
     const startTime = Date.now();
+    let webServer: WebServer | null = null;
 
     try {
       const planFile = resolve(options.file);
       const workDir = resolve(options.dir);
 
-      console.log('═'.repeat(80));
-      console.log('STEPCAT - Step-by-step Agent Orchestration');
-      console.log('═'.repeat(80));
-      console.log(`Plan file:      ${planFile}`);
-      console.log(`Work directory: ${workDir}`);
-      console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
-      console.log('═'.repeat(80));
+      if (!options.ui) {
+        console.log('═'.repeat(80));
+        console.log('STEPCAT - Step-by-step Agent Orchestration');
+        console.log('═'.repeat(80));
+        console.log(`Plan file:      ${planFile}`);
+        console.log(`Work directory: ${workDir}`);
+        console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
+        console.log('═'.repeat(80));
+      }
 
       if (!options.token && !process.env.GITHUB_TOKEN) {
         throw new Error(
@@ -40,13 +48,27 @@ program
         );
       }
 
+      const eventEmitter = new OrchestratorEventEmitter();
+
+      if (options.ui) {
+        webServer = new WebServer({
+          port: options.port,
+          eventEmitter,
+          autoOpen: options.autoOpen
+        });
+
+        await webServer.start();
+      }
+
       const orchestrator = new Orchestrator({
         planFile,
         workDir,
         githubToken: options.token,
         maxBuildAttempts: options.maxBuildAttempts,
         buildTimeoutMinutes: options.buildTimeout,
-        agentTimeoutMinutes: options.agentTimeout
+        agentTimeoutMinutes: options.agentTimeout,
+        eventEmitter,
+        silent: options.ui
       });
 
       await orchestrator.run();
@@ -55,11 +77,22 @@ program
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
 
-      console.log('\n' + '═'.repeat(80));
-      console.log('✓✓✓ SUCCESS ✓✓✓');
-      console.log('═'.repeat(80));
-      console.log(`Total time: ${minutes}m ${seconds}s`);
-      console.log('═'.repeat(80));
+      if (!options.ui) {
+        console.log('\n' + '═'.repeat(80));
+        console.log('✓✓✓ SUCCESS ✓✓✓');
+        console.log('═'.repeat(80));
+        console.log(`Total time: ${minutes}m ${seconds}s`);
+        console.log('═'.repeat(80));
+      }
+
+      if (webServer) {
+        console.log('\n' + '═'.repeat(80));
+        console.log('All steps completed! Web UI will remain open for viewing.');
+        console.log('Press Ctrl+C to exit.');
+        console.log('═'.repeat(80));
+
+        await new Promise(() => {});
+      }
 
       process.exit(0);
     } catch (error) {
@@ -78,6 +111,10 @@ program
       if (error instanceof Error && error.stack && process.env.DEBUG) {
         console.error('\nStack trace (DEBUG mode):');
         console.error(error.stack);
+      }
+
+      if (webServer) {
+        await webServer.stop();
       }
 
       process.exit(1);

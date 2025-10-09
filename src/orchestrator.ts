@@ -3,6 +3,7 @@ import { ClaudeRunner } from './claude-runner';
 import { CodexRunner } from './codex-runner';
 import { GitHubChecker } from './github-checker';
 import { execSync } from 'child_process';
+import { OrchestratorEventEmitter } from './events';
 
 export interface OrchestratorConfig {
   planFile: string;
@@ -11,6 +12,8 @@ export interface OrchestratorConfig {
   maxBuildAttempts?: number;
   buildTimeoutMinutes?: number;
   agentTimeoutMinutes?: number;
+  eventEmitter?: OrchestratorEventEmitter;
+  silent?: boolean;
 }
 
 export class Orchestrator {
@@ -24,6 +27,8 @@ export class Orchestrator {
   private maxBuildAttempts: number;
   private buildTimeoutMinutes: number;
   private agentTimeoutMinutes: number;
+  private eventEmitter: OrchestratorEventEmitter;
+  private silent: boolean;
 
   constructor(config: OrchestratorConfig) {
     this.parser = new StepParser(config.planFile);
@@ -35,6 +40,8 @@ export class Orchestrator {
     this.maxBuildAttempts = config.maxBuildAttempts || 3;
     this.buildTimeoutMinutes = config.buildTimeoutMinutes || 30;
     this.agentTimeoutMinutes = config.agentTimeoutMinutes || 30;
+    this.eventEmitter = config.eventEmitter || new OrchestratorEventEmitter();
+    this.silent = config.silent || false;
 
     const repoInfo = GitHubChecker.parseRepoInfo(config.workDir);
 
@@ -46,52 +53,110 @@ export class Orchestrator {
     });
   }
 
+  getEventEmitter(): OrchestratorEventEmitter {
+    return this.eventEmitter;
+  }
+
+  private log(message: string, level: 'info' | 'warn' | 'error' | 'success' = 'info', stepNumber?: number) {
+    if (!this.silent) {
+      console.log(message);
+    }
+    this.eventEmitter.emit('event', {
+      type: 'log',
+      timestamp: Date.now(),
+      level,
+      message,
+      stepNumber
+    });
+  }
+
   async run(): Promise<void> {
     const allSteps = this.parser.parseSteps();
     const pendingSteps = allSteps.filter(s => s.phase !== 'done');
 
-    console.log('═'.repeat(80));
-    console.log(`Found ${allSteps.length} steps (${allSteps.length - pendingSteps.length} done, ${pendingSteps.length} pending)`);
-    console.log('═'.repeat(80));
+    this.eventEmitter.emit('event', {
+      type: 'init',
+      timestamp: Date.now(),
+      totalSteps: allSteps.length,
+      pendingSteps: pendingSteps.length,
+      doneSteps: allSteps.length - pendingSteps.length,
+      steps: allSteps.map(s => ({
+        number: s.number,
+        title: s.title,
+        phase: s.phase
+      }))
+    });
+
+    this.log('═'.repeat(80));
+    this.log(`Found ${allSteps.length} steps (${allSteps.length - pendingSteps.length} done, ${pendingSteps.length} pending)`);
+    this.log('═'.repeat(80));
     allSteps.forEach(s => {
       const statusSymbol = s.phase === 'done' ? '✓' : s.phase === 'review' ? '◐' : s.phase === 'implementation' ? '◔' : ' ';
       const phaseLabel = s.phase !== 'pending' ? ` [${s.phase}]` : '';
-      console.log(`  [${statusSymbol}] ${s.number}. ${s.title}${phaseLabel}`);
+      this.log(`  [${statusSymbol}] ${s.number}. ${s.title}${phaseLabel}`);
     });
-    console.log('═'.repeat(80));
+    this.log('═'.repeat(80));
 
     if (pendingSteps.length === 0) {
-      console.log('\n✓ All steps are already marked as done!');
+      this.log('\n✓ All steps are already marked as done!', 'success');
       return;
     }
 
-    console.log(`\nStarting from step ${pendingSteps[0].number}...`);
+    this.log(`\nStarting from step ${pendingSteps[0].number}...`);
 
     for (let i = 0; i < pendingSteps.length; i++) {
       const step = pendingSteps[i];
-      console.log(`\n${'═'.repeat(80)}`);
-      console.log(`STEP ${step.number}/${allSteps.length}: ${step.title}`);
-      console.log(`Progress: ${i + 1}/${pendingSteps.length} pending steps | Current phase: ${step.phase}`);
-      console.log('═'.repeat(80));
+
+      this.eventEmitter.emit('event', {
+        type: 'step_start',
+        timestamp: Date.now(),
+        stepNumber: step.number,
+        stepTitle: step.title,
+        phase: step.phase,
+        progress: {
+          current: i + 1,
+          total: pendingSteps.length
+        }
+      });
+
+      this.log(`\n${'═'.repeat(80)}`);
+      this.log(`STEP ${step.number}/${allSteps.length}: ${step.title}`);
+      this.log(`Progress: ${i + 1}/${pendingSteps.length} pending steps | Current phase: ${step.phase}`);
+      this.log('═'.repeat(80));
 
       await this.executeStep(step);
 
       this.githubChecker.ensureNoUncommittedChanges();
 
-      console.log('═'.repeat(80));
-      console.log(`✓ STEP ${step.number}/${allSteps.length} COMPLETED`);
-      console.log('═'.repeat(80));
+      this.eventEmitter.emit('event', {
+        type: 'step_complete',
+        timestamp: Date.now(),
+        stepNumber: step.number,
+        stepTitle: step.title
+      });
+
+      this.log('═'.repeat(80));
+      this.log(`✓ STEP ${step.number}/${allSteps.length} COMPLETED`, 'success');
+      this.log('═'.repeat(80));
     }
 
-    console.log('\n' + '═'.repeat(80));
-    console.log('✓✓✓ ALL STEPS COMPLETED SUCCESSFULLY ✓✓✓');
-    console.log('═'.repeat(80));
+    this.log('\n' + '═'.repeat(80));
+    this.log('✓✓✓ ALL STEPS COMPLETED SUCCESSFULLY ✓✓✓', 'success');
+    this.log('═'.repeat(80));
   }
 
   private async executeStep(step: Step): Promise<void> {
     if (step.phase === 'pending') {
-      console.log('\n[1/3] Implementation Phase');
-      console.log('─'.repeat(80));
+      this.eventEmitter.emit('event', {
+        type: 'phase_start',
+        timestamp: Date.now(),
+        stepNumber: step.number,
+        phase: 'implementation',
+        phaseLabel: '[1/3] Implementation Phase'
+      });
+
+      this.log('\n[1/3] Implementation Phase');
+      this.log('─'.repeat(80));
 
       const prompt = this.claudeRunner.buildImplementationPrompt(step.number, this.planContent);
       await this.claudeRunner.run({
@@ -103,34 +168,71 @@ export class Orchestrator {
       this.parser.updateStepPhase(step.number, 'implementation');
       await this.amendCommitWithPlanFile();
       step.phase = 'implementation';
+
+      this.eventEmitter.emit('event', {
+        type: 'phase_complete',
+        timestamp: Date.now(),
+        stepNumber: step.number,
+        phase: 'implementation'
+      });
     } else {
-      console.log('\n[1/3] Implementation Phase (skipped - already completed)');
+      this.log('\n[1/3] Implementation Phase (skipped - already completed)');
     }
 
     if (step.phase === 'implementation') {
-      console.log('\n[2/3] Build Verification Phase');
-      console.log('─'.repeat(80));
+      this.eventEmitter.emit('event', {
+        type: 'phase_start',
+        timestamp: Date.now(),
+        stepNumber: step.number,
+        phase: 'build',
+        phaseLabel: '[2/3] Build Verification Phase'
+      });
+
+      this.log('\n[2/3] Build Verification Phase');
+      this.log('─'.repeat(80));
 
       await this.ensureBuildPasses();
 
       this.parser.updateStepPhase(step.number, 'review');
       await this.amendCommitWithPlanFile();
       step.phase = 'review';
+
+      this.eventEmitter.emit('event', {
+        type: 'phase_complete',
+        timestamp: Date.now(),
+        stepNumber: step.number,
+        phase: 'build'
+      });
     } else {
-      console.log('\n[2/3] Build Verification Phase (skipped - already completed)');
+      this.log('\n[2/3] Build Verification Phase (skipped - already completed)');
     }
 
     if (step.phase === 'review') {
-      console.log('\n[3/3] Code Review Phase');
-      console.log('─'.repeat(80));
+      this.eventEmitter.emit('event', {
+        type: 'phase_start',
+        timestamp: Date.now(),
+        stepNumber: step.number,
+        phase: 'review',
+        phaseLabel: '[3/3] Code Review Phase'
+      });
+
+      this.log('\n[3/3] Code Review Phase');
+      this.log('─'.repeat(80));
 
       await this.performCodeReview();
 
       this.parser.updateStepPhase(step.number, 'done');
       await this.amendCommitWithPlanFile();
       step.phase = 'done';
+
+      this.eventEmitter.emit('event', {
+        type: 'phase_complete',
+        timestamp: Date.now(),
+        stepNumber: step.number,
+        phase: 'review'
+      });
     } else {
-      console.log('\n[3/3] Code Review Phase (skipped - already completed)');
+      this.log('\n[3/3] Code Review Phase (skipped - already completed)');
     }
   }
 
@@ -139,27 +241,62 @@ export class Orchestrator {
 
     while (attempt < this.maxBuildAttempts) {
       attempt++;
-      console.log(`\nChecking GitHub Actions (attempt ${attempt}/${this.maxBuildAttempts})`);
-
       const sha = this.githubChecker.getLatestCommitSha();
-      console.log(`Commit SHA: ${sha}`);
+
+      this.eventEmitter.emit('event', {
+        type: 'build_attempt',
+        timestamp: Date.now(),
+        attempt,
+        maxAttempts: this.maxBuildAttempts,
+        sha
+      });
+
+      this.log(`\nChecking GitHub Actions (attempt ${attempt}/${this.maxBuildAttempts})`);
+      this.log(`Commit SHA: ${sha}`);
+
+      this.eventEmitter.emit('event', {
+        type: 'github_check',
+        timestamp: Date.now(),
+        status: 'waiting',
+        sha,
+        attempt,
+        maxAttempts: this.maxBuildAttempts
+      });
 
       const buildPassed = await this.githubChecker.waitForChecksToPass(sha, this.buildTimeoutMinutes);
 
       if (buildPassed) {
-        console.log('─'.repeat(80));
-        console.log('✓ All GitHub Actions checks passed');
-        console.log('─'.repeat(80));
+        this.eventEmitter.emit('event', {
+          type: 'github_check',
+          timestamp: Date.now(),
+          status: 'success',
+          sha,
+          attempt,
+          maxAttempts: this.maxBuildAttempts
+        });
+
+        this.log('─'.repeat(80));
+        this.log('✓ All GitHub Actions checks passed', 'success');
+        this.log('─'.repeat(80));
         return;
       }
+
+      this.eventEmitter.emit('event', {
+        type: 'github_check',
+        timestamp: Date.now(),
+        status: 'failure',
+        sha,
+        attempt,
+        maxAttempts: this.maxBuildAttempts
+      });
 
       if (attempt >= this.maxBuildAttempts) {
         throw new Error(`Build failed after ${this.maxBuildAttempts} attempts. Aborting.`);
       }
 
-      console.log('─'.repeat(80));
-      console.log(`⚠ Build failed. Attempting to fix (${attempt}/${this.maxBuildAttempts})...`);
-      console.log('─'.repeat(80));
+      this.log('─'.repeat(80));
+      this.log(`⚠ Build failed. Attempting to fix (${attempt}/${this.maxBuildAttempts})...`, 'warn');
+      this.log('─'.repeat(80));
 
       const fixPrompt = this.claudeRunner.buildFixPrompt(
         'Build checks failed. Please review the GitHub Actions logs and fix the issues.'
@@ -176,7 +313,13 @@ export class Orchestrator {
   }
 
   private async performCodeReview(): Promise<void> {
-    console.log('\nRunning Codex code review...');
+    this.eventEmitter.emit('event', {
+      type: 'review_start',
+      timestamp: Date.now(),
+      stepNumber: 0
+    });
+
+    this.log('\nRunning Codex code review...');
 
     const reviewPrompt = this.codexRunner.buildReviewPrompt(this.planFile);
     const reviewResult = await this.codexRunner.run({
@@ -185,17 +328,26 @@ export class Orchestrator {
       timeoutMinutes: this.agentTimeoutMinutes
     });
 
-    console.log('\nCodex Review Output:');
-    console.log('─'.repeat(80));
-    console.log(reviewResult.output);
-    console.log('─'.repeat(80));
+    this.log('\nCodex Review Output:');
+    this.log('─'.repeat(80));
+    this.log(reviewResult.output);
+    this.log('─'.repeat(80));
 
-    if (reviewResult.output.toLowerCase().includes('no issues found')) {
-      console.log('✓ Code review passed with no issues found');
+    const hasIssues = !reviewResult.output.toLowerCase().includes('no issues found');
+
+    this.eventEmitter.emit('event', {
+      type: 'review_complete',
+      timestamp: Date.now(),
+      stepNumber: 0,
+      hasIssues
+    });
+
+    if (!hasIssues) {
+      this.log('✓ Code review passed with no issues found', 'success');
       return;
     }
 
-    console.log('\nCodex identified issues. Running Claude Code to address them...');
+    this.log('\nCodex identified issues. Running Claude Code to address them...');
 
     const fixPrompt = this.claudeRunner.buildReviewFixPrompt(reviewResult.output);
     await this.claudeRunner.run({
@@ -204,12 +356,12 @@ export class Orchestrator {
       timeoutMinutes: this.agentTimeoutMinutes
     });
 
-    console.log('✓ Review feedback addressed');
-    console.log('\nVerifying build after review fixes...');
+    this.log('✓ Review feedback addressed', 'success');
+    this.log('\nVerifying build after review fixes...');
 
     await this.ensureBuildPasses();
 
-    console.log('✓ Build passed after review fixes');
+    this.log('✓ Build passed after review fixes', 'success');
   }
 
   private async amendCommitWithPlanFile(): Promise<void> {
@@ -217,9 +369,9 @@ export class Orchestrator {
       execSync(`git add "${this.planFile}"`, { cwd: this.workDir, stdio: 'inherit' });
       execSync('git commit --amend --no-edit', { cwd: this.workDir, stdio: 'inherit' });
       execSync('git push --force-with-lease', { cwd: this.workDir, stdio: 'inherit' });
-      console.log('✓ Amended commit with plan file updates and pushed to GitHub');
+      this.log('✓ Amended commit with plan file updates and pushed to GitHub', 'success');
     } catch (error) {
-      console.warn('⚠ Failed to amend commit with plan file updates:', error instanceof Error ? error.message : String(error));
+      this.log(`⚠ Failed to amend commit with plan file updates: ${error instanceof Error ? error.message : String(error)}`, 'warn');
     }
   }
 }
