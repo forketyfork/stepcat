@@ -7,6 +7,7 @@ export interface ClaudeRunOptions {
   workDir: string;
   prompt: string;
   timeoutMinutes?: number;
+  baselineCommit?: string;
 }
 
 export class ClaudeRunner {
@@ -114,16 +115,30 @@ export class ClaudeRunner {
       throw new Error('Claude Code completed but did not create a commit');
     }
 
-    const commitCount = execSync(`git rev-list ${headBefore}..${headAfter} --count`, {
+    const compareBase = options.baselineCommit || headBefore;
+    const commitCount = execSync(`git rev-list ${compareBase}..${headAfter} --count`, {
       cwd: options.workDir,
       encoding: 'utf-8'
     }).trim();
 
-    if (commitCount !== '1') {
-      console.warn('─'.repeat(80));
-      console.warn(`⚠ Warning: Expected 1 commit but found ${commitCount} commits`);
-      console.warn('Consider squashing multiple commits into one for cleaner history');
-      console.warn('─'.repeat(80));
+    if (options.baselineCommit) {
+      if (commitCount !== '1') {
+        console.error('─'.repeat(80));
+        console.error(`✗ Expected exactly 1 commit from baseline but found ${commitCount} commits`);
+        console.error(`Baseline: ${options.baselineCommit}`);
+        console.error(`Current:  ${headAfter}`);
+        console.error('All fixes must amend the original step commit, not create new commits');
+        console.error('─'.repeat(80));
+        throw new Error(`Commit policy violation: found ${commitCount} commits instead of 1 (agent should have amended)`);
+      }
+      console.log(`✓ Verified: Still exactly 1 commit from baseline ${compareBase.substring(0, 8)}`);
+    } else {
+      if (commitCount !== '1') {
+        console.warn('─'.repeat(80));
+        console.warn(`⚠ Warning: Expected 1 commit but found ${commitCount} commits`);
+        console.warn('Consider squashing multiple commits into one for cleaner history');
+        console.warn('─'.repeat(80));
+      }
     }
 
     console.log('✓ Claude Code completed successfully and created a commit');

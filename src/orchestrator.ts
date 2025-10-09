@@ -154,7 +154,11 @@ export class Orchestrator {
   }
 
   private async executeStep(step: Step): Promise<void> {
+    let stepBaselineCommit: string | undefined;
+
     if (step.phase === 'pending') {
+      stepBaselineCommit = this.githubChecker.getLatestCommitSha();
+
       this.eventEmitter.emit('event', {
         type: 'phase_start',
         timestamp: Date.now(),
@@ -165,6 +169,7 @@ export class Orchestrator {
 
       this.log('\n[1/3] Implementation Phase');
       this.log('─'.repeat(80));
+      this.log(`Step baseline: ${stepBaselineCommit}`);
 
       const prompt = this.claudeRunner.buildImplementationPrompt(step.number, this.parser.getContent());
       await this.claudeRunner.run({
@@ -187,6 +192,15 @@ export class Orchestrator {
       this.log('\n[1/3] Implementation Phase (skipped - already completed)');
     }
 
+    if (!stepBaselineCommit) {
+      const parentCommit = execSync('git rev-parse HEAD~1', {
+        cwd: this.workDir,
+        encoding: 'utf-8'
+      }).trim();
+      stepBaselineCommit = parentCommit;
+      this.log(`Resuming step - baseline commit: ${stepBaselineCommit}`);
+    }
+
     if (step.phase === 'implementation') {
       this.eventEmitter.emit('event', {
         type: 'phase_start',
@@ -199,7 +213,7 @@ export class Orchestrator {
       this.log('\n[2/3] Build Verification Phase');
       this.log('─'.repeat(80));
 
-      await this.ensureBuildPasses();
+      await this.ensureBuildPasses(stepBaselineCommit);
 
       this.parser.updateStepPhase(step.number, 'review');
       this.amendPlanFileAndPush();
@@ -227,7 +241,7 @@ export class Orchestrator {
       this.log('\n[3/3] Code Review Phase');
       this.log('─'.repeat(80));
 
-      await this.performCodeReview();
+      await this.performCodeReview(step.number, stepBaselineCommit);
 
       this.parser.updateStepPhase(step.number, 'done');
       this.amendPlanFileAndPush();
@@ -244,7 +258,7 @@ export class Orchestrator {
     }
   }
 
-  private async ensureBuildPasses(): Promise<void> {
+  private async ensureBuildPasses(stepBaselineCommit: string): Promise<void> {
     let attempt = 0;
 
     while (attempt < this.maxBuildAttempts) {
@@ -271,7 +285,12 @@ export class Orchestrator {
         maxAttempts: this.maxBuildAttempts
       });
 
-      const buildPassed = await this.githubChecker.waitForChecksToPass(sha, this.buildTimeoutMinutes);
+      const buildPassed = await this.githubChecker.waitForChecksToPass(
+        sha,
+        this.buildTimeoutMinutes,
+        attempt,
+        this.maxBuildAttempts
+      );
 
       if (buildPassed) {
         this.eventEmitter.emit('event', {
@@ -313,8 +332,22 @@ export class Orchestrator {
       await this.claudeRunner.run({
         workDir: this.workDir,
         prompt: fixPrompt,
-        timeoutMinutes: this.agentTimeoutMinutes
+        timeoutMinutes: this.agentTimeoutMinutes,
+        baselineCommit: stepBaselineCommit
       });
+
+      const currentHead = this.githubChecker.getLatestCommitSha();
+      const commitCount = execSync(`git rev-list ${stepBaselineCommit}..${currentHead} --count`, {
+        cwd: this.workDir,
+        encoding: 'utf-8'
+      }).trim();
+
+      if (commitCount !== '1') {
+        throw new Error(
+          `Pre-push validation failed: Expected exactly 1 commit from baseline but found ${commitCount}. ` +
+          'Cannot push - commit history is polluted with multiple commits per step.'
+        );
+      }
 
       try {
         execSync('git push --force-with-lease', { cwd: this.workDir, stdio: 'inherit' });
@@ -358,11 +391,11 @@ export class Orchestrator {
     return !hasNoIssues;
   }
 
-  private async performCodeReview(): Promise<void> {
+  private async performCodeReview(stepNumber: number, stepBaselineCommit: string): Promise<void> {
     this.eventEmitter.emit('event', {
       type: 'review_start',
       timestamp: Date.now(),
-      stepNumber: 0
+      stepNumber
     });
 
     this.log('\nRunning Codex code review...');
@@ -384,7 +417,7 @@ export class Orchestrator {
     this.eventEmitter.emit('event', {
       type: 'review_complete',
       timestamp: Date.now(),
-      stepNumber: 0,
+      stepNumber,
       hasIssues
     });
 
@@ -399,13 +432,14 @@ export class Orchestrator {
     await this.claudeRunner.run({
       workDir: this.workDir,
       prompt: fixPrompt,
-      timeoutMinutes: this.agentTimeoutMinutes
+      timeoutMinutes: this.agentTimeoutMinutes,
+      baselineCommit: stepBaselineCommit
     });
 
     this.log('✓ Review feedback addressed', 'success');
     this.log('\nVerifying build after review fixes...');
 
-    await this.ensureBuildPasses();
+    await this.ensureBuildPasses(stepBaselineCommit);
 
     this.log('✓ Build passed after review fixes', 'success');
   }

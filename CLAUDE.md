@@ -68,9 +68,12 @@ stepcat --file plan.md --dir /path/to/project --ui --port 8080 --no-auto-open
 
 **ClaudeRunner** (`src/claude-runner.ts`): Executes Claude Code
 - Locates binary at `../node_modules/.bin/claude`
-- Runs with `--print` flag and stdin for prompt
-- Uses `spawnSync` with configurable timeout
+- Runs with `--print`, `--verbose`, `--add-dir`, `--permission-mode acceptEdits` flags
+- Uses async `spawn` with stdin for prompt and configurable timeout
+- Inherits stdout/stderr for real-time streaming output
+- Validates commit count from baseline to enforce "one commit per step" policy
 - Three prompt types: implementation, buildFix, reviewFix (see `src/prompts.ts`)
+- Accepts optional `baselineCommit` parameter for fix operations to enforce amend behavior
 
 **CodexRunner** (`src/codex-runner.ts`): Executes Codex for code review
 - Locates binary at `../node_modules/.bin/codex`

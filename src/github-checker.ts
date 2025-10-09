@@ -27,7 +27,12 @@ export class GitHubChecker {
     this.eventEmitter = config.eventEmitter;
   }
 
-  async waitForChecksToPass(sha: string, maxWaitMinutes: number = 30): Promise<boolean> {
+  async waitForChecksToPass(
+    sha: string,
+    maxWaitMinutes: number = 30,
+    attempt: number = 1,
+    maxAttempts: number = 1
+  ): Promise<boolean> {
     const startTime = Date.now();
     const maxWaitMs = maxWaitMinutes * 60 * 1000;
 
@@ -63,8 +68,8 @@ export class GitHubChecker {
               timestamp: Date.now(),
               status: 'running',
               sha,
-              attempt: 1,
-              maxAttempts: 1,
+              attempt,
+              maxAttempts,
               checkName: `${completed}/${total} checks completed`
             });
           }
