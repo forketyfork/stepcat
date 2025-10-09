@@ -35,7 +35,7 @@ export class CodexRunner {
     console.log(`Timeout: ${options.timeoutMinutes || 30} minutes`);
     console.log('─'.repeat(80));
 
-    const timeout = (options.timeoutMinutes || 30) * 60 * 1000;
+    const timeout = (options.timeoutMinutes ?? 30) * 60 * 1000;
 
     const result = await new Promise<{ exitCode: number | null; output: string; error?: Error }>((resolve) => {
       const child = spawn(

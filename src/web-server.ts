@@ -759,6 +759,12 @@ export class WebServer {
         case 'build_attempt':
           handleBuildAttempt(event);
           break;
+      case 'error':
+          handleError(event);
+          break;
+      case 'all_complete':
+          handleAllComplete(event);
+          break;
       }
     }
 
@@ -828,9 +834,15 @@ export class WebServer {
         'failure': '✗ Checks failed'
       };
 
-      githubInfo.textContent = \`\${statusText[event.status]} (SHA: \${event.sha.substring(0, 7)})\`;
+      const statusMessage = event.checkName
+        ? \`\${statusText[event.status]} - \${event.checkName} (SHA: \${event.sha.substring(0, 7)})\`
+        : \`\${statusText[event.status]} (SHA: \${event.sha.substring(0, 7)})\`;
 
-      if (event.status === 'running') {
+      githubInfo.textContent = statusMessage;
+
+      if (event.status === 'waiting') {
+        githubProgress.style.width = '10%';
+      } else if (event.status === 'running') {
         githubProgress.style.width = '50%';
       } else if (event.status === 'success') {
         githubProgress.style.width = '100%';
@@ -849,6 +861,22 @@ export class WebServer {
       githubInfo.textContent = \`Build attempt \${event.attempt}/\${event.maxAttempts} - SHA: \${event.sha.substring(0, 7)}\`;
       githubProgress.style.width = '0%';
       githubProgress.style.background = 'linear-gradient(90deg, var(--purple-500), var(--purple-400))';
+    }
+
+    function handleError(event) {
+      addLog(\`ERROR: \${event.error}\`, 'error', event.timestamp);
+
+      const banner = document.querySelector('.status-banner');
+      if (banner) {
+        banner.style.borderColor = 'var(--red-500)';
+        banner.style.background = 'var(--red-100)';
+      }
+    }
+
+    function handleAllComplete(event) {
+      const minutes = Math.floor(event.totalTime / 60000);
+      const seconds = Math.floor((event.totalTime % 60000) / 1000);
+      addLog(\`All steps completed in \${minutes}m \${seconds}s\`, 'success', event.timestamp);
     }
 
     function updateStatusBanner() {

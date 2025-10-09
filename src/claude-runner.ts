@@ -43,7 +43,7 @@ export class ClaudeRunner {
     console.log(`HEAD before: ${headBefore}`);
     console.log('─'.repeat(80));
 
-    const timeout = (options.timeoutMinutes || 30) * 60 * 1000;
+    const timeout = (options.timeoutMinutes ?? 30) * 60 * 1000;
 
     const result = await new Promise<{ exitCode: number | null; error?: Error }>((resolve) => {
       const child = spawn(

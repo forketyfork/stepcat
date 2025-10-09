@@ -1,11 +1,13 @@
 import { Octokit } from '@octokit/rest';
 import { execSync } from 'child_process';
+import { OrchestratorEventEmitter } from './events';
 
 export interface GitHubConfig {
   owner: string;
   repo: string;
   token?: string;
   workDir: string;
+  eventEmitter?: OrchestratorEventEmitter;
 }
 
 export class GitHubChecker {
@@ -13,6 +15,7 @@ export class GitHubChecker {
   private owner: string;
   private repo: string;
   private workDir: string;
+  private eventEmitter?: OrchestratorEventEmitter;
 
   constructor(config: GitHubConfig) {
     this.octokit = new Octokit({
@@ -21,6 +24,7 @@ export class GitHubChecker {
     this.owner = config.owner;
     this.repo = config.repo;
     this.workDir = config.workDir;
+    this.eventEmitter = config.eventEmitter;
   }
 
   async waitForChecksToPass(sha: string, maxWaitMinutes: number = 30): Promise<boolean> {
@@ -52,6 +56,18 @@ export class GitHubChecker {
         if (completed < total) {
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
           console.log(`[${elapsed}s] Checks in progress: ${completed}/${total} completed`);
+
+          if (this.eventEmitter) {
+            this.eventEmitter.emit('event', {
+              type: 'github_check',
+              timestamp: Date.now(),
+              status: 'running',
+              sha,
+              attempt: 1,
+              maxAttempts: 1,
+              checkName: `${completed}/${total} checks completed`
+            });
+          }
 
           checkRuns.check_runs.forEach(run => {
             const status = run.status === 'completed'

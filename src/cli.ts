@@ -71,7 +71,16 @@ program
         silent: options.ui
       });
 
-      await orchestrator.run();
+      try {
+        await orchestrator.run();
+      } catch (error) {
+        eventEmitter.emit('event', {
+          type: 'error',
+          timestamp: Date.now(),
+          error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+      }
 
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutes = Math.floor(elapsed / 60);

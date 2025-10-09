@@ -35,11 +35,11 @@ export class Orchestrator {
     this.claudeRunner = new ClaudeRunner();
     this.codexRunner = new CodexRunner();
     this.workDir = config.workDir;
-    this.maxBuildAttempts = config.maxBuildAttempts || 3;
-    this.buildTimeoutMinutes = config.buildTimeoutMinutes || 30;
-    this.agentTimeoutMinutes = config.agentTimeoutMinutes || 30;
-    this.eventEmitter = config.eventEmitter || new OrchestratorEventEmitter();
-    this.silent = config.silent || false;
+    this.maxBuildAttempts = config.maxBuildAttempts ?? 3;
+    this.buildTimeoutMinutes = config.buildTimeoutMinutes ?? 30;
+    this.agentTimeoutMinutes = config.agentTimeoutMinutes ?? 30;
+    this.eventEmitter = config.eventEmitter ?? new OrchestratorEventEmitter();
+    this.silent = config.silent ?? false;
 
     const repoInfo = GitHubChecker.parseRepoInfo(config.workDir);
 
@@ -47,7 +47,8 @@ export class Orchestrator {
       owner: repoInfo.owner,
       repo: repoInfo.repo,
       token: config.githubToken,
-      workDir: config.workDir
+      workDir: config.workDir,
+      eventEmitter: this.eventEmitter
     });
   }
 
