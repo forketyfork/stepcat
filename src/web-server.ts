@@ -19,6 +19,7 @@ export class WebServer {
   private eventEmitter: OrchestratorEventEmitter;
   private autoOpen: boolean;
   private latestInitEvent: OrchestratorEvent | null = null;
+  private eventHistory: OrchestratorEvent[] = [];
 
   constructor(config: WebServerConfig) {
     this.port = config.port || 3742;
@@ -49,9 +50,11 @@ export class WebServer {
       console.log('New client connected');
       this.clients.add(ws);
 
-      if (this.latestInitEvent && ws.readyState === WebSocket.OPEN) {
-        console.log('Sending cached init event to new client');
-        ws.send(JSON.stringify(this.latestInitEvent));
+      if (this.eventHistory.length > 0 && ws.readyState === WebSocket.OPEN) {
+        console.log(`Replaying ${this.eventHistory.length} cached events to new client`);
+        this.eventHistory.forEach(event => {
+          ws.send(JSON.stringify(event));
+        });
       }
 
       ws.on('close', () => {
@@ -69,6 +72,7 @@ export class WebServer {
       if (event.type === 'init') {
         this.latestInitEvent = event;
       }
+      this.eventHistory.push(event);
       this.broadcast(event);
     });
   }
