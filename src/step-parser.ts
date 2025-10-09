@@ -91,7 +91,12 @@ export class StepParser {
   }
 
   getContent(): string {
+    this.content = readFileSync(this.filePath, 'utf-8');
     return this.content;
+  }
+
+  refresh(): void {
+    this.content = readFileSync(this.filePath, 'utf-8');
   }
 
   updateStepPhase(stepNumber: number, newPhase: StepPhase): void {

@@ -23,7 +23,6 @@ export class Orchestrator {
   private githubChecker: GitHubChecker;
   private workDir: string;
   private planFile: string;
-  private planContent: string;
   private maxBuildAttempts: number;
   private buildTimeoutMinutes: number;
   private agentTimeoutMinutes: number;
@@ -33,7 +32,6 @@ export class Orchestrator {
   constructor(config: OrchestratorConfig) {
     this.parser = new StepParser(config.planFile);
     this.planFile = config.planFile;
-    this.planContent = this.parser.getContent();
     this.claudeRunner = new ClaudeRunner();
     this.codexRunner = new CodexRunner();
     this.workDir = config.workDir;
@@ -71,6 +69,7 @@ export class Orchestrator {
   }
 
   async run(): Promise<void> {
+    const startTime = Date.now();
     const allSteps = this.parser.parseSteps();
     const pendingSteps = allSteps.filter(s => s.phase !== 'done');
 
@@ -140,6 +139,14 @@ export class Orchestrator {
       this.log('═'.repeat(80));
     }
 
+    const totalTime = Date.now() - startTime;
+
+    this.eventEmitter.emit('event', {
+      type: 'all_complete',
+      timestamp: Date.now(),
+      totalTime
+    });
+
     this.log('\n' + '═'.repeat(80));
     this.log('✓✓✓ ALL STEPS COMPLETED SUCCESSFULLY ✓✓✓', 'success');
     this.log('═'.repeat(80));
@@ -158,7 +165,7 @@ export class Orchestrator {
       this.log('\n[1/3] Implementation Phase');
       this.log('─'.repeat(80));
 
-      const prompt = this.claudeRunner.buildImplementationPrompt(step.number, this.planContent);
+      const prompt = this.claudeRunner.buildImplementationPrompt(step.number, this.parser.getContent());
       await this.claudeRunner.run({
         workDir: this.workDir,
         prompt,
@@ -166,7 +173,6 @@ export class Orchestrator {
       });
 
       this.parser.updateStepPhase(step.number, 'implementation');
-      await this.amendCommitWithPlanFile();
       step.phase = 'implementation';
 
       this.eventEmitter.emit('event', {
@@ -194,7 +200,6 @@ export class Orchestrator {
       await this.ensureBuildPasses();
 
       this.parser.updateStepPhase(step.number, 'review');
-      await this.amendCommitWithPlanFile();
       step.phase = 'review';
 
       this.eventEmitter.emit('event', {
@@ -222,7 +227,6 @@ export class Orchestrator {
       await this.performCodeReview();
 
       this.parser.updateStepPhase(step.number, 'done');
-      await this.amendCommitWithPlanFile();
       step.phase = 'done';
 
       this.eventEmitter.emit('event', {
@@ -307,6 +311,14 @@ export class Orchestrator {
         prompt: fixPrompt,
         timeoutMinutes: this.agentTimeoutMinutes
       });
+
+      try {
+        execSync('git push --force-with-lease', { cwd: this.workDir, stdio: 'inherit' });
+        this.log('✓ Pushed build fix to GitHub', 'success');
+      } catch (error) {
+        this.log(`⚠ Failed to push build fix: ${error instanceof Error ? error.message : String(error)}`, 'warn');
+        throw new Error('Failed to push build fix to GitHub');
+      }
     }
 
     throw new Error('Build verification exhausted all retry attempts');
@@ -364,14 +376,14 @@ export class Orchestrator {
     this.log('✓ Build passed after review fixes', 'success');
   }
 
-  private async amendCommitWithPlanFile(): Promise<void> {
+  private pushPlanFileChanges(): void {
     try {
       execSync(`git add "${this.planFile}"`, { cwd: this.workDir, stdio: 'inherit' });
-      execSync('git commit --amend --no-edit', { cwd: this.workDir, stdio: 'inherit' });
-      execSync('git push --force-with-lease', { cwd: this.workDir, stdio: 'inherit' });
-      this.log('✓ Amended commit with plan file updates and pushed to GitHub', 'success');
+      execSync('git commit -m "Update plan file phase markers"', { cwd: this.workDir, stdio: 'inherit' });
+      execSync('git push', { cwd: this.workDir, stdio: 'inherit' });
+      this.log('✓ Pushed plan file updates to GitHub', 'success');
     } catch (error) {
-      this.log(`⚠ Failed to amend commit with plan file updates: ${error instanceof Error ? error.message : String(error)}`, 'warn');
+      this.log(`⚠ Failed to push plan file updates: ${error instanceof Error ? error.message : String(error)}`, 'warn');
     }
   }
 }
