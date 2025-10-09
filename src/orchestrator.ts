@@ -437,6 +437,28 @@ export class Orchestrator {
     });
 
     this.log('✓ Review feedback addressed', 'success');
+
+    const currentHead = this.githubChecker.getLatestCommitSha();
+    const commitCount = execSync(`git rev-list ${stepBaselineCommit}..${currentHead} --count`, {
+      cwd: this.workDir,
+      encoding: 'utf-8'
+    }).trim();
+
+    if (commitCount !== '1') {
+      throw new Error(
+        `Pre-push validation failed: Expected exactly 1 commit from baseline but found ${commitCount}. ` +
+        'Cannot push - commit history is polluted with multiple commits per step.'
+      );
+    }
+
+    try {
+      execSync('git push --force-with-lease', { cwd: this.workDir, stdio: 'inherit' });
+      this.log('✓ Pushed review fix to GitHub', 'success');
+    } catch (error) {
+      this.log(`⚠ Failed to push review fix: ${error instanceof Error ? error.message : String(error)}`, 'warn');
+      throw new Error('Failed to push review fix to GitHub');
+    }
+
     this.log('\nVerifying build after review fixes...');
 
     await this.ensureBuildPasses(stepBaselineCommit);
