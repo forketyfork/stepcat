@@ -172,8 +172,8 @@ export class ClaudeRunner {
     return { success: true, output: "" };
   }
 
-  buildImplementationPrompt(stepNumber: number, planContent: string): string {
-    return PROMPTS.implementation(stepNumber, planContent);
+  buildImplementationPrompt(stepNumber: number, planFilePath: string): string {
+    return PROMPTS.implementation(stepNumber, planFilePath);
   }
 
   buildFixPrompt(buildErrors: string): string {

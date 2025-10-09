@@ -104,7 +104,7 @@ export class CodexRunner {
     return { success: true, output: result.output };
   }
 
-  buildReviewPrompt(planFilePath: string): string {
-    return PROMPTS.codexReview(planFilePath);
+  buildReviewPrompt(stepNumber: number, planFilePath: string): string {
+    return PROMPTS.codexReview(stepNumber, planFilePath);
   }
 }
