@@ -216,7 +216,8 @@ export class Orchestrator {
     try {
       execSync(`git add "${this.planFile}"`, { cwd: this.workDir, stdio: 'inherit' });
       execSync('git commit --amend --no-edit', { cwd: this.workDir, stdio: 'inherit' });
-      console.log('✓ Amended commit with plan file updates');
+      execSync('git push --force-with-lease', { cwd: this.workDir, stdio: 'inherit' });
+      console.log('✓ Amended commit with plan file updates and pushed to GitHub');
     } catch (error) {
       console.warn('⚠ Failed to amend commit with plan file updates:', error instanceof Error ? error.message : String(error));
     }
