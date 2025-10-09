@@ -173,6 +173,7 @@ export class Orchestrator {
       });
 
       this.parser.updateStepPhase(step.number, 'implementation');
+      this.pushPlanFileChanges();
       step.phase = 'implementation';
 
       this.eventEmitter.emit('event', {
@@ -200,6 +201,7 @@ export class Orchestrator {
       await this.ensureBuildPasses();
 
       this.parser.updateStepPhase(step.number, 'review');
+      this.pushPlanFileChanges();
       step.phase = 'review';
 
       this.eventEmitter.emit('event', {
@@ -227,6 +229,7 @@ export class Orchestrator {
       await this.performCodeReview();
 
       this.parser.updateStepPhase(step.number, 'done');
+      this.pushPlanFileChanges();
       step.phase = 'done';
 
       this.eventEmitter.emit('event', {
