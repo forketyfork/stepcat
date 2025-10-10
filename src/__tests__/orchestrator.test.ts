@@ -191,7 +191,7 @@ Implement the feature
       expect(iterations[1].type).toBe('build_fix');
       expect(iterations[1].commitSha).toBe('def456');
 
-      const issues = db.getIssues(iterations[1].id);
+      const issues = db.getIssues(iterations[0].id);
       expect(issues.length).toBeGreaterThan(0);
       expect(issues[0].type).toBe('ci_failure');
 
@@ -248,7 +248,7 @@ Implement the feature
       expect(iterations[0].type).toBe('implementation');
       expect(iterations[1].type).toBe('review_fix');
 
-      const issues = db.getIssues(iterations[1].id);
+      const issues = db.getIssues(iterations[0].id);
       expect(issues.length).toBeGreaterThan(0);
       expect(issues[0].type).toBe('codex_review');
       expect(issues[0].description).toBe('Missing error handling');

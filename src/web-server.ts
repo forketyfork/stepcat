@@ -1158,12 +1158,10 @@ export class WebServer {
       if (step) {
         if (step.status !== 'completed') {
           step.status = 'completed';
-          state.completedSteps++;
-          state.remainingSteps--;
-        } else {
-          step.status = 'completed';
         }
       }
+      state.completedSteps = Array.from(state.steps.values()).filter(s => s.status === 'completed').length;
+      state.remainingSteps = state.totalSteps - state.completedSteps;
       updateStatusBanner();
       renderSteps();
     }

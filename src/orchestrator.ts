@@ -340,13 +340,13 @@ export class Orchestrator {
           const buildErrors = await this.extractBuildErrors(sha);
           const iteration = this.database.createIteration(step.id, iterationNumber, 'build_fix');
 
-          const issue = this.database.createIssue(iteration.id, 'ci_failure', buildErrors);
+          const issue = this.database.createIssue(previousIterationId!, 'ci_failure', buildErrors);
 
           this.eventEmitter.emit("event", {
             type: "issue_found",
             timestamp: Date.now(),
             issueId: issue.id,
-            iterationId: iteration.id,
+            iterationId: previousIterationId!,
             issueType: 'ci_failure',
             description: buildErrors,
           });
@@ -478,7 +478,7 @@ export class Orchestrator {
 
           for (const issue of reviewResult.issues) {
             const dbIssue = this.database.createIssue(
-              iteration.id,
+              previousIteration.id,
               'codex_review',
               issue.description,
               issue.file,
@@ -491,7 +491,7 @@ export class Orchestrator {
               type: "issue_found",
               timestamp: Date.now(),
               issueId: dbIssue.id,
-              iterationId: iteration.id,
+              iterationId: previousIteration.id,
               issueType: 'codex_review',
               description: issue.description,
               filePath: issue.file,
