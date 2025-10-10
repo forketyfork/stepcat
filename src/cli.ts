@@ -177,12 +177,14 @@ program
       }
 
       const eventEmitter = new OrchestratorEventEmitter();
+      const database = new Database(workDir);
 
       if (options.ui) {
         webServer = new WebServer({
           port: options.port,
           eventEmitter,
-          autoOpen: options.autoOpen
+          autoOpen: options.autoOpen,
+          database
         });
 
         await webServer.start();

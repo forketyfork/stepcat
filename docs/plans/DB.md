@@ -473,7 +473,7 @@ Add `--execution-id` flag to support resuming executions and make `--file` and `
 - TypeScript compilation succeeds
 - Manual test: Start execution, stop it, resume with execution ID
 
-## Step 9: Update WebServer with Hierarchical UI
+## Step 9: Update WebServer with Hierarchical UI [done]
 
 ### Status Quo
 

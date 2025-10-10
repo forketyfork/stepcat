@@ -2,12 +2,15 @@ import express, { Express } from 'express';
 import { createServer, Server as HTTPServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { OrchestratorEventEmitter, OrchestratorEvent } from './events';
+import { Database } from './database';
+import { Iteration, Issue } from './models';
 import open from 'open';
 
 export interface WebServerConfig {
   port?: number;
   eventEmitter: OrchestratorEventEmitter;
   autoOpen?: boolean;
+  database?: Database;
 }
 
 export class WebServer {
@@ -18,13 +21,16 @@ export class WebServer {
   private clients: Set<WebSocket>;
   private eventEmitter: OrchestratorEventEmitter;
   private autoOpen: boolean;
-  private latestInitEvent: OrchestratorEvent | null = null;
+  private database?: Database;
+  private latestStateSyncEvent: OrchestratorEvent | null = null;
   private eventHistory: OrchestratorEvent[] = [];
+  private readonly MAX_EVENT_HISTORY = 1000;
 
   constructor(config: WebServerConfig) {
     this.port = config.port || 3742;
     this.eventEmitter = config.eventEmitter;
     this.autoOpen = config.autoOpen ?? true;
+    this.database = config.database;
     this.clients = new Set();
 
     this.app = express();
@@ -50,11 +56,45 @@ export class WebServer {
       console.log('New client connected');
       this.clients.add(ws);
 
+      if (this.database && this.latestStateSyncEvent) {
+        const syncEvent = this.latestStateSyncEvent as { plan?: { id: number } };
+        if (syncEvent.plan && syncEvent.plan.id) {
+          const steps = this.database.getSteps(syncEvent.plan.id);
+          const allIterations: Iteration[] = [];
+          const allIssues: Issue[] = [];
+
+          steps.forEach(step => {
+            const iterations = this.database!.getIterations(step.id);
+            allIterations.push(...iterations);
+            iterations.forEach(iteration => {
+              const issues = this.database!.getIssues(iteration.id);
+              allIssues.push(...issues);
+            });
+          });
+
+          const freshStateSyncEvent = {
+            type: 'state_sync',
+            timestamp: Date.now(),
+            plan: syncEvent.plan,
+            steps,
+            iterations: allIterations,
+            issues: allIssues
+          };
+
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(freshStateSyncEvent));
+          }
+        }
+      }
+
       if (this.eventHistory.length > 0 && ws.readyState === WebSocket.OPEN) {
-        console.log(`Replaying ${this.eventHistory.length} cached events to new client`);
-        this.eventHistory.forEach(event => {
-          ws.send(JSON.stringify(event));
-        });
+        const nonStateSyncEvents = this.eventHistory.filter(event => event.type !== 'state_sync');
+        if (nonStateSyncEvents.length > 0) {
+          console.log(`Replaying ${nonStateSyncEvents.length} cached events to new client`);
+          nonStateSyncEvents.forEach(event => {
+            ws.send(JSON.stringify(event));
+          });
+        }
       }
 
       ws.on('close', () => {
@@ -69,10 +109,21 @@ export class WebServer {
     });
 
     this.eventEmitter.on('event', (event: OrchestratorEvent) => {
-      if (event.type === 'init') {
-        this.latestInitEvent = event;
+      if (event.type === 'state_sync') {
+        this.latestStateSyncEvent = event;
       }
-      this.eventHistory.push(event);
+
+      const shouldStoreInHistory = event.type !== 'state_sync' &&
+                                   event.type !== 'log' &&
+                                   event.type !== 'github_check';
+
+      if (shouldStoreInHistory) {
+        this.eventHistory.push(event);
+        if (this.eventHistory.length > this.MAX_EVENT_HISTORY) {
+          this.eventHistory.shift();
+        }
+      }
+
       this.broadcast(event);
     });
   }
@@ -422,6 +473,219 @@ export class WebServer {
       color: white;
     }
 
+    .step-header-clickable {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .step-header-clickable:hover {
+      opacity: 0.8;
+    }
+
+    .step-meta {
+      font-size: 0.875rem;
+      color: var(--gray-600);
+      font-weight: 500;
+    }
+
+    .iterations-container {
+      margin-top: 1.5rem;
+      padding-left: 2rem;
+      border-left: 3px solid var(--purple-200);
+      display: none;
+    }
+
+    .iterations-container.expanded {
+      display: block;
+    }
+
+    .iteration {
+      background: var(--gray-50);
+      border-radius: 0.75rem;
+      padding: 1rem 1.5rem;
+      margin-bottom: 1rem;
+      border: 2px solid var(--gray-200);
+      transition: all 0.3s ease;
+    }
+
+    .iteration.in_progress {
+      background: var(--blue-100);
+      border-color: var(--purple-300);
+    }
+
+    .iteration.completed {
+      background: var(--green-100);
+      border-color: var(--green-500);
+      opacity: 0.8;
+    }
+
+    .iteration.failed {
+      background: var(--red-100);
+      border-color: var(--red-500);
+    }
+
+    .iteration-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      font-weight: 600;
+      color: var(--gray-700);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .iteration-header:hover {
+      opacity: 0.8;
+    }
+
+    .iteration-title {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .iteration-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--gray-300);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      color: white;
+    }
+
+    .iteration.in_progress .iteration-icon {
+      background: var(--purple-500);
+      animation: spin 2s linear infinite;
+    }
+
+    .iteration.completed .iteration-icon {
+      background: var(--green-500);
+    }
+
+    .iteration.failed .iteration-icon {
+      background: var(--red-500);
+    }
+
+    .iteration-type {
+      padding: 0.25rem 0.75rem;
+      background: var(--purple-100);
+      color: var(--purple-700);
+      border-radius: 1rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .commit-sha {
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      font-size: 0.75rem;
+      background: var(--gray-200);
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      color: var(--gray-700);
+    }
+
+    .issues-container {
+      margin-top: 1rem;
+      padding-left: 1.5rem;
+      border-left: 2px solid var(--gray-300);
+      display: none;
+    }
+
+    .issues-container.expanded {
+      display: block;
+    }
+
+    .issue {
+      background: white;
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
+      border: 2px solid var(--gray-200);
+      transition: all 0.2s ease;
+      animation: slideInRight 0.3s ease-out;
+    }
+
+    .issue.open {
+      border-color: var(--red-300);
+      background: var(--red-50);
+    }
+
+    .issue.fixed {
+      border-color: var(--green-300);
+      background: var(--green-50);
+      opacity: 0.7;
+    }
+
+    .issue:hover {
+      transform: translateX(4px);
+    }
+
+    .issue-header {
+      display: flex;
+      align-items: start;
+      gap: 0.75rem;
+    }
+
+    .issue-severity {
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+
+    .issue-content {
+      flex: 1;
+    }
+
+    .issue-description {
+      font-size: 0.875rem;
+      color: var(--gray-700);
+      margin-bottom: 0.5rem;
+      line-height: 1.5;
+    }
+
+    .issue-location {
+      font-size: 0.75rem;
+      color: var(--gray-600);
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      background: var(--gray-100);
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      display: inline-block;
+    }
+
+    .issue-status {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      margin-left: 0.5rem;
+    }
+
+    .issue-status.open {
+      background: var(--red-100);
+      color: var(--red-700);
+    }
+
+    .issue-status.fixed {
+      background: var(--green-100);
+      color: var(--green-700);
+    }
+
+    .expand-icon {
+      transition: transform 0.3s ease;
+      font-size: 1rem;
+      color: var(--gray-600);
+    }
+
+    .expand-icon.expanded {
+      transform: rotate(90deg);
+    }
+
     .github-status {
       background: white;
       border-radius: 1rem;
@@ -706,12 +970,42 @@ export class WebServer {
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 10;
     const state = {
-      steps: [],
-      currentStep: null,
+      plan: null,
+      steps: new Map(),
+      iterations: new Map(),
+      issues: new Map(),
       totalSteps: 0,
       completedSteps: 0,
-      remainingSteps: 0
+      remainingSteps: 0,
+      expandedSteps: new Set(),
+      expandedIterations: new Set()
     };
+
+    function loadExpansionState() {
+      try {
+        const saved = localStorage.getItem('stepcat_expanded_state');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          state.expandedSteps = new Set(parsed.steps || []);
+          state.expandedIterations = new Set(parsed.iterations || []);
+        }
+      } catch (e) {
+        console.error('Failed to load expansion state:', e);
+      }
+    }
+
+    function saveExpansionState() {
+      try {
+        localStorage.setItem('stepcat_expanded_state', JSON.stringify({
+          steps: Array.from(state.expandedSteps),
+          iterations: Array.from(state.expandedIterations)
+        }));
+      } catch (e) {
+        console.error('Failed to save expansion state:', e);
+      }
+    }
+
+    loadExpansionState();
 
     function connect() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -762,6 +1056,9 @@ export class WebServer {
       console.log('Event:', event);
 
       switch (event.type) {
+        case 'state_sync':
+          handleStateSync(event);
+          break;
         case 'init':
           handleInit(event);
           break;
@@ -771,26 +1068,29 @@ export class WebServer {
         case 'step_complete':
           handleStepComplete(event);
           break;
-        case 'phase_start':
-          handlePhaseStart(event);
+        case 'iteration_start':
+          handleIterationStart(event);
           break;
-        case 'phase_complete':
-          handlePhaseComplete(event);
+        case 'iteration_complete':
+          handleIterationComplete(event);
+          break;
+        case 'issue_found':
+          handleIssueFound(event);
+          break;
+        case 'issue_resolved':
+          handleIssueResolved(event);
+          break;
+        case 'codex_review_start':
+          handleCodexReviewStart(event);
+          break;
+        case 'codex_review_complete':
+          handleCodexReviewComplete(event);
           break;
         case 'log':
           handleLog(event);
           break;
         case 'github_check':
           handleGitHubCheck(event);
-          break;
-        case 'build_attempt':
-          handleBuildAttempt(event);
-          break;
-        case 'review_start':
-          handleReviewStart(event);
-          break;
-        case 'review_complete':
-          handleReviewComplete(event);
           break;
         case 'error':
           handleError(event);
@@ -801,39 +1101,62 @@ export class WebServer {
       }
     }
 
-    function handleInit(event) {
-      state.totalSteps = event.totalSteps;
-      state.completedSteps = event.doneSteps;
-      state.remainingSteps = event.pendingSteps;
-      state.steps = event.steps.map(s => ({
-        ...s,
-        status: s.phase === 'done' ? 'completed' : 'pending',
-        completedPhases: s.phase === 'done' ? ['implementation', 'build', 'review'] :
-                        s.phase === 'review' ? ['implementation', 'build'] :
-                        s.phase === 'implementation' ? ['implementation'] : [],
-        currentPhase: s.phase === 'implementation' ? 'implementation' :
-                     s.phase === 'review' ? 'review' :
-                     s.phase === 'done' ? null : null
-      }));
+    function handleStateSync(event) {
+      state.plan = event.plan;
+      state.steps.clear();
+      state.iterations.clear();
+      state.issues.clear();
+
+      event.steps.forEach(step => {
+        state.steps.set(step.id, { ...step, iterations: [] });
+      });
+
+      event.iterations.forEach(iteration => {
+        state.iterations.set(iteration.id, { ...iteration, issues: [] });
+        const step = state.steps.get(iteration.stepId);
+        if (step) {
+          step.iterations.push(iteration.id);
+        }
+      });
+
+      event.issues.forEach(issue => {
+        state.issues.set(issue.id, issue);
+        const iteration = state.iterations.get(issue.iterationId);
+        if (iteration) {
+          iteration.issues.push(issue.id);
+        }
+      });
+
+      state.totalSteps = state.steps.size;
+      state.completedSteps = Array.from(state.steps.values()).filter(s => s.status === 'completed').length;
+      state.remainingSteps = state.totalSteps - state.completedSteps;
 
       updateStatusBanner();
       renderSteps();
     }
 
+    function handleInit(event) {
+      state.totalSteps = event.totalSteps;
+      state.completedSteps = event.doneSteps;
+      state.remainingSteps = event.pendingSteps;
+
+      updateStatusBanner();
+    }
+
     function handleStepStart(event) {
-      state.currentStep = event.stepNumber;
-      const step = state.steps.find(s => s.number === event.stepNumber);
+      const step = Array.from(state.steps.values()).find(s => s.stepNumber === event.stepNumber);
       if (step) {
-        step.status = 'active';
+        step.status = 'in_progress';
+        state.expandedSteps.add(step.id);
+        saveExpansionState();
       }
       renderSteps();
     }
 
     function handleStepComplete(event) {
-      const step = state.steps.find(s => s.number === event.stepNumber);
+      const step = Array.from(state.steps.values()).find(s => s.stepNumber === event.stepNumber);
       if (step) {
         step.status = 'completed';
-        step.phase = 'done';
       }
       state.completedSteps++;
       state.remainingSteps--;
@@ -841,21 +1164,89 @@ export class WebServer {
       renderSteps();
     }
 
-    function handlePhaseStart(event) {
-      const step = state.steps.find(s => s.number === event.stepNumber);
+    function handleIterationStart(event) {
+      const newIteration = {
+        id: Date.now(),
+        stepId: event.stepId,
+        iterationNumber: event.iterationNumber,
+        type: event.iterationType,
+        commitSha: null,
+        claudeLog: null,
+        codexLog: null,
+        status: 'in_progress',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        issues: []
+      };
+
+      state.iterations.set(newIteration.id, newIteration);
+      const step = state.steps.get(event.stepId);
       if (step) {
-        step.currentPhase = event.phase;
+        step.iterations.push(newIteration.id);
+        state.expandedSteps.add(event.stepId);
+        state.expandedIterations.add(newIteration.id);
+        saveExpansionState();
+      }
+      renderSteps();
+      addLog(\`Iteration \${event.iterationNumber}: \${event.iterationType}\`, 'info', event.timestamp);
+    }
+
+    function handleIterationComplete(event) {
+      const iteration = Array.from(state.iterations.values()).find(
+        i => i.stepId === event.stepId && i.iterationNumber === event.iterationNumber
+      );
+      if (iteration) {
+        iteration.status = event.status;
+        iteration.commitSha = event.commitSha;
+        iteration.updatedAt = new Date().toISOString();
       }
       renderSteps();
     }
 
-    function handlePhaseComplete(event) {
-      const step = state.steps.find(s => s.number === event.stepNumber);
-      if (step) {
-        if (!step.completedPhases) step.completedPhases = [];
-        step.completedPhases.push(event.phase);
+    function handleIssueFound(event) {
+      const newIssue = {
+        id: Date.now() + Math.random(),
+        iterationId: event.iterationId,
+        type: event.issueType,
+        description: event.description,
+        filePath: event.filePath || null,
+        lineNumber: event.lineNumber || null,
+        severity: event.severity || null,
+        status: 'open',
+        createdAt: new Date().toISOString(),
+        resolvedAt: null
+      };
+
+      state.issues.set(newIssue.id, newIssue);
+      const iteration = state.iterations.get(event.iterationId);
+      if (iteration) {
+        iteration.issues.push(newIssue.id);
+        state.expandedIterations.add(event.iterationId);
+        saveExpansionState();
       }
       renderSteps();
+      addLog(\`Issue found: \${event.description}\`, 'warn', event.timestamp);
+    }
+
+    function handleIssueResolved(event) {
+      const issue = state.issues.get(event.issueId);
+      if (issue) {
+        issue.status = 'fixed';
+        issue.resolvedAt = new Date().toISOString();
+      }
+      renderSteps();
+      addLog(\`Issue resolved\`, 'success', event.timestamp);
+    }
+
+    function handleCodexReviewStart(event) {
+      addLog(\`Codex review starting (\${event.promptType})...\`, 'info', event.timestamp);
+    }
+
+    function handleCodexReviewComplete(event) {
+      const statusMsg = event.result === 'PASS'
+        ? \`Codex review passed (\${event.issueCount} issues)\`
+        : \`Codex review failed (\${event.issueCount} issues)\`;
+      addLog(statusMsg, event.result === 'PASS' ? 'success' : 'warn', event.timestamp);
     }
 
     function handleLog(event) {
@@ -894,41 +1285,6 @@ export class WebServer {
       }
     }
 
-    function handleBuildAttempt(event) {
-      const githubStatus = document.getElementById('githubStatus');
-      const githubInfo = document.getElementById('githubInfo');
-      const githubProgress = document.getElementById('githubProgress');
-
-      githubStatus.classList.add('visible');
-      githubInfo.textContent = \`Build attempt \${event.attempt}/\${event.maxAttempts} - SHA: \${event.sha.substring(0, 7)}\`;
-      githubProgress.style.width = '0%';
-      githubProgress.style.background = 'linear-gradient(90deg, var(--purple-500), var(--purple-400))';
-    }
-
-    function handleReviewStart(event) {
-      const step = state.steps.find(s => s.number === event.stepNumber);
-      if (step) {
-        step.reviewInProgress = true;
-      }
-      renderSteps();
-      addLog('🔍 Starting Codex code review...', 'info', event.timestamp);
-    }
-
-    function handleReviewComplete(event) {
-      const step = state.steps.find(s => s.number === event.stepNumber);
-      if (step) {
-        step.reviewInProgress = false;
-        step.reviewHasIssues = event.hasIssues;
-      }
-      renderSteps();
-
-      if (event.hasIssues) {
-        addLog('⚠️  Code review identified issues - addressing feedback...', 'warn', event.timestamp);
-      } else {
-        addLog('✓ Code review passed with no issues', 'success', event.timestamp);
-      }
-    }
-
     function handleError(event) {
       addLog(\`ERROR: \${event.error}\`, 'error', event.timestamp);
 
@@ -951,66 +1307,127 @@ export class WebServer {
       document.getElementById('remainingSteps').textContent = state.remainingSteps;
     }
 
+    function toggleStep(stepId) {
+      if (state.expandedSteps.has(stepId)) {
+        state.expandedSteps.delete(stepId);
+      } else {
+        state.expandedSteps.add(stepId);
+      }
+      saveExpansionState();
+      renderSteps();
+    }
+
+    function toggleIteration(iterationId) {
+      if (state.expandedIterations.has(iterationId)) {
+        state.expandedIterations.delete(iterationId);
+      } else {
+        state.expandedIterations.add(iterationId);
+      }
+      saveExpansionState();
+      renderSteps();
+    }
+
     function renderSteps() {
       const container = document.getElementById('stepsContainer');
-      if (state.steps.length === 0) return;
+      if (state.steps.size === 0) {
+        return;
+      }
 
-      container.innerHTML = state.steps.map(step => {
-        const isActive = step.status === 'active' || step.number === state.currentStep;
-        const isCompleted = step.phase === 'done';
-        const completedPhases = step.completedPhases || [];
-        const currentPhase = step.currentPhase || '';
+      const stepsArray = Array.from(state.steps.values()).sort((a, b) => a.stepNumber - b.stepNumber);
 
-        const phases = [
-          { id: 'implementation', label: '1. Implementation', icon: '⚡' },
-          { id: 'build', label: '2. Build Verification', icon: '🔨' },
-          { id: 'review', label: '3. Code Review', icon: '🔍' }
-        ];
+      container.innerHTML = stepsArray.map(step => {
+        const isExpanded = state.expandedSteps.has(step.id);
+        const isActive = step.status === 'in_progress';
+        const isCompleted = step.status === 'completed';
+        const isFailed = step.status === 'failed';
 
-        const phasesHTML = phases.map(phase => {
-          const phaseCompleted = completedPhases.includes(phase.id);
-          const phaseActive = currentPhase === phase.id;
-          let phaseClass = phaseCompleted ? 'completed' : phaseActive ? 'active' : '';
-          let phaseLabel = phase.label;
-          let phaseIconContent = phaseCompleted ? '✓' : phaseActive ? '⟳' : phase.icon;
+        const iterationIds = step.iterations || [];
+        const iterationsHTML = renderIterations(iterationIds);
 
-          if (phase.id === 'review') {
-            if (step.reviewInProgress) {
-              phaseClass = 'active';
-              phaseIconContent = '🔄';
-              phaseLabel = '3. Code Review (Running...)';
-            } else if (step.reviewHasIssues !== undefined) {
-              if (step.reviewHasIssues) {
-                phaseClass = phaseCompleted ? 'completed' : 'warning';
-                phaseIconContent = '⚠️';
-                phaseLabel = '3. Code Review (Issues Found)';
-              } else if (phaseCompleted || currentPhase === 'review') {
-                phaseLabel = '3. Code Review (No Issues)';
-              }
-            }
-          }
-
-          return \`
-            <div class="phase \${phaseClass}">
-              <div class="phase-header">
-                <div class="phase-icon">\${phaseIconContent}</div>
-                <span>\${phaseLabel}</span>
-              </div>
-            </div>
-          \`;
-        }).join('');
+        const statusIcon = isCompleted ? '✓' : isActive ? '⟳' : isFailed ? '✗' : '◯';
+        const statusText = isCompleted ? 'Complete' : isActive ? 'In Progress' : isFailed ? 'Failed' : 'Pending';
 
         return \`
-          <div class="step-card \${isActive ? 'active' : ''} \${isCompleted ? 'completed' : ''}" style="animation-delay: \${step.number * 0.1}s">
-            <div class="step-header">
-              <div class="step-number">\${step.number}</div>
+          <div class="step-card \${isActive ? 'active' : ''} \${isCompleted ? 'completed' : ''}" style="animation-delay: \${step.stepNumber * 0.1}s" data-step-id="\${step.id}">
+            <div class="step-header step-header-clickable" onclick="toggleStep(\${step.id})">
+              <div class="step-number">\${step.stepNumber}</div>
               <div class="step-title">\${escapeHtml(step.title)}</div>
+              <div class="step-meta">\${iterationIds.length} iteration\${iterationIds.length !== 1 ? 's' : ''}</div>
               <div class="step-status">
-                \${isCompleted ? '✓ Complete' : isActive ? '⟳ In Progress' : '◯ Pending'}
+                \${statusIcon} \${statusText}
+              </div>
+              <span class="expand-icon \${isExpanded ? 'expanded' : ''}">▸</span>
+            </div>
+            <div class="iterations-container \${isExpanded ? 'expanded' : ''}">
+              \${iterationsHTML || '<div style="padding: 1rem; color: var(--gray-600); font-size: 0.875rem;">No iterations yet</div>'}
+            </div>
+          </div>
+        \`;
+      }).join('');
+    }
+
+    function renderIterations(iterationIds) {
+      if (!iterationIds || iterationIds.length === 0) return '';
+
+      return iterationIds.map(iterationId => {
+        const iteration = state.iterations.get(iterationId);
+        if (!iteration) return '';
+
+        const isExpanded = state.expandedIterations.has(iteration.id);
+        const statusClass = iteration.status;
+        const typeLabel = iteration.type.replace('_', ' ');
+
+        const iconContent = iteration.status === 'in_progress' ? '⟳' : iteration.status === 'completed' ? '✓' : '✗';
+
+        const issueIds = iteration.issues || [];
+        const issuesHTML = renderIssues(issueIds);
+
+        return \`
+          <div class="iteration \${statusClass}" data-iteration-id="\${iteration.id}">
+            <div class="iteration-header" onclick="toggleIteration(\${iteration.id})">
+              <div class="iteration-title">
+                <div class="iteration-icon">\${iconContent}</div>
+                <span>Iteration \${iteration.iterationNumber}</span>
+                <span class="iteration-type">\${typeLabel}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                \${iteration.commitSha ? \`<span class="commit-sha">\${iteration.commitSha.substring(0, 7)}</span>\` : ''}
+                <span style="font-size: 0.75rem; color: var(--gray-600);">\${issueIds.length} issue\${issueIds.length !== 1 ? 's' : ''}</span>
+                <span class="expand-icon \${isExpanded ? 'expanded' : ''}">▸</span>
               </div>
             </div>
-            <div class="phases">
-              \${phasesHTML}
+            <div class="issues-container \${isExpanded ? 'expanded' : ''}">
+              \${issuesHTML || '<div style="padding: 0.75rem; color: var(--gray-600); font-size: 0.875rem;">No issues</div>'}
+            </div>
+          </div>
+        \`;
+      }).join('');
+    }
+
+    function renderIssues(issueIds) {
+      if (!issueIds || issueIds.length === 0) return '';
+
+      return issueIds.map(issueId => {
+        const issue = state.issues.get(issueId);
+        if (!issue) return '';
+
+        const severityIcon = issue.severity === 'error' ? '🔴' : issue.severity === 'warning' ? '⚠️' : 'ℹ️';
+        const statusClass = issue.status;
+        const location = issue.filePath
+          ? \`\${issue.filePath}\${issue.lineNumber ? ':' + issue.lineNumber : ''}\`
+          : '';
+
+        return \`
+          <div class="issue \${statusClass}" data-issue-id="\${issue.id}">
+            <div class="issue-header">
+              <span class="issue-severity">\${severityIcon}</span>
+              <div class="issue-content">
+                <div class="issue-description">\${escapeHtml(issue.description)}</div>
+                <div>
+                  \${location ? \`<span class="issue-location">\${escapeHtml(location)}</span>\` : ''}
+                  <span class="issue-status \${statusClass}">\${issue.status === 'fixed' ? '✓ Fixed' : '⚠ Open'}</span>
+                </div>
+              </div>
             </div>
           </div>
         \`;
