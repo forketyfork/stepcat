@@ -6,5 +6,8 @@ module.exports = {
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts'
-  ]
+  ],
+  moduleNameMapper: {
+    '^@octokit/(.*)$': '<rootDir>/src/__mocks__/@octokit/$1.ts'
+  }
 };
