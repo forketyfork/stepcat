@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Header } from './components/Header';
 import { StatusBanner } from './components/StatusBanner';
 import { StepsContainer } from './components/StepsContainer';
@@ -346,7 +346,7 @@ function App() {
     });
   }
 
-  function handleEvent(event: OrchestratorEvent) {
+  const handleEvent = useCallback((event: OrchestratorEvent) => {
     console.log('Event:', event);
 
     switch (event.type) {
@@ -390,7 +390,8 @@ function App() {
       case 'error':
         break;
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setExpansionState]);
 
   const { isConnected } = useWebSocket(handleEvent);
 
