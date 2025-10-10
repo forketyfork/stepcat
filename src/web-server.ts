@@ -1129,10 +1129,14 @@ export class WebServer {
     function handleStepComplete(event) {
       const step = Array.from(state.steps.values()).find(s => s.stepNumber === event.stepNumber);
       if (step) {
-        step.status = 'completed';
+        if (step.status !== 'completed') {
+          step.status = 'completed';
+          state.completedSteps++;
+          state.remainingSteps--;
+        } else {
+          step.status = 'completed';
+        }
       }
-      state.completedSteps++;
-      state.remainingSteps--;
       updateStatusBanner();
       renderSteps();
     }
