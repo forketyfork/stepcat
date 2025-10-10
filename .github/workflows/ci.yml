@@ -19,8 +19,11 @@ jobs:
         node-version: 20.x
         cache: 'npm'
 
-    - name: Install dependencies
+    - name: Install root dependencies
       run: npm ci
+
+    - name: Install frontend dependencies
+      run: npm ci --prefix frontend
 
     - name: Lint
       run: npm run lint
