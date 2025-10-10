@@ -97,6 +97,7 @@ export interface ErrorEvent extends StepCatEvent {
 
 export interface IterationStartEvent extends StepCatEvent {
   type: 'iteration_start';
+  iterationId: number;
   stepId: number;
   iterationNumber: number;
   iterationType: 'implementation' | 'build_fix' | 'review_fix';
@@ -112,6 +113,7 @@ export interface IterationCompleteEvent extends StepCatEvent {
 
 export interface IssueFoundEvent extends StepCatEvent {
   type: 'issue_found';
+  issueId: number;
   iterationId: number;
   issueType: 'ci_failure' | 'codex_review';
   description: string;

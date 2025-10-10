@@ -14,7 +14,7 @@ describe('ClaudeRunner', () => {
 
       expect(prompt).toContain('Step 1');
       expect(prompt).toContain('/path/to/plan.md');
-      expect(prompt).toContain('Create a new commit');
+      expect(prompt).toContain('MUST create a git commit');
       expect(prompt).toContain('Do NOT use git commit --amend');
     });
 
@@ -23,7 +23,7 @@ describe('ClaudeRunner', () => {
       const prompt = runner.buildFixPrompt(buildErrors);
 
       expect(prompt).toContain(buildErrors);
-      expect(prompt).toContain('Create a new commit');
+      expect(prompt).toContain('MUST create a git commit');
       expect(prompt).toContain('Do NOT use git commit --amend');
     });
 
@@ -35,7 +35,7 @@ describe('ClaudeRunner', () => {
 
       expect(prompt).toContain('src/app.ts');
       expect(prompt).toContain('Missing error handling');
-      expect(prompt).toContain('Create a new commit');
+      expect(prompt).toContain('MUST create a git commit');
       expect(prompt).toContain('Do NOT use git commit --amend');
     });
 

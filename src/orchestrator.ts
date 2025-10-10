@@ -248,6 +248,7 @@ export class Orchestrator {
         this.eventEmitter.emit("event", {
           type: "iteration_start",
           timestamp: Date.now(),
+          iterationId: iteration.id,
           stepId: step.id,
           iterationNumber: 1,
           iterationType: 'implementation',
@@ -319,11 +320,12 @@ export class Orchestrator {
           const buildErrors = await this.extractBuildErrors(sha);
           const iteration = this.database.createIteration(step.id, iterationNumber, 'build_fix');
 
-          this.database.createIssue(iteration.id, 'ci_failure', buildErrors);
+          const issue = this.database.createIssue(iteration.id, 'ci_failure', buildErrors);
 
           this.eventEmitter.emit("event", {
             type: "issue_found",
             timestamp: Date.now(),
+            issueId: issue.id,
             iterationId: iteration.id,
             issueType: 'ci_failure',
             description: buildErrors,
@@ -332,6 +334,7 @@ export class Orchestrator {
           this.eventEmitter.emit("event", {
             type: "iteration_start",
             timestamp: Date.now(),
+            iterationId: iteration.id,
             stepId: step.id,
             iterationNumber,
             iterationType: 'build_fix',
@@ -444,7 +447,7 @@ export class Orchestrator {
           const iteration = this.database.createIteration(step.id, iterationNumber, 'review_fix');
 
           for (const issue of reviewResult.issues) {
-            this.database.createIssue(
+            const dbIssue = this.database.createIssue(
               iteration.id,
               'codex_review',
               issue.description,
@@ -457,6 +460,7 @@ export class Orchestrator {
             this.eventEmitter.emit("event", {
               type: "issue_found",
               timestamp: Date.now(),
+              issueId: dbIssue.id,
               iterationId: iteration.id,
               issueType: 'codex_review',
               description: issue.description,
@@ -469,6 +473,7 @@ export class Orchestrator {
           this.eventEmitter.emit("event", {
             type: "iteration_start",
             timestamp: Date.now(),
+            iterationId: iteration.id,
             stepId: step.id,
             iterationNumber,
             iterationType: 'review_fix',

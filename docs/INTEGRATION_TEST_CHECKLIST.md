@@ -6,19 +6,19 @@ This document provides a comprehensive checklist for manual integration testing 
 
 - [x] `npm run build` completes successfully with no errors
 - [x] `npm run lint` passes with no linting errors
-- [ ] `npm test` passes with all tests passing
-- [ ] TypeScript compilation produces no errors or warnings
+- [x] `npm test` passes with all tests passing
+- [x] TypeScript compilation produces no errors or warnings
 
 ## 1. Fresh Execution Test
 
 ### Setup
-- [ ] Create a test project with a simple 3-step plan
-- [ ] Ensure test project has `justfile` with `build`, `lint`, `test` commands
-- [ ] Ensure test project is a GitHub repo with Actions enabled
-- [ ] Ensure GitHub token is available via `GITHUB_TOKEN` env var or `--token` flag
+- [x] Create a test project with a simple 3-step plan
+- [x] Ensure test project has `justfile` with `build`, `lint`, `test` commands
+- [x] Ensure test project is a GitHub repo with Actions enabled
+- [x] Ensure GitHub token is available via `GITHUB_TOKEN` env var or `--token` flag
 
 ### Execution
-- [ ] Run `stepcat --file plan.md --dir /path/to/test-project --ui`
+- [ ] Run `npx ts-node src/cli.ts --file plan.md --dir /path/to/test-project --ui`
 - [ ] Verify execution ID is printed to console
 - [ ] Verify web UI opens automatically in browser
 - [ ] Verify web UI displays all 3 steps in hierarchical view

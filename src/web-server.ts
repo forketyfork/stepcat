@@ -1165,28 +1165,39 @@ export class WebServer {
     }
 
     function handleIterationStart(event) {
-      const newIteration = {
-        id: Date.now(),
-        stepId: event.stepId,
-        iterationNumber: event.iterationNumber,
-        type: event.iterationType,
-        commitSha: null,
-        claudeLog: null,
-        codexLog: null,
-        status: 'in_progress',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        issues: []
-      };
+      const existingIteration = state.iterations.get(event.iterationId);
 
-      state.iterations.set(newIteration.id, newIteration);
-      const step = state.steps.get(event.stepId);
-      if (step) {
-        step.iterations.push(newIteration.id);
+      if (existingIteration) {
+        existingIteration.status = 'in_progress';
+        existingIteration.updatedAt = new Date().toISOString();
         state.expandedSteps.add(event.stepId);
-        state.expandedIterations.add(newIteration.id);
+        state.expandedIterations.add(event.iterationId);
         saveExpansionState();
+      } else {
+        const newIteration = {
+          id: event.iterationId,
+          stepId: event.stepId,
+          iterationNumber: event.iterationNumber,
+          type: event.iterationType,
+          commitSha: null,
+          claudeLog: null,
+          codexLog: null,
+          status: 'in_progress',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          issues: []
+        };
+
+        state.iterations.set(newIteration.id, newIteration);
+        const step = state.steps.get(event.stepId);
+        if (step) {
+          step.iterations.push(newIteration.id);
+          state.expandedSteps.add(event.stepId);
+          state.expandedIterations.add(newIteration.id);
+          saveExpansionState();
+        }
       }
+
       renderSteps();
       addLog(\`Iteration \${event.iterationNumber}: \${event.iterationType}\`, 'info', event.timestamp);
     }
@@ -1204,26 +1215,31 @@ export class WebServer {
     }
 
     function handleIssueFound(event) {
-      const newIssue = {
-        id: Date.now() + Math.random(),
-        iterationId: event.iterationId,
-        type: event.issueType,
-        description: event.description,
-        filePath: event.filePath || null,
-        lineNumber: event.lineNumber || null,
-        severity: event.severity || null,
-        status: 'open',
-        createdAt: new Date().toISOString(),
-        resolvedAt: null
-      };
+      const existingIssue = state.issues.get(event.issueId);
 
-      state.issues.set(newIssue.id, newIssue);
-      const iteration = state.iterations.get(event.iterationId);
-      if (iteration) {
-        iteration.issues.push(newIssue.id);
-        state.expandedIterations.add(event.iterationId);
-        saveExpansionState();
+      if (!existingIssue) {
+        const newIssue = {
+          id: event.issueId,
+          iterationId: event.iterationId,
+          type: event.issueType,
+          description: event.description,
+          filePath: event.filePath || null,
+          lineNumber: event.lineNumber || null,
+          severity: event.severity || null,
+          status: 'open',
+          createdAt: new Date().toISOString(),
+          resolvedAt: null
+        };
+
+        state.issues.set(newIssue.id, newIssue);
+        const iteration = state.iterations.get(event.iterationId);
+        if (iteration) {
+          iteration.issues.push(newIssue.id);
+          state.expandedIterations.add(event.iterationId);
+          saveExpansionState();
+        }
       }
+
       renderSteps();
       addLog(\`Issue found: \${event.description}\`, 'warn', event.timestamp);
     }

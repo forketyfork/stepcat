@@ -11,7 +11,7 @@ Before implementation:
 
 After implementation:
 1. Run \`just build\`, \`just lint\` and \`just test\` on the project, fix issues if any
-2. Commit your changes with a clear commit message starting with relative file path and implementation step, e.g.:
+2. Create a git commit for your changes with a clear commit message, e.g.:
 
 ---
 Plan: docs/plans/PLAN.md
@@ -21,10 +21,13 @@ Stage: implementation
 <summary of your changes>
 ---
 
-IMPORTANT:
-- Create a new commit for your changes. Do NOT use git commit --amend. Do NOT push to remote (the orchestrator will handle pushing)
-- Make sure to commit your changes before completing this task
-- Do not modify the plan file yourself - the orchestrator will update phase markers`,
+CRITICAL REQUIREMENTS:
+- You MUST create a git commit for your changes - this is not optional
+- Do NOT ask for approval or confirmation - just create the commit
+- Do NOT use git commit --amend - create a NEW commit
+- Do NOT push to remote - the orchestrator will handle pushing
+- Do not modify the plan file yourself - the orchestrator will update phase markers
+- Creating a commit is a required part of completing this task`,
 
   buildFix: (
     buildErrors: string,
@@ -34,11 +37,7 @@ IMPORTANT:
 ${buildErrors}
 ---
 
-Please fix these errors.
-
-IMPORTANT:
-- Create a new commit for your changes. Do NOT use git commit --amend. Do NOT push to remote (the orchestrator will handle pushing)
-- Commit your changes with a clear commit message starting with relative file path and implementation step, e.g.:
+Please fix these errors, then create a git commit for your changes with a clear commit message, e.g.:
 
 ---
 Plan: docs/plans/PLAN.md
@@ -48,6 +47,12 @@ Stage: build fix
 <summary of your changes>
 ---
 
+CRITICAL REQUIREMENTS:
+- You MUST create a git commit for your changes - this is not optional
+- Do NOT ask for approval or confirmation - just create the commit
+- Do NOT use git commit --amend - create a NEW commit
+- Do NOT push to remote - the orchestrator will handle pushing
+- Creating a commit is a required part of completing this task
 `,
   reviewFix: (
     reviewComments: string,
@@ -57,11 +62,7 @@ Stage: build fix
 ${reviewComments}
 ---
 
-Please review these comments and fix any legitimate issues.
-
-IMPORTANT:
-- Create a new commit for your changes. Do NOT use git commit --amend. Do NOT push to remote (the orchestrator will handle pushing)
-- Commit your changes with a clear commit message starting with relative file path and implementation step, e.g.:
+Please review these comments and fix any legitimate issues, then create a git commit for your changes with a clear commit message, e.g.:
 
 ---
 Plan: docs/plans/PLAN.md
@@ -70,6 +71,13 @@ Stage: code review fix
 
 <summary of your changes>
 ---
+
+CRITICAL REQUIREMENTS:
+- You MUST create a git commit for your changes - this is not optional
+- Do NOT ask for approval or confirmation - just create the commit
+- Do NOT use git commit --amend - create a NEW commit
+- Do NOT push to remote - the orchestrator will handle pushing
+- Creating a commit is a required part of completing this task
 `,
 
   codexReviewImplementation: (
