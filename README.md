@@ -279,7 +279,35 @@ The backend serves the built frontend as static files, creating a seamless singl
 
 ## Development
 
-Stepcat includes a `justfile` for convenient development commands:
+### Running Locally from Sources
+
+To run Stepcat locally during development, you need to build the frontend first (since the backend serves the built React app):
+
+```bash
+# 1. Install all dependencies (root + frontend)
+npm install
+cd frontend && npm install && cd ..
+
+# 2. Build the frontend
+npm run build:frontend
+# or: just build-frontend
+
+# 3. Run the backend with ts-node
+npm run dev -- --file plan.md --dir /path/to/project --ui
+# or: just dev --file plan.md --dir /path/to/project --ui
+```
+
+**Alternative using justfile:**
+
+```bash
+just install           # Install all dependencies
+just build-frontend    # Build React app
+just dev --file plan.md --dir /path/to/project --ui
+```
+
+**Note**: The frontend must be built before running the backend with `--ui`, as the backend serves the static React files from `frontend/dist/`. If you make changes to the frontend, rebuild it with `npm run build:frontend` or `just build-frontend`.
+
+### Development Commands
 
 ```bash
 # Install dependencies (both root and frontend)
@@ -303,9 +331,6 @@ just lint-frontend
 # Run tests (backend only)
 just test
 
-# Run backend in development mode
-just dev --file plan.md --dir /path/to/project
-
 # Clean build artifacts
 just clean
 
@@ -316,9 +341,6 @@ just ci
 Or using npm directly:
 
 ```bash
-# Install root dependencies
-npm install
-
 # Build the entire project
 npm run build
 
@@ -327,12 +349,6 @@ npm run build:backend
 
 # Build only frontend
 npm run build:frontend
-
-# Run backend in development mode
-npm run dev -- --file plan.md --dir /path/to/project
-
-# Run frontend dev server (for UI development)
-npm run dev:frontend
 
 # Run backend linting
 npm run lint

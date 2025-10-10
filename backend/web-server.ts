@@ -43,7 +43,10 @@ export class WebServer {
   }
 
   private setupRoutes(): void {
-    const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
+    const isCompiledDist = __dirname.endsWith('/dist');
+    const frontendDistPath = isCompiledDist
+      ? path.resolve(__dirname, '../frontend/dist')
+      : path.resolve(__dirname, '../../frontend/dist');
 
     this.app.use(express.static(frontendDistPath));
 
@@ -51,7 +54,7 @@ export class WebServer {
       res.json({ status: 'ok', clients: this.clients.size });
     });
 
-    this.app.get('*', (req, res) => {
+    this.app.get(/.*/, (req, res) => {
       res.sendFile(path.join(frontendDistPath, 'index.html'));
     });
   }
