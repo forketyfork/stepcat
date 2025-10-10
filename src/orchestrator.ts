@@ -360,7 +360,6 @@ export class Orchestrator {
         workDir: this.workDir,
         prompt: fixPrompt,
         timeoutMinutes: this.agentTimeoutMinutes,
-        baselineCommit: stepBaselineCommit,
       });
 
       const currentHead = this.githubChecker.getLatestCommitSha();
@@ -481,7 +480,6 @@ export class Orchestrator {
       workDir: this.workDir,
       prompt: fixPrompt,
       timeoutMinutes: this.agentTimeoutMinutes,
-      baselineCommit: stepBaselineCommit,
     });
 
     this.log("✓ Review feedback addressed", "success");

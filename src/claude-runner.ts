@@ -7,7 +7,6 @@ export interface ClaudeRunOptions {
   workDir: string;
   prompt: string;
   timeoutMinutes?: number;
-  baselineCommit?: string;
 }
 
 export class ClaudeRunner {
@@ -27,16 +26,23 @@ export class ClaudeRunner {
     return localBin;
   }
 
-  private getHeadCommit(workDir: string): string {
-    return execSync("git rev-parse HEAD", {
-      cwd: workDir,
-      encoding: "utf-8",
-    }).trim();
+  private tryGetHeadCommit(workDir: string): string | null {
+    try {
+      return execSync("git rev-parse HEAD", {
+        cwd: workDir,
+        encoding: "utf-8",
+      }).trim();
+    } catch (error) {
+      console.warn(
+        `Warning: Could not get HEAD commit (repo may be empty or unborn): ${error}`,
+      );
+      return null;
+    }
   }
 
   async run(
     options: ClaudeRunOptions,
-  ): Promise<{ success: boolean; output: string }> {
+  ): Promise<{ success: boolean; commitSha: string | null }> {
     const claudePath = this.getClaudePath();
 
     console.log("─".repeat(80));
@@ -45,8 +51,8 @@ export class ClaudeRunner {
     console.log(`Timeout: ${options.timeoutMinutes || 30} minutes`);
     console.log("─".repeat(80));
 
-    const headBefore = this.getHeadCommit(options.workDir);
-    console.log(`HEAD before: ${headBefore}`);
+    const headBefore = this.tryGetHeadCommit(options.workDir);
+    console.log(`HEAD before: ${headBefore ?? "(no commit yet)"}`);
     console.log("─".repeat(80));
 
     const timeout = (options.timeoutMinutes ?? 30) * 60 * 1000;
@@ -114,62 +120,29 @@ export class ClaudeRunner {
       throw new Error(`Claude Code failed with exit code ${result.exitCode}`);
     }
 
-    const headAfter = this.getHeadCommit(options.workDir);
+    const headAfter = this.tryGetHeadCommit(options.workDir);
     console.log("─".repeat(80));
-    console.log(`HEAD after: ${headAfter}`);
+    console.log(`HEAD after: ${headAfter ?? "(no commit yet)"}`);
 
-    if (headBefore === headAfter) {
-      console.error("─".repeat(80));
-      console.error("✗ Claude Code did not create a commit");
-      console.error("─".repeat(80));
-      throw new Error("Claude Code completed but did not create a commit");
+    if (!headAfter) {
+      console.log(
+        "⚠ Claude Code completed but could not read HEAD commit",
+      );
+      console.log("─".repeat(80));
+      return { success: true, commitSha: null };
     }
 
-    const compareBase = options.baselineCommit || headBefore;
-    const commitCount = execSync(
-      `git rev-list ${compareBase}..${headAfter} --count`,
-      {
-        cwd: options.workDir,
-        encoding: "utf-8",
-      },
-    ).trim();
-
-    if (options.baselineCommit) {
-      if (commitCount !== "1") {
-        console.error("─".repeat(80));
-        console.error(
-          `✗ Expected exactly 1 commit from baseline but found ${commitCount} commits`,
-        );
-        console.error(`Baseline: ${options.baselineCommit}`);
-        console.error(`Current:  ${headAfter}`);
-        console.error(
-          "All fixes must amend the original step commit, not create new commits",
-        );
-        console.error("─".repeat(80));
-        throw new Error(
-          `Commit policy violation: found ${commitCount} commits instead of 1 (agent should have amended)`,
-        );
-      }
-      console.log(
-        `✓ Verified: Still exactly 1 commit from baseline ${compareBase.substring(0, 8)}`,
-      );
-    } else {
-      if (commitCount !== "1") {
-        console.warn("─".repeat(80));
-        console.warn(
-          `⚠ Warning: Expected 1 commit but found ${commitCount} commits`,
-        );
-        console.warn(
-          "Consider squashing multiple commits into one for cleaner history",
-        );
-        console.warn("─".repeat(80));
-      }
+    if (headBefore === headAfter) {
+      console.log("✓ Claude Code completed (no commit created)");
+      console.log("─".repeat(80));
+      return { success: true, commitSha: null };
     }
 
     console.log("✓ Claude Code completed successfully and created a commit");
+    console.log(`Commit SHA: ${headAfter}`);
     console.log("─".repeat(80));
 
-    return { success: true, output: "" };
+    return { success: true, commitSha: headAfter };
   }
 
   buildImplementationPrompt(stepNumber: number, planFilePath: string): string {

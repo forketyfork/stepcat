@@ -157,7 +157,7 @@ Update Claude prompts to create new commits (not amend) and create three distinc
 - TypeScript compilation succeeds
 - Manual inspection confirms prompts are clear and comprehensive
 
-## Step 5: Update ClaudeRunner
+## Step 5: Update ClaudeRunner [done]
 
 ### Status Quo
 
