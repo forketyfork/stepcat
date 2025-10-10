@@ -27,6 +27,18 @@ export class GitHubChecker {
     this.eventEmitter = config.eventEmitter;
   }
 
+  getOctokit(): Octokit {
+    return this.octokit;
+  }
+
+  getOwner(): string {
+    return this.owner;
+  }
+
+  getRepo(): string {
+    return this.repo;
+  }
+
   async waitForChecksToPass(
     sha: string,
     maxWaitMinutes: number = 30,

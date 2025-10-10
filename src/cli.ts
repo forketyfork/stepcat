@@ -15,7 +15,6 @@ program
   .requiredOption('-f, --file <path>', 'Path to the implementation plan file')
   .requiredOption('-d, --dir <path>', 'Path to the work directory')
   .option('-t, --token <token>', 'GitHub token (defaults to GITHUB_TOKEN env var)')
-  .option('--max-build-attempts <number>', 'Maximum build fix attempts (default: 3)', parseInt)
   .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseInt)
   .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseInt)
   .option('--ui', 'Launch web UI (default: false)')
@@ -64,7 +63,6 @@ program
         planFile,
         workDir,
         githubToken: options.token,
-        maxBuildAttempts: options.maxBuildAttempts,
         buildTimeoutMinutes: options.buildTimeout,
         agentTimeoutMinutes: options.agentTimeout,
         eventEmitter,

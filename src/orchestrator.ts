@@ -7,13 +7,11 @@ import { OrchestratorEventEmitter } from "./events";
 import { Database } from "./database";
 import { Plan, DbStep, Iteration } from "./models";
 import { PROMPTS } from "./prompts";
-import * as fs from "fs";
 
 export interface OrchestratorConfig {
   planFile: string;
   workDir: string;
   githubToken?: string;
-  maxBuildAttempts?: number;
   buildTimeoutMinutes?: number;
   agentTimeoutMinutes?: number;
   eventEmitter?: OrchestratorEventEmitter;
@@ -31,7 +29,6 @@ export class Orchestrator {
   private database: Database;
   private workDir: string;
   private planFile: string;
-  private maxBuildAttempts: number;
   private buildTimeoutMinutes: number;
   private agentTimeoutMinutes: number;
   private eventEmitter: OrchestratorEventEmitter;
@@ -44,11 +41,10 @@ export class Orchestrator {
   constructor(config: OrchestratorConfig) {
     this.parser = new StepParser(config.planFile);
     this.planFile = config.planFile;
-    this.planContent = fs.readFileSync(config.planFile, 'utf-8');
+    this.planContent = this.parser.getContent();
     this.claudeRunner = new ClaudeRunner();
     this.codexRunner = new CodexRunner();
     this.workDir = config.workDir;
-    this.maxBuildAttempts = config.maxBuildAttempts ?? 3;
     this.buildTimeoutMinutes = config.buildTimeoutMinutes ?? 30;
     this.agentTimeoutMinutes = config.agentTimeoutMinutes ?? 30;
     this.eventEmitter = config.eventEmitter ?? new OrchestratorEventEmitter();
@@ -141,8 +137,46 @@ export class Orchestrator {
     }
   }
 
-  private async extractBuildErrors(_sha: string): Promise<string> {
-    return "Build checks failed. Please review the GitHub Actions logs and fix the issues.";
+  private async extractBuildErrors(sha: string): Promise<string> {
+    try {
+      const { data: checkRuns } = await this.githubChecker.getOctokit().checks.listForRef({
+        owner: this.githubChecker.getOwner(),
+        repo: this.githubChecker.getRepo(),
+        ref: sha,
+      });
+
+      const failedChecks = checkRuns.check_runs.filter(
+        run => run.status === 'completed' && run.conclusion !== 'success' && run.conclusion !== 'skipped'
+      );
+
+      if (failedChecks.length === 0) {
+        return "Build checks failed. Please review the GitHub Actions logs and fix the issues.";
+      }
+
+      const errorMessages: string[] = [];
+      for (const check of failedChecks) {
+        let message = `Check: ${check.name}\n`;
+        message += `Conclusion: ${check.conclusion}\n`;
+        if (check.output?.title) {
+          message += `Title: ${check.output.title}\n`;
+        }
+        if (check.output?.summary) {
+          message += `Summary: ${check.output.summary}\n`;
+        }
+        if (check.details_url) {
+          message += `Details: ${check.details_url}\n`;
+        }
+        errorMessages.push(message);
+      }
+
+      return errorMessages.join('\n---\n');
+    } catch (error) {
+      this.log(
+        `Warning: Could not extract detailed build errors: ${error instanceof Error ? error.message : String(error)}`,
+        "warn"
+      );
+      return "Build checks failed. Please review the GitHub Actions logs and fix the issues.";
+    }
   }
 
   private determineCodexPromptType(iteration: Iteration): 'implementation' | 'build_fix' | 'review_fix' {
@@ -185,6 +219,8 @@ export class Orchestrator {
 
     let step = this.getCurrentStep();
     while (step) {
+      const freshSteps = this.database.getSteps(this.plan.id);
+      const completedCount = freshSteps.filter(s => s.status === 'completed').length;
 
       this.eventEmitter.emit("event", {
         type: "step_start",
@@ -193,8 +229,8 @@ export class Orchestrator {
         stepTitle: step.title,
         phase: step.status,
         progress: {
-          current: allSteps.filter(s => s.status === 'completed').length + 1,
-          total: allSteps.length,
+          current: completedCount + 1,
+          total: freshSteps.length,
         },
       });
 
@@ -226,6 +262,17 @@ export class Orchestrator {
           prompt,
           timeoutMinutes: this.agentTimeoutMinutes,
         });
+
+        if (!result.commitSha) {
+          this.database.updateIteration(iteration.id, { status: 'failed' });
+          this.eventEmitter.emit("event", {
+            type: "error",
+            timestamp: Date.now(),
+            error: "Claude Code completed but did not create a commit",
+            stepNumber: step.stepNumber,
+          });
+          throw new Error("Claude Code completed but did not create a commit for implementation");
+        }
 
         this.database.updateIteration(iteration.id, {
           commitSha: result.commitSha,
@@ -299,6 +346,17 @@ export class Orchestrator {
             prompt,
             timeoutMinutes: this.agentTimeoutMinutes,
           });
+
+          if (!result.commitSha) {
+            this.database.updateIteration(iteration.id, { status: 'failed' });
+            this.eventEmitter.emit("event", {
+              type: "error",
+              timestamp: Date.now(),
+              error: "Claude Code completed but did not create a commit",
+              stepNumber: step.stepNumber,
+            });
+            throw new Error("Claude Code completed but did not create a commit for build fix");
+          }
 
           this.database.updateIteration(iteration.id, {
             commitSha: result.commitSha,
@@ -425,6 +483,17 @@ export class Orchestrator {
             prompt,
             timeoutMinutes: this.agentTimeoutMinutes,
           });
+
+          if (!result.commitSha) {
+            this.database.updateIteration(iteration.id, { status: 'failed' });
+            this.eventEmitter.emit("event", {
+              type: "error",
+              timestamp: Date.now(),
+              error: "Claude Code completed but did not create a commit",
+              stepNumber: step.stepNumber,
+            });
+            throw new Error("Claude Code completed but did not create a commit for review fix");
+          }
 
           this.database.updateIteration(iteration.id, {
             commitSha: result.commitSha,
