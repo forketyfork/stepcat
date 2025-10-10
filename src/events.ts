@@ -148,6 +148,12 @@ export interface StateSyncEvent extends StepCatEvent {
   issues: Issue[];
 }
 
+export interface ExecutionStartedEvent extends StepCatEvent {
+  type: 'execution_started';
+  executionId: number;
+  isResume: boolean;
+}
+
 export type OrchestratorEvent =
   | InitEvent
   | StepStartEvent
@@ -167,7 +173,8 @@ export type OrchestratorEvent =
   | IssueResolvedEvent
   | CodexReviewStartEvent
   | CodexReviewCompleteEvent
-  | StateSyncEvent;
+  | StateSyncEvent
+  | ExecutionStartedEvent;
 
 export class OrchestratorEventEmitter extends EventEmitter {
   emit(event: 'event', data: OrchestratorEvent): boolean {

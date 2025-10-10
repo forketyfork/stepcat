@@ -191,6 +191,13 @@ export class Orchestrator {
       throw new Error("Plan not initialized");
     }
 
+    this.eventEmitter.emit("event", {
+      type: "execution_started",
+      timestamp: Date.now(),
+      executionId: this.plan.id,
+      isResume: !!this.executionId,
+    });
+
     const allSteps = this.database.getSteps(this.plan.id);
     const allIterations = allSteps.flatMap((s) => this.database.getIterations(s.id));
     const allIssues = allIterations.flatMap((i) => this.database.getIssues(i.id));

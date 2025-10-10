@@ -903,6 +903,10 @@ export class WebServer {
 
     <div class="status-banner">
       <div class="status-item">
+        <div class="status-label">Execution ID</div>
+        <div class="status-value" id="executionId" style="color: var(--purple-600);">-</div>
+      </div>
+      <div class="status-item">
         <div class="status-label">Total Steps</div>
         <div class="status-value" id="totalSteps">0</div>
       </div>
@@ -1029,6 +1033,9 @@ export class WebServer {
       console.log('Event:', event);
 
       switch (event.type) {
+        case 'execution_started':
+          handleExecutionStarted(event);
+          break;
         case 'state_sync':
           handleStateSync(event);
           break;
@@ -1074,6 +1081,12 @@ export class WebServer {
       }
     }
 
+    function handleExecutionStarted(event) {
+      document.getElementById('executionId').textContent = event.executionId;
+      const resumeText = event.isResume ? ' (resumed)' : ' (new)';
+      addLog('Execution ' + event.executionId + resumeText + ' started', 'success', event.timestamp);
+    }
+
     function handleStateSync(event) {
       state.plan = event.plan;
       state.steps.clear();
@@ -1103,6 +1116,10 @@ export class WebServer {
       state.totalSteps = state.steps.size;
       state.completedSteps = Array.from(state.steps.values()).filter(s => s.status === 'completed').length;
       state.remainingSteps = state.totalSteps - state.completedSteps;
+
+      if (state.plan && state.plan.id) {
+        document.getElementById('executionId').textContent = state.plan.id;
+      }
 
       updateStatusBanner();
       renderSteps();

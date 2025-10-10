@@ -201,6 +201,14 @@ program
         executionId
       });
 
+      eventEmitter.on('event', (event) => {
+        if (event.type === 'execution_started') {
+          console.log('═'.repeat(80));
+          console.log(`Execution ID: ${event.executionId}`);
+          console.log('═'.repeat(80));
+        }
+      });
+
       let completedExecutionId: number;
       try {
         completedExecutionId = await orchestrator.run();
