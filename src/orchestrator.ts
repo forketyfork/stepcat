@@ -1,9 +1,13 @@
-import { StepParser, Step } from "./step-parser";
+import { StepParser } from "./step-parser";
 import { ClaudeRunner } from "./claude-runner";
 import { CodexRunner } from "./codex-runner";
 import { GitHubChecker } from "./github-checker";
 import { execSync } from "child_process";
 import { OrchestratorEventEmitter } from "./events";
+import { Database } from "./database";
+import { Plan, DbStep, Iteration } from "./models";
+import { PROMPTS } from "./prompts";
+import * as fs from "fs";
 
 export interface OrchestratorConfig {
   planFile: string;
@@ -14,6 +18,9 @@ export interface OrchestratorConfig {
   agentTimeoutMinutes?: number;
   eventEmitter?: OrchestratorEventEmitter;
   silent?: boolean;
+  executionId?: number;
+  maxIterationsPerStep?: number;
+  databasePath?: string;
 }
 
 export class Orchestrator {
@@ -21,6 +28,7 @@ export class Orchestrator {
   private claudeRunner: ClaudeRunner;
   private codexRunner: CodexRunner;
   private githubChecker: GitHubChecker;
+  private database: Database;
   private workDir: string;
   private planFile: string;
   private maxBuildAttempts: number;
@@ -28,10 +36,15 @@ export class Orchestrator {
   private agentTimeoutMinutes: number;
   private eventEmitter: OrchestratorEventEmitter;
   private silent: boolean;
+  private executionId?: number;
+  private maxIterationsPerStep: number;
+  private plan?: Plan;
+  private planContent: string;
 
   constructor(config: OrchestratorConfig) {
     this.parser = new StepParser(config.planFile);
     this.planFile = config.planFile;
+    this.planContent = fs.readFileSync(config.planFile, 'utf-8');
     this.claudeRunner = new ClaudeRunner();
     this.codexRunner = new CodexRunner();
     this.workDir = config.workDir;
@@ -40,6 +53,10 @@ export class Orchestrator {
     this.agentTimeoutMinutes = config.agentTimeoutMinutes ?? 30;
     this.eventEmitter = config.eventEmitter ?? new OrchestratorEventEmitter();
     this.silent = config.silent ?? false;
+    this.executionId = config.executionId;
+    this.maxIterationsPerStep = config.maxIterationsPerStep ?? 10;
+
+    this.database = new Database(config.workDir, config.databasePath);
 
     const repoInfo = GitHubChecker.parseRepoInfo(config.workDir);
 
@@ -73,86 +90,397 @@ export class Orchestrator {
     });
   }
 
-  async run(): Promise<void> {
+  private async initializeOrResumePlan(): Promise<void> {
+    if (this.executionId) {
+      this.log(`Resuming execution ID: ${this.executionId}`, "info");
+      const plan = this.database.getPlan(this.executionId);
+      if (!plan) {
+        throw new Error(`Execution ID ${this.executionId} not found in database`);
+      }
+      this.plan = plan;
+      this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
+    } else {
+      this.log("Starting new execution", "info");
+      this.plan = this.database.createPlan(this.planFile, this.workDir);
+      this.log(`Created new execution with ID: ${this.plan.id}`, "success");
+
+      const parsedSteps = this.parser.parseSteps();
+      for (const step of parsedSteps) {
+        this.database.createStep(this.plan.id, step.number, step.title);
+      }
+      this.log(`Initialized ${parsedSteps.length} steps in database`, "info");
+    }
+  }
+
+  private getCurrentStep(): DbStep | null {
+    if (!this.plan) {
+      throw new Error("Plan not initialized");
+    }
+
+    const steps = this.database.getSteps(this.plan.id);
+    const currentStep = steps.find(
+      (s) => s.status === 'pending' || s.status === 'in_progress'
+    );
+
+    return currentStep || null;
+  }
+
+  private async pushCommit(): Promise<void> {
+    try {
+      execSync("git push", {
+        cwd: this.workDir,
+        stdio: "inherit",
+      });
+      this.log("✓ Pushed commit to GitHub", "success");
+    } catch (error) {
+      this.log(
+        `⚠ Failed to push commit: ${error instanceof Error ? error.message : String(error)}`,
+        "warn",
+      );
+      throw new Error("Failed to push commit to GitHub");
+    }
+  }
+
+  private async extractBuildErrors(_sha: string): Promise<string> {
+    return "Build checks failed. Please review the GitHub Actions logs and fix the issues.";
+  }
+
+  private determineCodexPromptType(iteration: Iteration): 'implementation' | 'build_fix' | 'review_fix' {
+    return iteration.type;
+  }
+
+  async run(): Promise<number> {
     const startTime = Date.now();
-    const allSteps = this.parser.parseSteps();
-    const pendingSteps = allSteps.filter((s) => s.phase !== "done");
+    await this.initializeOrResumePlan();
+
+    if (!this.plan) {
+      throw new Error("Plan not initialized");
+    }
+
+    const allSteps = this.database.getSteps(this.plan.id);
+    const allIterations = allSteps.flatMap((s) => this.database.getIterations(s.id));
+    const allIssues = allIterations.flatMap((i) => this.database.getIssues(i.id));
 
     this.eventEmitter.emit("event", {
-      type: "init",
+      type: "state_sync",
       timestamp: Date.now(),
-      totalSteps: allSteps.length,
-      pendingSteps: pendingSteps.length,
-      doneSteps: allSteps.length - pendingSteps.length,
-      steps: allSteps.map((s) => ({
-        number: s.number,
-        title: s.title,
-        phase: s.phase,
-      })),
+      plan: this.plan,
+      steps: allSteps,
+      iterations: allIterations,
+      issues: allIssues,
     });
+
+    const pendingSteps = allSteps.filter((s) => s.status === 'pending' || s.status === 'in_progress');
 
     this.log("═".repeat(80));
     this.log(
       `Found ${allSteps.length} steps (${allSteps.length - pendingSteps.length} done, ${pendingSteps.length} pending)`,
     );
     this.log("═".repeat(80));
-    allSteps.forEach((s) => {
-      const statusSymbol =
-        s.phase === "done"
-          ? "✓"
-          : s.phase === "review"
-            ? "◐"
-            : s.phase === "implementation"
-              ? "◔"
-              : " ";
-      const phaseLabel = s.phase !== "pending" ? ` [${s.phase}]` : "";
-      this.log(`  [${statusSymbol}] ${s.number}. ${s.title}${phaseLabel}`);
-    });
-    this.log("═".repeat(80));
 
     if (pendingSteps.length === 0) {
       this.log("\n✓ All steps are already marked as done!", "success");
-      return;
+      return this.plan.id;
     }
 
-    this.log(`\nStarting from step ${pendingSteps[0].number}...`);
-
-    for (let i = 0; i < pendingSteps.length; i++) {
-      const step = pendingSteps[i];
+    let step = this.getCurrentStep();
+    while (step) {
 
       this.eventEmitter.emit("event", {
         type: "step_start",
         timestamp: Date.now(),
-        stepNumber: step.number,
+        stepNumber: step.stepNumber,
         stepTitle: step.title,
-        phase: step.phase,
+        phase: step.status,
         progress: {
-          current: i + 1,
-          total: pendingSteps.length,
+          current: allSteps.filter(s => s.status === 'completed').length + 1,
+          total: allSteps.length,
         },
       });
 
       this.log(`\n${"═".repeat(80)}`);
-      this.log(`STEP ${step.number}/${allSteps.length}: ${step.title}`);
-      this.log(
-        `Progress: ${i + 1}/${pendingSteps.length} pending steps | Current phase: ${step.phase}`,
-      );
+      this.log(`STEP ${step.stepNumber}: ${step.title}`);
       this.log("═".repeat(80));
 
-      await this.executeStep(step);
+      this.database.updateStepStatus(step.id, 'in_progress');
 
-      this.githubChecker.ensureNoUncommittedChanges();
+      let iterationNumber = this.database.getIterations(step.id).length + 1;
 
-      this.eventEmitter.emit("event", {
-        type: "step_complete",
-        timestamp: Date.now(),
-        stepNumber: step.number,
-        stepTitle: step.title,
-      });
+      if (iterationNumber === 1) {
+        const iteration = this.database.createIteration(step.id, 1, 'implementation');
 
-      this.log("═".repeat(80));
-      this.log(`✓ STEP ${step.number}/${allSteps.length} COMPLETED`, "success");
-      this.log("═".repeat(80));
+        this.eventEmitter.emit("event", {
+          type: "iteration_start",
+          timestamp: Date.now(),
+          stepId: step.id,
+          iterationNumber: 1,
+          iterationType: 'implementation',
+        });
+
+        this.log(`\nIteration 1: Implementation`);
+        this.log("─".repeat(80));
+
+        const prompt = PROMPTS.implementation(step.stepNumber, this.planFile);
+        const result = await this.claudeRunner.run({
+          workDir: this.workDir,
+          prompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+        });
+
+        this.database.updateIteration(iteration.id, {
+          commitSha: result.commitSha,
+          status: 'completed',
+        });
+
+        await this.pushCommit();
+
+        this.eventEmitter.emit("event", {
+          type: "iteration_complete",
+          timestamp: Date.now(),
+          stepId: step.id,
+          iterationNumber: 1,
+          commitSha: result.commitSha,
+          status: 'completed',
+        });
+
+        iterationNumber++;
+      }
+
+      while (iterationNumber <= this.maxIterationsPerStep) {
+        const sha = this.githubChecker.getLatestCommitSha();
+
+        this.eventEmitter.emit("event", {
+          type: "github_check",
+          timestamp: Date.now(),
+          status: "waiting",
+          sha,
+          attempt: iterationNumber - 1,
+          maxAttempts: this.maxIterationsPerStep,
+          iterationId: this.database.getIterations(step.id)[iterationNumber - 2]?.id,
+        });
+
+        this.log(`\nChecking GitHub Actions for commit ${sha}`);
+
+        const checksPass = await this.githubChecker.waitForChecksToPass(
+          sha,
+          this.buildTimeoutMinutes,
+          iterationNumber - 1,
+          this.maxIterationsPerStep,
+        );
+
+        if (!checksPass) {
+          const buildErrors = await this.extractBuildErrors(sha);
+          const iteration = this.database.createIteration(step.id, iterationNumber, 'build_fix');
+
+          this.database.createIssue(iteration.id, 'ci_failure', buildErrors);
+
+          this.eventEmitter.emit("event", {
+            type: "issue_found",
+            timestamp: Date.now(),
+            iterationId: iteration.id,
+            issueType: 'ci_failure',
+            description: buildErrors,
+          });
+
+          this.eventEmitter.emit("event", {
+            type: "iteration_start",
+            timestamp: Date.now(),
+            stepId: step.id,
+            iterationNumber,
+            iterationType: 'build_fix',
+          });
+
+          this.log(`\nIteration ${iterationNumber}: Build Fix`);
+          this.log("─".repeat(80));
+
+          const prompt = PROMPTS.buildFix(buildErrors);
+          const result = await this.claudeRunner.run({
+            workDir: this.workDir,
+            prompt,
+            timeoutMinutes: this.agentTimeoutMinutes,
+          });
+
+          this.database.updateIteration(iteration.id, {
+            commitSha: result.commitSha,
+            status: 'completed',
+          });
+
+          await this.pushCommit();
+
+          this.eventEmitter.emit("event", {
+            type: "iteration_complete",
+            timestamp: Date.now(),
+            stepId: step.id,
+            iterationNumber,
+            commitSha: result.commitSha,
+            status: 'completed',
+          });
+
+          iterationNumber++;
+          continue;
+        }
+
+        this.eventEmitter.emit("event", {
+          type: "github_check",
+          timestamp: Date.now(),
+          status: "success",
+          sha,
+          attempt: iterationNumber - 1,
+          maxAttempts: this.maxIterationsPerStep,
+        });
+
+        this.log("✓ All GitHub Actions checks passed", "success");
+
+        const previousIteration = this.database.getIterations(step.id)[iterationNumber - 2];
+        const promptType = this.determineCodexPromptType(previousIteration);
+
+        let codexPrompt: string;
+        if (promptType === 'implementation') {
+          codexPrompt = PROMPTS.codexReviewImplementation(step.stepNumber, step.title, this.planContent);
+        } else if (promptType === 'build_fix') {
+          const buildErrors = this.database.getIssues(previousIteration.id)
+            .filter(i => i.type === 'ci_failure')
+            .map(i => i.description)
+            .join('\n');
+          codexPrompt = PROMPTS.codexReviewBuildFix(buildErrors);
+        } else {
+          const openIssues = this.database.getOpenIssues(step.id)
+            .filter(i => i.type === 'codex_review')
+            .map(i => ({
+              file: i.filePath || 'unknown',
+              line: i.lineNumber !== null ? i.lineNumber : undefined,
+              severity: i.severity || 'error',
+              description: i.description,
+            }));
+          codexPrompt = PROMPTS.codexReviewCodeFixes(openIssues);
+        }
+
+        this.eventEmitter.emit("event", {
+          type: "codex_review_start",
+          timestamp: Date.now(),
+          iterationId: previousIteration.id,
+          promptType,
+        });
+
+        this.log(`\nRunning Codex code review (${promptType})...`);
+
+        const codexOutput = await this.codexRunner.run({
+          workDir: this.workDir,
+          prompt: codexPrompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+        });
+
+        const reviewResult = this.codexRunner.parseCodexOutput(codexOutput.output);
+
+        this.database.updateIteration(previousIteration.id, { codexLog: codexOutput.output });
+
+        this.eventEmitter.emit("event", {
+          type: "codex_review_complete",
+          timestamp: Date.now(),
+          iterationId: previousIteration.id,
+          result: reviewResult.result,
+          issueCount: reviewResult.issues.length,
+        });
+
+        if (reviewResult.result === 'FAIL' && reviewResult.issues.length > 0) {
+          const iteration = this.database.createIteration(step.id, iterationNumber, 'review_fix');
+
+          for (const issue of reviewResult.issues) {
+            this.database.createIssue(
+              iteration.id,
+              'codex_review',
+              issue.description,
+              issue.file,
+              issue.line,
+              issue.severity,
+              'open'
+            );
+
+            this.eventEmitter.emit("event", {
+              type: "issue_found",
+              timestamp: Date.now(),
+              iterationId: iteration.id,
+              issueType: 'codex_review',
+              description: issue.description,
+              filePath: issue.file,
+              lineNumber: issue.line,
+              severity: issue.severity,
+            });
+          }
+
+          this.eventEmitter.emit("event", {
+            type: "iteration_start",
+            timestamp: Date.now(),
+            stepId: step.id,
+            iterationNumber,
+            iterationType: 'review_fix',
+          });
+
+          this.log(`\nIteration ${iterationNumber}: Review Fix`);
+          this.log("─".repeat(80));
+
+          const prompt = PROMPTS.reviewFix(JSON.stringify(reviewResult.issues, null, 2));
+          const result = await this.claudeRunner.run({
+            workDir: this.workDir,
+            prompt,
+            timeoutMinutes: this.agentTimeoutMinutes,
+          });
+
+          this.database.updateIteration(iteration.id, {
+            commitSha: result.commitSha,
+            status: 'completed',
+          });
+
+          await this.pushCommit();
+
+          this.eventEmitter.emit("event", {
+            type: "iteration_complete",
+            timestamp: Date.now(),
+            stepId: step.id,
+            iterationNumber,
+            commitSha: result.commitSha,
+            status: 'completed',
+          });
+
+          const openIssues = this.database.getOpenIssues(step.id);
+          for (const issue of openIssues) {
+            this.database.updateIssueStatus(issue.id, 'fixed', new Date().toISOString());
+            this.eventEmitter.emit("event", {
+              type: "issue_resolved",
+              timestamp: Date.now(),
+              issueId: issue.id,
+            });
+          }
+
+          iterationNumber++;
+          continue;
+        } else {
+          this.log("✓ Code review passed with no issues", "success");
+          this.database.updateStepStatus(step.id, 'completed');
+
+          this.eventEmitter.emit("event", {
+            type: "step_complete",
+            timestamp: Date.now(),
+            stepNumber: step.stepNumber,
+            stepTitle: step.title,
+          });
+
+          break;
+        }
+      }
+
+      if (iterationNumber > this.maxIterationsPerStep) {
+        this.database.updateStepStatus(step.id, 'failed');
+        this.eventEmitter.emit("event", {
+          type: "error",
+          timestamp: Date.now(),
+          error: `Step ${step.stepNumber} exceeded maximum iterations`,
+          stepNumber: step.stepNumber,
+        });
+        throw new Error(`Step ${step.stepNumber} exceeded maximum iterations (${this.maxIterationsPerStep})`);
+      }
+
+      step = this.getCurrentStep();
     }
 
     const totalTime = Date.now() - startTime;
@@ -166,387 +494,7 @@ export class Orchestrator {
     this.log("\n" + "═".repeat(80));
     this.log("✓✓✓ ALL STEPS COMPLETED SUCCESSFULLY ✓✓✓", "success");
     this.log("═".repeat(80));
-  }
 
-  private async executeStep(step: Step): Promise<void> {
-    let stepBaselineCommit: string | undefined;
-
-    if (step.phase === "pending") {
-      stepBaselineCommit = this.githubChecker.getLatestCommitSha();
-
-      this.eventEmitter.emit("event", {
-        type: "phase_start",
-        timestamp: Date.now(),
-        stepNumber: step.number,
-        phase: "implementation",
-        phaseLabel: "[1/3] Implementation Phase",
-      });
-
-      this.log("\n[1/3] Implementation Phase");
-      this.log("─".repeat(80));
-      this.log(`Step baseline: ${stepBaselineCommit}`);
-
-      const prompt = this.claudeRunner.buildImplementationPrompt(
-        step.number,
-        this.parser.getFilePath(),
-      );
-      await this.claudeRunner.run({
-        workDir: this.workDir,
-        prompt,
-        timeoutMinutes: this.agentTimeoutMinutes,
-      });
-
-      this.parser.updateStepPhase(step.number, "implementation");
-      this.amendPlanFileAndPush();
-      step.phase = "implementation";
-
-      this.eventEmitter.emit("event", {
-        type: "phase_complete",
-        timestamp: Date.now(),
-        stepNumber: step.number,
-        phase: "implementation",
-      });
-    } else {
-      this.log("\n[1/3] Implementation Phase (skipped - already completed)");
-    }
-
-    if (!stepBaselineCommit) {
-      const parentCommit = execSync("git rev-parse HEAD~1", {
-        cwd: this.workDir,
-        encoding: "utf-8",
-      }).trim();
-      stepBaselineCommit = parentCommit;
-      this.log(`Resuming step - baseline commit: ${stepBaselineCommit}`);
-    }
-
-    if (step.phase === "implementation") {
-      this.eventEmitter.emit("event", {
-        type: "phase_start",
-        timestamp: Date.now(),
-        stepNumber: step.number,
-        phase: "build",
-        phaseLabel: "[2/3] Build Verification Phase",
-      });
-
-      this.log("\n[2/3] Build Verification Phase");
-      this.log("─".repeat(80));
-
-      await this.ensureBuildPasses(stepBaselineCommit);
-
-      this.parser.updateStepPhase(step.number, "review");
-      this.amendPlanFileAndPush();
-      step.phase = "review";
-
-      this.eventEmitter.emit("event", {
-        type: "phase_complete",
-        timestamp: Date.now(),
-        stepNumber: step.number,
-        phase: "build",
-      });
-    } else {
-      this.log(
-        "\n[2/3] Build Verification Phase (skipped - already completed)",
-      );
-    }
-
-    if (step.phase === "review") {
-      this.eventEmitter.emit("event", {
-        type: "phase_start",
-        timestamp: Date.now(),
-        stepNumber: step.number,
-        phase: "review",
-        phaseLabel: "[3/3] Code Review Phase",
-      });
-
-      this.log("\n[3/3] Code Review Phase");
-      this.log("─".repeat(80));
-
-      await this.performCodeReview(step.number, stepBaselineCommit);
-
-      this.parser.updateStepPhase(step.number, "done");
-      this.amendPlanFileAndPush();
-      step.phase = "done";
-
-      this.eventEmitter.emit("event", {
-        type: "phase_complete",
-        timestamp: Date.now(),
-        stepNumber: step.number,
-        phase: "review",
-      });
-    } else {
-      this.log("\n[3/3] Code Review Phase (skipped - already completed)");
-    }
-  }
-
-  private async ensureBuildPasses(stepBaselineCommit: string): Promise<void> {
-    let attempt = 0;
-
-    while (attempt < this.maxBuildAttempts) {
-      attempt++;
-      const sha = this.githubChecker.getLatestCommitSha();
-
-      this.eventEmitter.emit("event", {
-        type: "build_attempt",
-        timestamp: Date.now(),
-        attempt,
-        maxAttempts: this.maxBuildAttempts,
-        sha,
-      });
-
-      this.log(
-        `\nChecking GitHub Actions (attempt ${attempt}/${this.maxBuildAttempts})`,
-      );
-      this.log(`Commit SHA: ${sha}`);
-
-      this.eventEmitter.emit("event", {
-        type: "github_check",
-        timestamp: Date.now(),
-        status: "waiting",
-        sha,
-        attempt,
-        maxAttempts: this.maxBuildAttempts,
-      });
-
-      const buildPassed = await this.githubChecker.waitForChecksToPass(
-        sha,
-        this.buildTimeoutMinutes,
-        attempt,
-        this.maxBuildAttempts,
-      );
-
-      if (buildPassed) {
-        this.eventEmitter.emit("event", {
-          type: "github_check",
-          timestamp: Date.now(),
-          status: "success",
-          sha,
-          attempt,
-          maxAttempts: this.maxBuildAttempts,
-        });
-
-        this.log("─".repeat(80));
-        this.log("✓ All GitHub Actions checks passed", "success");
-        this.log("─".repeat(80));
-        return;
-      }
-
-      this.eventEmitter.emit("event", {
-        type: "github_check",
-        timestamp: Date.now(),
-        status: "failure",
-        sha,
-        attempt,
-        maxAttempts: this.maxBuildAttempts,
-      });
-
-      if (attempt >= this.maxBuildAttempts) {
-        throw new Error(
-          `Build failed after ${this.maxBuildAttempts} attempts. Aborting.`,
-        );
-      }
-
-      this.log("─".repeat(80));
-      this.log(
-        `⚠ Build failed. Attempting to fix (${attempt}/${this.maxBuildAttempts})...`,
-        "warn",
-      );
-      this.log("─".repeat(80));
-
-      const fixPrompt = this.claudeRunner.buildFixPrompt(
-        "Build checks failed. Please review the GitHub Actions logs and fix the issues.",
-      );
-
-      await this.claudeRunner.run({
-        workDir: this.workDir,
-        prompt: fixPrompt,
-        timeoutMinutes: this.agentTimeoutMinutes,
-      });
-
-      const currentHead = this.githubChecker.getLatestCommitSha();
-      const commitCount = execSync(
-        `git rev-list ${stepBaselineCommit}..${currentHead} --count`,
-        {
-          cwd: this.workDir,
-          encoding: "utf-8",
-        },
-      ).trim();
-
-      if (commitCount !== "1") {
-        throw new Error(
-          `Pre-push validation failed: Expected exactly 1 commit from baseline but found ${commitCount}. ` +
-            "Cannot push - commit history is polluted with multiple commits per step.",
-        );
-      }
-
-      try {
-        execSync("git push --force-with-lease", {
-          cwd: this.workDir,
-          stdio: "inherit",
-        });
-        this.log("✓ Pushed build fix to GitHub", "success");
-      } catch (error) {
-        this.log(
-          `⚠ Failed to push build fix: ${error instanceof Error ? error.message : String(error)}`,
-          "warn",
-        );
-        throw new Error("Failed to push build fix to GitHub");
-      }
-    }
-
-    throw new Error("Build verification exhausted all retry attempts");
-  }
-
-  private reviewHasIssues(reviewOutput: string): boolean {
-    const structuredMarkerPass = /\[STEPCAT_REVIEW_RESULT:\s*PASS\s*\]/i;
-    const structuredMarkerFail = /\[STEPCAT_REVIEW_RESULT:\s*FAIL\s*\]/i;
-
-    if (structuredMarkerPass.test(reviewOutput)) {
-      return false;
-    }
-    if (structuredMarkerFail.test(reviewOutput)) {
-      return true;
-    }
-
-    const normalized = reviewOutput
-      .toLowerCase()
-      .replace(/[.,;:!?]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
-    const noIssuesPatterns = [
-      /^no issues found$/,
-      /^no issues$/,
-      /^no issues? (?:were? )?(?:found|detected|identified)$/,
-      /^(?:i found )?no issues?$/,
-      /^there (?:are|were) no issues?$/,
-    ];
-
-    const hasNoIssues = noIssuesPatterns.some((pattern) =>
-      pattern.test(normalized),
-    );
-
-    return !hasNoIssues;
-  }
-
-  private async performCodeReview(
-    stepNumber: number,
-    stepBaselineCommit: string,
-  ): Promise<void> {
-    this.eventEmitter.emit("event", {
-      type: "review_start",
-      timestamp: Date.now(),
-      stepNumber,
-    });
-
-    this.log("\nRunning Codex code review...");
-
-    const reviewPrompt = this.codexRunner.buildReviewPrompt(
-      stepNumber,
-      this.planFile,
-    );
-    const reviewResult = await this.codexRunner.run({
-      workDir: this.workDir,
-      prompt: reviewPrompt,
-      timeoutMinutes: this.agentTimeoutMinutes,
-    });
-
-    this.log("\nCodex Review Output:");
-    this.log("─".repeat(80));
-    this.log(reviewResult.output);
-    this.log("─".repeat(80));
-
-    const hasIssues = this.reviewHasIssues(reviewResult.output);
-
-    this.eventEmitter.emit("event", {
-      type: "review_complete",
-      timestamp: Date.now(),
-      stepNumber,
-      hasIssues,
-    });
-
-    if (!hasIssues) {
-      this.log("✓ Code review passed with no issues found", "success");
-      return;
-    }
-
-    this.log(
-      "\nCodex identified issues. Running Claude Code to address them...",
-    );
-
-    const fixPrompt = this.claudeRunner.buildReviewFixPrompt(
-      reviewResult.output,
-    );
-    await this.claudeRunner.run({
-      workDir: this.workDir,
-      prompt: fixPrompt,
-      timeoutMinutes: this.agentTimeoutMinutes,
-    });
-
-    this.log("✓ Review feedback addressed", "success");
-
-    const currentHead = this.githubChecker.getLatestCommitSha();
-    const commitCount = execSync(
-      `git rev-list ${stepBaselineCommit}..${currentHead} --count`,
-      {
-        cwd: this.workDir,
-        encoding: "utf-8",
-      },
-    ).trim();
-
-    if (commitCount !== "1") {
-      throw new Error(
-        `Pre-push validation failed: Expected exactly 1 commit from baseline but found ${commitCount}. ` +
-          "Cannot push - commit history is polluted with multiple commits per step.",
-      );
-    }
-
-    try {
-      execSync("git push --force-with-lease", {
-        cwd: this.workDir,
-        stdio: "inherit",
-      });
-      this.log("✓ Pushed review fix to GitHub", "success");
-    } catch (error) {
-      this.log(
-        `⚠ Failed to push review fix: ${error instanceof Error ? error.message : String(error)}`,
-        "warn",
-      );
-      throw new Error("Failed to push review fix to GitHub");
-    }
-
-    this.log("\nVerifying build after review fixes...");
-
-    await this.ensureBuildPasses(stepBaselineCommit);
-
-    this.log("✓ Build passed after review fixes", "success");
-  }
-
-  private amendPlanFileAndPush(): void {
-    try {
-      execSync(`git add "${this.planFile}"`, {
-        cwd: this.workDir,
-        stdio: "inherit",
-      });
-      execSync("git commit --amend --no-edit", {
-        cwd: this.workDir,
-        stdio: "inherit",
-      });
-      execSync("git push --force-with-lease", {
-        cwd: this.workDir,
-        stdio: "inherit",
-      });
-      this.log(
-        "✓ Amended commit with plan file and pushed to GitHub",
-        "success",
-      );
-    } catch (error) {
-      this.log(
-        `⚠ Failed to amend and push: ${error instanceof Error ? error.message : String(error)}`,
-        "warn",
-      );
-      throw new Error(
-        "Failed to amend commit with plan file and push to GitHub",
-      );
-    }
+    return this.plan.id;
   }
 }

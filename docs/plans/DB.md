@@ -246,7 +246,7 @@ interface CodexReviewResult {
 - TypeScript compilation succeeds
 - Unit tests for parsing various JSON formats and error cases
 
-## Step 7: Refactor Orchestrator with Database Integration
+## Step 7: Refactor Orchestrator with Database Integration [implementation]
 
 ### Status Quo
 
