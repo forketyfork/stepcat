@@ -6,13 +6,14 @@ Step-by-step agent orchestration solution that automates implementation of multi
 
 Stepcat orchestrates the implementation of complex development tasks by:
 1. Parsing a markdown file containing numbered steps
-2. Using Claude Code to implement each step (one commit per step)
-3. Waiting for GitHub Actions to pass
-4. Using Codex to review the implementation
-5. Using Claude Code to address any review comments (via `git commit --amend`)
-6. Moving to the next step
+2. Using Claude Code to implement each step
+3. Pushing changes and waiting for GitHub Actions to pass
+4. Using Codex to review the implementation with structured JSON output
+5. Using Claude Code to fix any build failures or review issues
+6. Creating separate commits for each iteration (implementation, build fixes, review fixes)
+7. Moving to the next step when all checks pass
 
-All fixes and plan file updates are applied via `git commit --amend` to maintain a clean git history with one commit per step.
+All execution state is stored in a SQLite database (`.stepcat/executions.db`), enabling resume functionality and complete audit trails. Each Claude Code execution creates a separate git commit, providing full transparency and traceability.
 
 ## Installation
 
@@ -46,20 +47,22 @@ stepcat --file plan.md --dir /path/to/project --ui
 
 The web UI features:
 - 🎨 **Beautiful purple/pastel design** with smooth animations
-- 📊 **Real-time progress tracking** for all steps and phases
+- 📊 **Hierarchical view** of Steps → Iterations → Issues
 - 🔄 **Live GitHub Actions status** with visual progress indicators
-- 📋 **Activity log** with color-coded messages
+- 📋 **Detailed iteration tracking** with commit SHAs and logs
+- 🐛 **Issue tracking** from CI failures and code reviews
 - ⚡ **WebSocket-powered** instant updates
 - 📱 **Responsive design** that works on all devices
+- 🔽 **Collapsible sections** for easy navigation
 
 The UI automatically opens in your default browser at `http://localhost:3742` (customizable with `--port`).
 
 ### CLI Options
 
-- `-f, --file <path>` - Path to the implementation plan file (required)
-- `-d, --dir <path>` - Path to the work directory (required)
+- `-f, --file <path>` - Path to the implementation plan file (required for new executions)
+- `-d, --dir <path>` - Path to the work directory (required for new executions, optional for resume)
+- `-e, --execution-id <id>` - Resume existing execution by ID
 - `-t, --token <token>` - GitHub token (optional, defaults to `GITHUB_TOKEN` env var)
-- `--max-build-attempts <number>` - Maximum build fix attempts (default: 3)
 - `--build-timeout <minutes>` - GitHub Actions check timeout in minutes (default: 30)
 - `--agent-timeout <minutes>` - Agent execution timeout in minutes (default: 30)
 - `--ui` - Launch web UI (default: false)
@@ -68,11 +71,23 @@ The UI automatically opens in your default browser at `http://localhost:3742` (c
 
 ### Examples
 
-**Basic usage with web UI:**
+**Start a new execution with web UI:**
 
 ```bash
 export GITHUB_TOKEN=your_token_here
 stepcat --file implementation-plan.md --dir ./my-project --ui
+```
+
+**Resume an existing execution:**
+
+```bash
+stepcat --execution-id 123
+```
+
+**Resume from a different directory:**
+
+```bash
+stepcat --execution-id 123 --dir /path/to/project
 ```
 
 **Custom port without auto-opening browser:**
@@ -85,7 +100,6 @@ stepcat --file plan.md --dir ./project --ui --port 8080 --no-auto-open
 
 ```bash
 stepcat --file plan.md --dir ./project \
-  --max-build-attempts 5 \
   --build-timeout 45 \
   --agent-timeout 60
 ```
@@ -112,36 +126,45 @@ Add comprehensive test coverage for all features.
 
 Stepcat will parse these steps and implement them one by one.
 
-### Step Completion Tracking
+### Execution State and Resumability
 
-Stepcat tracks progress through three phases for each step:
+Stepcat stores all execution state in a SQLite database at `.stepcat/executions.db` in your project directory. The plan file itself is **never modified** during execution.
 
-1. **[implementation]** - Implementation complete, awaiting build verification
-2. **[review]** - Build passed, awaiting code review
-3. **[done]** - All phases complete, step finished
+**Database tracks**:
+- Steps with their status (pending, in_progress, completed, failed)
+- Iterations for each step (implementation, build fixes, review fixes)
+- Issues found during CI and code review
+- Commit SHAs for each iteration
+- Full logs from Claude Code and Codex
 
-```markdown
-## Step 1: Setup Project Structure [done]
-## Step 2: Add Core Features [review]
-## Step 3: Add Tests [implementation]
-## Step 4: Add Documentation
+**Resume functionality**: If Stepcat is interrupted or fails, you can resume from where it left off:
+
+```bash
+# Note the execution ID when starting
+stepcat --file plan.md --dir ./project
+# Output: Execution ID: 123
+
+# Later, resume with:
+stepcat --execution-id 123
 ```
 
-**Resumability**: If Stepcat is interrupted or fails, simply run it again with the same plan file. It will automatically resume from the current phase of the interrupted step.
-
-**Manual Control**: You can manually edit phase markers to:
-- Skip to a later phase: Change `[implementation]` to `[review]` or `[done]`
-- Re-run a phase: Change `[review]` back to `[implementation]`
-- Skip a step entirely: Mark as `[done]`
+The execution will continue from the first pending or in-progress step.
 
 ## Customizing Prompts
 
 All prompts used by Stepcat are defined in `src/prompts.ts`. You can customize these prompts to match your project's needs:
 
-- `PROMPTS.implementation` - Prompt for implementing a step
-- `PROMPTS.buildFix` - Prompt for fixing build failures
-- `PROMPTS.reviewFix` - Prompt for addressing review comments
-- `PROMPTS.codexReview` - Prompt for Codex code review
+**Claude Code prompts** (create new commits, never amend):
+- `implementation()` - Initial implementation of a step
+- `buildFix()` - Fix build/CI failures
+- `reviewFix()` - Address code review feedback
+
+**Codex prompts** (request structured JSON output):
+- `codexReviewImplementation()` - Review initial implementation
+- `codexReviewBuildFix()` - Verify build fixes address failures
+- `codexReviewCodeFixes()` - Verify fixes address review issues
+
+All Codex prompts expect JSON output: `{"result": "PASS"|"FAIL", "issues": [...]}`
 
 ## Requirements
 
@@ -182,43 +205,55 @@ test:
 
 Claude Code will execute these commands after implementing each step to ensure code quality.
 
-## Git Commit Policy
+## Git Commit Strategy
 
-**One Commit Per Step**: Stepcat maintains a clean git history with exactly one commit per step.
+**One Commit Per Iteration**: Stepcat creates a separate git commit for each Claude Code execution, providing complete transparency and audit trails.
 
-- **Initial commit**: Claude Code creates the initial implementation commit
-- **Build fixes**: If builds fail, fixes are applied via `git commit --amend` (not new commits)
-- **Review fixes**: If Codex finds issues, fixes are applied via `git commit --amend` (not new commits)
-- **Phase markers**: Plan file updates (`[implementation]`, `[review]`, `[done]`) are amended into the step commit
+- **Initial implementation**: Claude Code creates Commit 1
+- **Build fix**: If CI fails, Claude Code creates Commit 2
+- **Review fix iteration 1**: If Codex finds issues, Claude Code creates Commit 3
+- **Review fix iteration 2**: Additional fixes create Commit 4, and so on
+- **Maximum iterations**: 10 per step (configurable)
 - **Pushing**: The orchestrator handles all pushes; agents never push themselves
+- **No amending**: All commits are separate (never use `git commit --amend`)
 
-This approach ensures a linear, readable git history where each commit represents a complete, tested, reviewed step.
+**Trade-off**: This creates a more verbose git history with multiple commits per step, but provides full transparency, traceability, and easier debugging. Each commit SHA is captured and stored in the database for complete audit trails.
 
 ## How It Works
 
 For each pending step in the plan:
 
-1. **Implementation**: Claude Code is invoked with the step number and full plan file content embedded in the prompt. Creates initial commit. Orchestrator amends plan file marker `[implementation]` into the commit and pushes.
+1. **Initial Implementation Iteration**:
+   - Claude Code implements the step (creates Commit 1)
+   - Orchestrator pushes and waits for GitHub Actions
 
-2. **Build Verification**: Orchestrator waits for GitHub Actions to complete (max 30 minutes).
+2. **Build Verification Loop**:
+   - If CI fails: Create build_fix iteration → Claude creates new commit → push → repeat until CI passes
 
-3. **Build Fix Loop**: If builds fail, Claude Code is asked to fix and amend the commit (max 3 attempts). Orchestrator pushes the amended commit. Repeats until build passes.
+3. **Code Review**:
+   - Run Codex with context-specific prompt (implementation/build_fix/review_fix)
+   - Codex returns structured JSON: `{"result": "PASS"|"FAIL", "issues": [...]}`
+   - Parse issues and save to database
 
-4. **Code Review**: Orchestrator amends plan file marker `[review]` into the commit and pushes. Codex reviews the last commit with the plan file path (Codex reads the file directly). Uses structured markers `[STEPCAT_REVIEW_RESULT: PASS/FAIL]` for reliable detection.
+4. **Review Fix Loop**:
+   - If issues found: Create review_fix iteration → Claude creates new commit → push → back to build verification
+   - Repeat until Codex returns `"result": "PASS"`
 
-5. **Review Fixes**: If Codex identifies issues, Claude Code addresses them by amending the commit (not creating a new one). Orchestrator pushes and verifies builds still pass.
+5. **Step Complete**:
+   - Mark step as completed in database
+   - Move to next step
 
-6. **Mark Complete**: Orchestrator amends plan file marker `[done]` into the commit and pushes.
-
-7. **Next Step**: Moves to the next pending step.
+6. **Maximum Iterations**:
+   - If a step exceeds 10 iterations, mark as failed and halt execution
 
 **Key Points**:
-- Claude Code receives the full plan content embedded in prompts for context
-- Codex receives the plan file path and reads it directly
-- Steps progress through phases: `pending` → `[implementation]` → `[review]` → `[done]`
-- Phase markers are part of the step commit (amended in), not separate commits
-- All fixes (build and review) amend the single step commit to maintain clean history
-- Phase markers enable resumability if Stepcat is interrupted
+- All state stored in SQLite database (`.stepcat/executions.db`)
+- Plan file is never modified during execution
+- Each Claude execution creates a separate commit (full audit trail)
+- Issues are tracked with file paths, line numbers, and resolution status
+- Iteration types: 'implementation', 'build_fix', 'review_fix'
+- Full traceability: Issue → Iteration → Commit SHA
+- Resume at any time using execution ID
 
 ## Environment Variables
 
