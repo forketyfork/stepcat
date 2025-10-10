@@ -10,13 +10,17 @@ build-backend:
 build-frontend:
     npm run build:frontend
 
-# Run linting (backend only, frontend has its own lint script)
+# Run linting (both backend and frontend)
 lint:
     npm run lint
 
-# Run frontend linting
+# Run backend linting only
+lint-backend:
+    npm run lint:backend
+
+# Run frontend linting only
 lint-frontend:
-    cd frontend && npm run lint
+    npm run lint:frontend
 
 # Run tests (backend only for now)
 test:

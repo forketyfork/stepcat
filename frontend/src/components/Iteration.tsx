@@ -1,3 +1,4 @@
+import React from 'react';
 import { Iteration as IterationType, Issue } from '../types/events';
 import { IssuesContainer } from './IssuesContainer';
 import './Iteration.css';
@@ -31,9 +32,22 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
     failed: '✗',
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onToggle();
+    }
+  };
+
   return (
     <div className={`iteration ${statusClass}`}>
-      <div className="iteration-header" onClick={onToggle}>
+      <div
+        className="iteration-header"
+        onClick={onToggle}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+      >
         <div className="iteration-title">
           <div className="iteration-icon">{iconContent}</div>
           <span>Iteration {iteration.iterationNumber}</span>

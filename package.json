@@ -15,7 +15,9 @@
     "dev": "ts-node backend/cli.ts",
     "dev:frontend": "cd frontend && npm run dev",
     "test": "jest",
-    "lint": "eslint backend"
+    "lint": "eslint backend && cd frontend && npm run lint",
+    "lint:backend": "eslint backend",
+    "lint:frontend": "cd frontend && npm run lint"
   },
   "keywords": [
     "orchestration",

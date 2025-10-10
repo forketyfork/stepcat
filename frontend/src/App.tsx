@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { Header } from './components/Header';
 import { StatusBanner } from './components/StatusBanner';
 import { StepsContainer } from './components/StepsContainer';
@@ -22,6 +22,7 @@ import {
   CodexReviewCompleteEvent,
   LogEvent,
   ExecutionStartedEvent,
+  ErrorEvent,
 } from './types/events';
 import './App.css';
 
@@ -70,57 +71,6 @@ function App() {
 
   const expandedSteps = new Set(expansionState.steps);
   const expandedIterations = new Set(expansionState.iterations);
-
-  const handleEvent = useCallback((event: OrchestratorEvent) => {
-    console.log('Event:', event);
-
-    switch (event.type) {
-      case 'execution_started':
-        handleExecutionStarted(event as ExecutionStartedEvent);
-        break;
-      case 'state_sync':
-        handleStateSync(event as StateSyncEvent);
-        break;
-      case 'step_start':
-        handleStepStart(event as StepStartEvent);
-        break;
-      case 'step_complete':
-        handleStepComplete(event as StepCompleteEvent);
-        break;
-      case 'iteration_start':
-        handleIterationStart(event as IterationStartEvent);
-        break;
-      case 'iteration_complete':
-        handleIterationComplete(event as IterationCompleteEvent);
-        break;
-      case 'issue_found':
-        handleIssueFound(event as IssueFoundEvent);
-        break;
-      case 'issue_resolved':
-        handleIssueResolved(event as IssueResolvedEvent);
-        break;
-      case 'github_check':
-        handleGitHubCheck(event as GitHubCheckEvent);
-        break;
-      case 'codex_review_start':
-        handleCodexReviewStart(event as CodexReviewStartEvent);
-        break;
-      case 'codex_review_complete':
-        handleCodexReviewComplete(event as CodexReviewCompleteEvent);
-        break;
-      case 'log':
-        handleLog(event as LogEvent);
-        break;
-      case 'all_complete':
-        addLog(`All steps completed`, 'success', event.timestamp);
-        break;
-      case 'error':
-        addLog(`ERROR: ${(event as any).error}`, 'error', event.timestamp);
-        break;
-    }
-  }, []);
-
-  const { isConnected } = useWebSocket(handleEvent);
 
   function handleExecutionStarted(event: ExecutionStartedEvent) {
     setState((prev) => ({
@@ -431,6 +381,57 @@ function App() {
       return { ...prev, iterations: Array.from(newIterations) };
     });
   }
+
+  function handleEvent(event: OrchestratorEvent) {
+    console.log('Event:', event);
+
+    switch (event.type) {
+      case 'execution_started':
+        handleExecutionStarted(event as ExecutionStartedEvent);
+        break;
+      case 'state_sync':
+        handleStateSync(event as StateSyncEvent);
+        break;
+      case 'step_start':
+        handleStepStart(event as StepStartEvent);
+        break;
+      case 'step_complete':
+        handleStepComplete(event as StepCompleteEvent);
+        break;
+      case 'iteration_start':
+        handleIterationStart(event as IterationStartEvent);
+        break;
+      case 'iteration_complete':
+        handleIterationComplete(event as IterationCompleteEvent);
+        break;
+      case 'issue_found':
+        handleIssueFound(event as IssueFoundEvent);
+        break;
+      case 'issue_resolved':
+        handleIssueResolved(event as IssueResolvedEvent);
+        break;
+      case 'github_check':
+        handleGitHubCheck(event as GitHubCheckEvent);
+        break;
+      case 'codex_review_start':
+        handleCodexReviewStart(event as CodexReviewStartEvent);
+        break;
+      case 'codex_review_complete':
+        handleCodexReviewComplete(event as CodexReviewCompleteEvent);
+        break;
+      case 'log':
+        handleLog(event as LogEvent);
+        break;
+      case 'all_complete':
+        addLog(`All steps completed`, 'success', event.timestamp);
+        break;
+      case 'error':
+        addLog(`ERROR: ${(event as ErrorEvent).error}`, 'error', event.timestamp);
+        break;
+    }
+  }
+
+  const { isConnected } = useWebSocket(handleEvent);
 
   return (
     <div className="container">

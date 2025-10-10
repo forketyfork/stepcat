@@ -1,3 +1,4 @@
+import React from 'react';
 import { Step, Iteration, Issue } from '../types/events';
 import { IterationsContainer } from './IterationsContainer';
 import './StepCard.css';
@@ -38,12 +39,25 @@ export function StepCard({
   const statusIcon = isCompleted ? '✓' : isActive ? '⟳' : isFailed ? '✗' : '◯';
   const statusText = isCompleted ? 'Complete' : isActive ? 'In Progress' : isFailed ? 'Failed' : 'Pending';
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onToggle();
+    }
+  };
+
   return (
     <div
       className={`step-card ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
       style={{ animationDelay: `${animationDelay}s` }}
     >
-      <div className="step-header step-header-clickable" onClick={onToggle}>
+      <div
+        className="step-header step-header-clickable"
+        onClick={onToggle}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+      >
         <div className="step-number">{step.stepNumber}</div>
         <div className="step-title">{step.title}</div>
         <div className="step-meta">
