@@ -108,7 +108,7 @@ Implement the feature
   describe('resume execution', () => {
     it('should resume from existing execution ID', async () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step1 = db.createStep(plan.id, 1, 'Setup');
       const step2 = db.createStep(plan.id, 2, 'Implementation');
       db.updateStepStatus(step1.id, 'completed');

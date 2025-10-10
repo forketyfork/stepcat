@@ -37,7 +37,7 @@ Setup the project
   describe('database existence check', () => {
     it('should verify database exists at expected path', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       db.close();
 
       const dbPath = resolve(tempDir, '.stepcat', 'executions.db');
@@ -53,7 +53,7 @@ Setup the project
   describe('execution ID lookup', () => {
     it('should retrieve plan from database with valid execution ID', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
 
       const retrieved = db.getPlan(plan.id);
 
@@ -79,7 +79,7 @@ Setup the project
   describe('work directory validation', () => {
     it('should detect when work directories match', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       db.close();
 
       const dbWorkDir = resolve(plan.workDir);
@@ -90,7 +90,7 @@ Setup the project
 
     it('should detect when work directories mismatch', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, '/different/path');
+      const plan = db.createPlan(planFile, '/different/path', 'test-owner', 'test-repo');
       db.close();
 
       const dbWorkDir = resolve(plan.workDir);
@@ -103,7 +103,7 @@ Setup the project
   describe('plan file validation', () => {
     it('should detect when plan files match', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       db.close();
 
       const providedPlanFile = resolve(planFile);
@@ -114,7 +114,7 @@ Setup the project
 
     it('should detect when plan files mismatch', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan('/original/plan.md', tempDir);
+      const plan = db.createPlan('/original/plan.md', tempDir, 'test-owner', 'test-repo');
       db.close();
 
       const providedPlanFile = resolve('/different/plan.md');

@@ -41,7 +41,7 @@ Implement new features with proper error handling.
       expect(steps[1].title).toBe('Add Features');
 
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
 
       expect(plan.id).toBeGreaterThan(0);
 
@@ -62,7 +62,7 @@ Implement new features with proper error handling.
       const steps = parser.parseSteps();
 
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, steps[0].number, steps[0].title);
 
       const iteration = db.createIteration(step.id, 1, 'implementation');
@@ -84,7 +84,7 @@ Implement new features with proper error handling.
 
     it('should track issues across iterations', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
 
       const iteration1 = db.createIteration(step.id, 1, 'implementation');
@@ -129,7 +129,7 @@ Implement new features with proper error handling.
       const steps = parser.parseSteps();
 
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
 
       for (const step of steps) {
         db.createStep(plan.id, step.number, step.title);
@@ -155,7 +155,7 @@ Implement new features with proper error handling.
 
     it('should handle multiple iterations per step', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Complex Step');
 
       db.createIteration(step.id, 1, 'implementation');
@@ -175,7 +175,7 @@ Implement new features with proper error handling.
 
     it('should maintain referential integrity', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
       const iteration = db.createIteration(step.id, 1, 'implementation');
       const issue = db.createIssue(iteration.id, 'codex_review', 'Test issue');
@@ -192,7 +192,7 @@ Implement new features with proper error handling.
   describe('error scenarios', () => {
     it('should handle step status transitions', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
 
       expect(step.status).toBe('pending');
@@ -210,7 +210,7 @@ Implement new features with proper error handling.
 
     it('should handle failed step status', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
 
       db.updateStepStatus(step.id, 'in_progress');
@@ -226,7 +226,7 @@ Implement new features with proper error handling.
   describe('state persistence', () => {
     it('should persist all data to disk', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
       const iteration = db.createIteration(step.id, 1, 'implementation');
       db.updateIteration(iteration.id, { commitSha: 'xyz789', status: 'completed' });
@@ -252,7 +252,7 @@ Implement new features with proper error handling.
       const steps = parser.parseSteps();
 
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
 
       const dbStep1 = db.createStep(plan.id, steps[0].number, steps[0].title);
       const dbStep2 = db.createStep(plan.id, steps[1].number, steps[1].title);
@@ -269,7 +269,7 @@ Implement new features with proper error handling.
 
     it('should track multiple issue types', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
       const iteration = db.createIteration(step.id, 1, 'implementation');
 

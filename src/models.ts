@@ -2,6 +2,8 @@ export interface Plan {
   id: number;
   planFilePath: string;
   workDir: string;
+  owner: string;
+  repo: string;
   createdAt: string;
 }
 
@@ -24,6 +26,7 @@ export interface Iteration {
   claudeLog: string | null;
   codexLog: string | null;
   buildStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | null;
+  reviewStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | null;
   status: 'in_progress' | 'completed' | 'failed';
   createdAt: string;
   updatedAt: string;

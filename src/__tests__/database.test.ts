@@ -36,7 +36,7 @@ describe('Database', () => {
 
   describe('plan operations', () => {
     it('should create a plan', () => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
 
       expect(plan.id).toBeGreaterThan(0);
       expect(plan.planFilePath).toBe('/path/to/plan.md');
@@ -45,7 +45,7 @@ describe('Database', () => {
     });
 
     it('should retrieve a plan by id', () => {
-      const created = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const created = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const retrieved = db.getPlan(created.id);
 
       expect(retrieved).toEqual(created);
@@ -57,8 +57,8 @@ describe('Database', () => {
     });
 
     it('should create multiple plans', () => {
-      const plan1 = db.createPlan('/path/to/plan1.md', '/workdir1');
-      const plan2 = db.createPlan('/path/to/plan2.md', '/workdir2');
+      const plan1 = db.createPlan('/path/to/plan1.md', '/workdir1', 'test-owner', 'test-repo');
+      const plan2 = db.createPlan('/path/to/plan2.md', '/workdir2', 'test-owner2', 'test-repo2');
 
       expect(plan1.id).not.toBe(plan2.id);
       expect(db.getPlan(plan1.id)).toEqual(plan1);
@@ -70,7 +70,7 @@ describe('Database', () => {
     let planId: number;
 
     beforeEach(() => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       planId = plan.id;
     });
 
@@ -137,7 +137,7 @@ describe('Database', () => {
     let stepId: number;
 
     beforeEach(() => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
       stepId = step.id;
     });
@@ -227,7 +227,7 @@ describe('Database', () => {
     let stepId: number;
 
     beforeEach(() => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
       stepId = step.id;
       const iteration = db.createIteration(step.id, 1, 'implementation');
@@ -322,7 +322,7 @@ describe('Database', () => {
 
   describe('foreign key constraints', () => {
     it('should cascade delete steps when plan is deleted', () => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
 
       (db as any).db.prepare('DELETE FROM plans WHERE id = ?').run(plan.id);
@@ -332,7 +332,7 @@ describe('Database', () => {
     });
 
     it('should cascade delete iterations when step is deleted', () => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
       const iteration = db.createIteration(step.id, 1, 'implementation');
 
@@ -343,7 +343,7 @@ describe('Database', () => {
     });
 
     it('should cascade delete issues when iteration is deleted', () => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
       const iteration = db.createIteration(step.id, 1, 'implementation');
       db.createIssue(iteration.id, 'codex_review', 'Test issue');
@@ -359,7 +359,7 @@ describe('Database', () => {
     it('should support in-memory database for testing', () => {
       const memDb = new Database(':memory:', ':memory:');
 
-      const plan = memDb.createPlan('/plan.md', '/workdir');
+      const plan = memDb.createPlan('/plan.md', '/workdir', 'mem-owner', 'mem-repo');
       const step = memDb.createStep(plan.id, 1, 'Test');
 
       expect(step.title).toBe('Test');
@@ -370,7 +370,7 @@ describe('Database', () => {
 
   describe('bulk operations', () => {
     it('should handle multiple steps with same plan', () => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
 
       const steps = [];
       for (let i = 1; i <= 10; i++) {
@@ -384,7 +384,7 @@ describe('Database', () => {
     });
 
     it('should handle multiple iterations with same step', () => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
 
       for (let i = 1; i <= 5; i++) {
@@ -396,7 +396,7 @@ describe('Database', () => {
     });
 
     it('should handle multiple issues with same iteration', () => {
-      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir');
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
       const iteration = db.createIteration(step.id, 1, 'implementation');
 

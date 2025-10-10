@@ -97,7 +97,12 @@ export class Orchestrator {
       this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
     } else {
       this.log("Starting new execution", "info");
-      this.plan = this.database.createPlan(this.planFile, this.workDir);
+      this.plan = this.database.createPlan(
+        this.planFile,
+        this.workDir,
+        this.githubChecker.getOwner(),
+        this.githubChecker.getRepo()
+      );
       this.log(`Created new execution with ID: ${this.plan.id}`, "success");
 
       const parsedSteps = this.parser.parseSteps();
@@ -436,6 +441,8 @@ export class Orchestrator {
           codexPrompt = PROMPTS.codexReviewCodeFixes(openIssues);
         }
 
+        this.database.updateIteration(previousIteration.id, { reviewStatus: 'in_progress' });
+
         this.eventEmitter.emit("event", {
           type: "codex_review_start",
           timestamp: Date.now(),
@@ -453,7 +460,10 @@ export class Orchestrator {
 
         const reviewResult = this.codexRunner.parseCodexOutput(codexOutput.output);
 
-        this.database.updateIteration(previousIteration.id, { codexLog: codexOutput.output });
+        this.database.updateIteration(previousIteration.id, {
+          codexLog: codexOutput.output,
+          reviewStatus: reviewResult.result === 'PASS' ? 'passed' : 'failed',
+        });
 
         this.eventEmitter.emit("event", {
           type: "codex_review_complete",

@@ -590,7 +590,7 @@ export class WebServer {
       color: var(--gray-700);
     }
 
-    .build-status-badge {
+    .build-status-badge, .review-status-badge {
       display: inline-flex;
       align-items: center;
       gap: 0.25rem;
@@ -599,25 +599,31 @@ export class WebServer {
       padding: 0.25rem 0.5rem;
       border-radius: 0.25rem;
       white-space: nowrap;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
     }
 
-    .build-status-badge.pending {
+    .build-status-badge:hover, .review-status-badge:hover {
+      opacity: 0.8;
+    }
+
+    .build-status-badge.pending, .review-status-badge.pending {
       background: var(--orange-100);
       color: var(--orange-500);
     }
 
-    .build-status-badge.in_progress {
+    .build-status-badge.in_progress, .review-status-badge.in_progress {
       background: var(--orange-100);
       color: var(--orange-500);
       animation: pulse 2s ease-in-out infinite;
     }
 
-    .build-status-badge.passed {
+    .build-status-badge.passed, .review-status-badge.passed {
       background: var(--green-100);
       color: var(--green-500);
     }
 
-    .build-status-badge.failed {
+    .build-status-badge.failed, .review-status-badge.failed {
       background: var(--red-100);
       color: var(--red-500);
     }
@@ -955,7 +961,9 @@ export class WebServer {
       completedSteps: 0,
       remainingSteps: 0,
       expandedSteps: new Set(),
-      expandedIterations: new Set()
+      expandedIterations: new Set(),
+      owner: '',
+      repo: ''
     };
 
     function loadExpansionState() {
@@ -1089,6 +1097,8 @@ export class WebServer {
 
     function handleStateSync(event) {
       state.plan = event.plan;
+      state.owner = event.plan.owner || '';
+      state.repo = event.plan.repo || '';
       state.steps.clear();
       state.iterations.clear();
       state.issues.clear();
@@ -1249,10 +1259,24 @@ export class WebServer {
     }
 
     function handleCodexReviewStart(event) {
+      if (event.iterationId) {
+        const iteration = state.iterations.get(event.iterationId);
+        if (iteration) {
+          iteration.reviewStatus = 'in_progress';
+          renderSteps();
+        }
+      }
       addLog(\`Codex review starting (\${event.promptType})...\`, 'info', event.timestamp);
     }
 
     function handleCodexReviewComplete(event) {
+      if (event.iterationId) {
+        const iteration = state.iterations.get(event.iterationId);
+        if (iteration) {
+          iteration.reviewStatus = event.result === 'PASS' ? 'passed' : 'failed';
+          renderSteps();
+        }
+      }
       const statusMsg = event.result === 'PASS'
         ? \`Codex review passed (\${event.issueCount} issues)\`
         : \`Codex review failed (\${event.issueCount} issues)\`;
@@ -1388,7 +1412,23 @@ export class WebServer {
           const statusLabel = iteration.buildStatus === 'in_progress' ? 'Building' :
                              iteration.buildStatus === 'passed' ? 'Build OK' :
                              iteration.buildStatus === 'failed' ? 'Build Failed' : 'Pending';
-          buildStatusBadge = \`<span class="build-status-badge \${iteration.buildStatus}">\${icon} \${statusLabel}</span>\`;
+          const githubUrl = \`https://github.com/\${state.owner}/\${state.repo}/commit/\${iteration.commitSha}/checks\`;
+          buildStatusBadge = \`<a href="\${githubUrl}" target="_blank" class="build-status-badge \${iteration.buildStatus}" onclick="event.stopPropagation()">\${icon} \${statusLabel}</a>\`;
+        }
+
+        let reviewStatusBadge = '';
+        if (iteration.reviewStatus) {
+          const reviewStatusIcons = {
+            'pending': '🔍',
+            'in_progress': '🔍',
+            'passed': '✓',
+            'failed': '✗'
+          };
+          const icon = reviewStatusIcons[iteration.reviewStatus] || '';
+          const statusLabel = iteration.reviewStatus === 'in_progress' ? 'Reviewing' :
+                             iteration.reviewStatus === 'passed' ? 'Review OK' :
+                             iteration.reviewStatus === 'failed' ? 'Review Failed' : 'Pending';
+          reviewStatusBadge = \`<span class="review-status-badge \${iteration.reviewStatus}">\${icon} \${statusLabel}</span>\`;
         }
 
         return \`
@@ -1402,6 +1442,7 @@ export class WebServer {
               <div style="display: flex; align-items: center; gap: 0.5rem;">
                 \${iteration.commitSha ? \`<span class="commit-sha">\${iteration.commitSha.substring(0, 7)}</span>\` : ''}
                 \${buildStatusBadge}
+                \${reviewStatusBadge}
                 <span style="font-size: 0.75rem; color: var(--gray-600);">\${issueIds.length} issue\${issueIds.length !== 1 ? 's' : ''}</span>
                 <span class="expand-icon \${isExpanded ? 'expanded' : ''}">▸</span>
               </div>

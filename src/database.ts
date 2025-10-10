@@ -34,6 +34,8 @@ export class Database {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         planFilePath TEXT NOT NULL,
         workDir TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        repo TEXT NOT NULL,
         createdAt TEXT NOT NULL
       );
 
@@ -57,6 +59,7 @@ export class Database {
         claudeLog TEXT,
         codexLog TEXT,
         buildStatus TEXT CHECK(buildStatus IN ('pending', 'in_progress', 'passed', 'failed')),
+        reviewStatus TEXT CHECK(reviewStatus IN ('pending', 'in_progress', 'passed', 'failed')),
         status TEXT NOT NULL CHECK(status IN ('in_progress', 'completed', 'failed')),
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
@@ -81,16 +84,18 @@ export class Database {
     `);
   }
 
-  createPlan(planFilePath: string, workDir: string): Plan {
+  createPlan(planFilePath: string, workDir: string, owner: string, repo: string): Plan {
     const createdAt = new Date().toISOString();
     const stmt = this.db.prepare(
-      'INSERT INTO plans (planFilePath, workDir, createdAt) VALUES (?, ?, ?)'
+      'INSERT INTO plans (planFilePath, workDir, owner, repo, createdAt) VALUES (?, ?, ?, ?, ?)'
     );
-    const result = stmt.run(planFilePath, workDir, createdAt);
+    const result = stmt.run(planFilePath, workDir, owner, repo, createdAt);
     return {
       id: result.lastInsertRowid as number,
       planFilePath,
       workDir,
+      owner,
+      repo,
       createdAt,
     };
   }
@@ -143,6 +148,7 @@ export class Database {
       claudeLog: null,
       codexLog: null,
       buildStatus: null,
+      reviewStatus: null,
       status: 'in_progress',
       createdAt: now,
       updatedAt: now,
@@ -174,6 +180,10 @@ export class Database {
     if (updates.buildStatus !== undefined) {
       fields.push('buildStatus = ?');
       values.push(updates.buildStatus);
+    }
+    if (updates.reviewStatus !== undefined) {
+      fields.push('reviewStatus = ?');
+      values.push(updates.reviewStatus);
     }
     if (updates.status !== undefined) {
       fields.push('status = ?');
