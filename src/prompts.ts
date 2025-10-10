@@ -72,30 +72,6 @@ Stage: code review fix
 ---
 `,
 
-  // @deprecated Use codexReviewImplementation, codexReviewBuildFix, or codexReviewCodeFixes instead
-  codexReview: (
-    stepNumber: number,
-    planFilePath: string,
-  ) => `Please review the last commit in this repository implementing Step ${stepNumber} of the plan ${planFilePath}
-
-Identify the exact issues with this implementation (bugs, defects, shortcomings, useless or excessive code, tests that don't really test anything, etc.), if any, and output a numbered list of the issues with proposals on how to fix them.
-
-Do not report on issues that are to be fixed in the next steps of the plan. Do not report on good parts of the code or that the code conforms to the implementation, output issues only.
-
-IMPORTANT OUTPUT FORMAT:
-- If you found issues, start your response with exactly: [STEPCAT_REVIEW_RESULT: FAIL]
-- If you see no issues, start your response with exactly: [STEPCAT_REVIEW_RESULT: PASS]
-- Follow the marker with your detailed findings (or "No issues found" if passing)
-
-Example with issues:
-[STEPCAT_REVIEW_RESULT: FAIL]
-1. Missing error handling in function X...
-2. Test Y doesn't validate edge cases...
-
-Example without issues:
-[STEPCAT_REVIEW_RESULT: PASS]
-No issues found`,
-
   codexReviewImplementation: (
     stepNumber: number,
     stepTitle: string,

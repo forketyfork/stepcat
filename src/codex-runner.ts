@@ -1,7 +1,6 @@
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { resolve } from "path";
-import { PROMPTS } from "./prompts";
 
 export interface CodexRunOptions {
   workDir: string;
@@ -114,10 +113,6 @@ export class CodexRunner {
     return { success: true, output: result.output };
   }
 
-  buildReviewPrompt(stepNumber: number, planFilePath: string): string {
-    return PROMPTS.codexReview(stepNumber, planFilePath);
-  }
-
   parseCodexOutput(rawOutput: string): CodexReviewResult {
     const trimmedOutput = rawOutput.trim();
 
@@ -138,34 +133,13 @@ export class CodexRunner {
     }
 
     console.warn('Failed to parse Codex output as JSON');
-    console.warn('Attempting fallback patterns for backward compatibility...');
-
-    const normalizedOutput = rawOutput.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-
-    const noIssuesPatterns = [
-      /\bno issues found\b/,
-      /\bno issues detected\b/,
-      /\bno issues identified\b/,
-      /\bthere are no issues\b/,
-      /\bthere were no issues\b/,
-    ];
-
-    const hasIssuesList = /^\d+\s*\./m.test(rawOutput) || /^-\s+/m.test(rawOutput);
-
-    const hasNoIssues = !hasIssuesList && noIssuesPatterns.some(pattern =>
-      pattern.test(normalizedOutput)
-    );
-
-    if (hasNoIssues) {
-      return { result: 'PASS', issues: [] };
-    }
 
     return {
       result: 'FAIL',
       issues: [{
         file: 'unknown',
         severity: 'error',
-        description: `Failed to parse Codex output as JSON or match legacy patterns.\n\nRaw output:\n${rawOutput.substring(0, 500)}`,
+        description: `Failed to parse Codex output as JSON.\n\nRaw output:\n${rawOutput.substring(0, 500)}`,
       }],
     };
   }
