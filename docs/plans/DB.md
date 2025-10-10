@@ -421,7 +421,7 @@ async run() {
 - TypeScript compilation succeeds
 - Integration test: Run through a simple 2-step plan and verify DB state
 
-## Step 8: Update CLI for Execution ID Support
+## Step 8: Update CLI for Execution ID Support [done]
 
 ### Status Quo
 
