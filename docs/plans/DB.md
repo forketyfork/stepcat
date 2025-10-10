@@ -2,7 +2,7 @@
 
 This plan migrates Stepcat from file-based state tracking to a SQLite database-driven approach with granular iteration and issue tracking.
 
-## Step 1: Add SQLite Database Dependency
+## Step 1: Add SQLite Database Dependency [done]
 
 ### Status Quo
 
