@@ -263,7 +263,7 @@ export class Orchestrator {
           timeoutMinutes: this.agentTimeoutMinutes,
         });
 
-        if (!result.commitSha) {
+        if (!result || !result.commitSha) {
           this.database.updateIteration(iteration.id, { status: 'failed' });
           this.eventEmitter.emit("event", {
             type: "error",
@@ -347,7 +347,7 @@ export class Orchestrator {
             timeoutMinutes: this.agentTimeoutMinutes,
           });
 
-          if (!result.commitSha) {
+          if (!result || !result.commitSha) {
             this.database.updateIteration(iteration.id, { status: 'failed' });
             this.eventEmitter.emit("event", {
               type: "error",
@@ -484,7 +484,7 @@ export class Orchestrator {
             timeoutMinutes: this.agentTimeoutMinutes,
           });
 
-          if (!result.commitSha) {
+          if (!result || !result.commitSha) {
             this.database.updateIteration(iteration.id, { status: 'failed' });
             this.eventEmitter.emit("event", {
               type: "error",
@@ -563,6 +563,8 @@ export class Orchestrator {
     this.log("\n" + "═".repeat(80));
     this.log("✓✓✓ ALL STEPS COMPLETED SUCCESSFULLY ✓✓✓", "success");
     this.log("═".repeat(80));
+
+    this.database.close();
 
     return this.plan.id;
   }
