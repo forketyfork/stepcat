@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Stepcat is a step-by-step agent orchestration solution that automates multi-step development plans using Claude Code (for implementation) and Codex (for code review). It parses a markdown plan file, implements each step via Claude Code, waits for GitHub Actions to pass, uses Codex to review the code, and then moves to the next step.
+Stepcat is a step-by-step agent orchestration solution that automates multi-step development plans using Claude Code (for implementation) and Codex (for code review). It uses a SQLite database to track execution state, iterations, and issues. For each step, it implements code via Claude Code, waits for GitHub Actions to pass, uses Codex to review the code with structured JSON output, and iterates until the step is complete.
 
-**Key Principle**: One commit per step. All fixes (build and review) are applied via `git commit --amend`, and plan file phase markers are amended into the step commit. This ensures a clean, linear git history.
+**Key Principle**: One commit per iteration (not per step) for complete audit trail. Each Claude Code execution creates a separate git commit, providing full transparency and traceability throughout the development process.
 
 ## Common Commands
 
@@ -23,7 +23,8 @@ just ci             # Run full CI check (lint + test + build)
 ### npm Scripts
 ```bash
 npm run build       # Compile TypeScript to dist/
-npm run dev         # Run with ts-node (pass args with --)
+npm run dev         # Run with ts-node (requires TypeScript sources, development setup only)
+npm run start       # Run from built dist/ (works without TypeScript sources)
 npm test            # Run Jest
 npm run lint        # Run ESLint
 ```
@@ -34,10 +35,19 @@ just install-local      # Build and npm link for local testing
 just uninstall-local    # Remove npm link
 ```
 
-### Web UI
+### Execution
 ```bash
-# Launch with web UI (opens browser automatically)
+# Start new execution (prints execution ID)
+stepcat --file plan.md --dir /path/to/project
+
+# Start with web UI (opens browser automatically)
 stepcat --file plan.md --dir /path/to/project --ui
+
+# Resume existing execution
+stepcat --execution-id 123
+
+# Resume with web UI
+stepcat --execution-id 123 --ui
 
 # Custom port without auto-open
 stepcat --file plan.md --dir /path/to/project --ui --port 8080 --no-auto-open
@@ -45,41 +55,100 @@ stepcat --file plan.md --dir /path/to/project --ui --port 8080 --no-auto-open
 
 ## Architecture
 
+### Database Schema
+
+Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in the work directory. The database has four main tables:
+
+**Plan Table**:
+- `id` (INTEGER PRIMARY KEY): Unique execution identifier
+- `planFilePath` (TEXT): Path to the plan markdown file
+- `workDir` (TEXT): Working directory for the execution
+- `createdAt` (TEXT): ISO timestamp of execution start
+
+**Step Table**:
+- `id` (INTEGER PRIMARY KEY): Unique step identifier
+- `planId` (INTEGER): Foreign key to plan
+- `stepNumber` (INTEGER): Step number from plan file
+- `title` (TEXT): Step title
+- `status` (TEXT): 'pending' | 'in_progress' | 'completed' | 'failed'
+- `createdAt` (TEXT): ISO timestamp
+- `updatedAt` (TEXT): ISO timestamp
+
+**Iteration Table**:
+- `id` (INTEGER PRIMARY KEY): Unique iteration identifier
+- `stepId` (INTEGER): Foreign key to step
+- `iterationNumber` (INTEGER): Sequential number within step
+- `type` (TEXT): 'implementation' | 'build_fix' | 'review_fix'
+- `commitSha` (TEXT | NULL): Git commit SHA created by this iteration
+- `claudeLog` (TEXT | NULL): Full Claude Code output/logs
+- `codexLog` (TEXT | NULL): Full Codex review output
+- `status` (TEXT): 'in_progress' | 'completed' | 'failed'
+- `createdAt` (TEXT): ISO timestamp
+- `updatedAt` (TEXT): ISO timestamp
+
+**Issue Table**:
+- `id` (INTEGER PRIMARY KEY): Unique issue identifier
+- `iterationId` (INTEGER): Foreign key to iteration where issue was found
+- `type` (TEXT): 'ci_failure' | 'codex_review'
+- `description` (TEXT): Issue description
+- `filePath` (TEXT | NULL): File where issue occurred
+- `lineNumber` (INTEGER | NULL): Line number where issue occurred
+- `severity` (TEXT | NULL): 'error' | 'warning'
+- `status` (TEXT): 'open' | 'fixed'
+- `createdAt` (TEXT): ISO timestamp
+- `resolvedAt` (TEXT | NULL): ISO timestamp when marked fixed
+
+**Execution ID**: The plan ID serves as the execution ID and can be used to resume executions with `--execution-id <id>`.
+
 ### Core Components
 
-**Orchestrator** (`src/orchestrator.ts`): Main coordinator that drives the entire process
-- Parses steps once at startup (manual edits during execution won't be reflected until next run)
-- Enforces "one commit per step" policy via `amendPlanFileAndPush()` method
-- For each pending step:
-  1. **Implementation Phase**: Invokes Claude Code to create initial commit, amends `[implementation]` marker into commit, pushes
-  2. **Build Verification Phase**: Waits for GitHub Actions, retries fixes if needed (up to `maxBuildAttempts`). Fixes amend the commit.
-  3. **Code Review Phase**: Amends `[review]` marker, runs Codex review with structured result detection, Claude Code amends fixes if needed
-  4. **Completion**: Amends `[done]` marker into commit and pushes
-- Configuration: `OrchestratorConfig` includes timeouts, max attempts, paths, event emitter, silent mode
-- Emits events via `OrchestratorEventEmitter` for real-time UI updates
+**Orchestrator** (`src/orchestrator.ts`): Main coordinator that implements iteration loop logic
+- Uses Database for state persistence and never modifies plan file
+- Creates separate commits for each Claude execution (not amending)
+- For each step, runs iteration loop:
+  1. **Initial Implementation**: Claude creates commit, push, wait for CI
+  2. **Build Verification**: If CI fails, create build_fix iteration, Claude fixes and creates new commit, push, repeat
+  3. **Code Review**: Run Codex with context-specific prompt (implementation/build_fix/review_fix), parse JSON output
+  4. **Review Fixes**: If issues found, create review_fix iteration, Claude fixes and creates new commit, push, repeat from build verification
+  5. **Completion**: When Codex passes and CI passes, mark step complete
+- Configuration: `OrchestratorConfig` includes executionId (for resume), maxIterationsPerStep (default 10), database path, timeouts, event emitter, silent mode
+- Emits granular events for iterations and issues via `OrchestratorEventEmitter` for real-time UI updates
 - Supports `silent` mode for web UI (suppresses console.log, only emits events)
 - All pushes handled by orchestrator; agents never push
 
+**Database** (`src/database.ts`): SQLite database management
+- Initializes database at `.stepcat/executions.db` in work directory
+- Creates schema with four tables: plan, step, iteration, issue
+- CRUD methods for all entities with proper type safety
+- Methods include: `createPlan()`, `getSteps()`, `updateStepStatus()`, `createIteration()`, `updateIteration()`, `createIssue()`, `getOpenIssues()`, etc.
+- Handles foreign key constraints and transactions
+- Used by Orchestrator for all state persistence
+
 **StepParser** (`src/step-parser.ts`): Parses markdown plan files
 - Expects format: `## Step N: Title` (case-insensitive)
-- Completed steps marked with `[done]` suffix: `## Step 1: Setup [done]`
+- Returns sorted array of `Step` objects with `{number, title, fullHeader}`
 - Validates no duplicate step numbers
-- Returns sorted array of `Step` objects with `{number, title, fullHeader, isDone}`
+- Used once at startup to populate database with steps
 
-**ClaudeRunner** (`src/claude-runner.ts`): Executes Claude Code
+**ClaudeRunner** (`src/claude-runner.ts`): Executes Claude Code and captures commit SHA
 - Locates binary at `../node_modules/.bin/claude`
 - Runs with `--print`, `--verbose`, `--add-dir`, `--permission-mode acceptEdits` flags
 - Uses async `spawn` with stdin for prompt and configurable timeout
 - Inherits stdout/stderr for real-time streaming output
-- Validates commit count from baseline to enforce "one commit per step" policy
+- After execution, captures commit SHA via `git rev-parse HEAD`
+- Returns `{ success: boolean; commitSha: string | null }`
+- No longer enforces commit amending (creates new commits instead)
 - Three prompt types: implementation, buildFix, reviewFix (see `src/prompts.ts`)
-- Accepts optional `baselineCommit` parameter for fix operations to enforce amend behavior
 
-**CodexRunner** (`src/codex-runner.ts`): Executes Codex for code review
+**CodexRunner** (`src/codex-runner.ts`): Executes Codex for code review with JSON parsing
 - Locates binary at `../node_modules/.bin/codex`
 - Runs with `exec` subcommand
 - Captures stdout for review output
-- Review prompt includes plan context
+- `parseCodexOutput()` method extracts structured JSON from review output
+- Handles JSON wrapped in markdown code blocks
+- Returns `CodexReviewResult` with `result` ('PASS' | 'FAIL') and `issues` array
+- Falls back gracefully if JSON parsing fails
+- Three context-specific prompts for different iteration types (see `src/prompts.ts`)
 
 **GitHubChecker** (`src/github-checker.ts`): Monitors GitHub Actions
 - Uses Octokit to poll check runs via GitHub API
@@ -88,69 +157,99 @@ stepcat --file plan.md --dir /path/to/project --ui --port 8080 --no-auto-open
 - Expects format: `github.com[:/]owner/repo`
 - Returns true if all checks pass/skip, false otherwise
 
-**Prompts** (`src/prompts.ts`): All agent prompts
-- `implementation(stepNumber, planContent)`: Claude Code implementation task (creates initial commit)
-- `buildFix(buildErrors)`: Fix build failures and amend commit
-- `reviewFix(reviewComments)`: Address Codex review feedback and amend commit
-- `codexReview(planFilePath)`: Review last commit with plan context; uses structured markers `[STEPCAT_REVIEW_RESULT: PASS/FAIL]` for reliable detection
+**Prompts** (`src/prompts.ts`): All agent prompts with explicit instructions to create new commits
+- **Claude Code prompts** (all explicitly instruct NOT to use `git commit --amend` and NOT to push):
+  - `implementation(stepNumber, planFilePath)`: Initial implementation task pointing to plan file path, creates new commit
+  - `buildFix(buildErrors)`: Fix build failures, creates new commit
+  - `reviewFix(reviewComments)`: Address Codex review feedback, creates new commit
+- **Codex prompts** (all request JSON output with consistent schema):
+  - `codexReviewImplementation(stepNumber, stepTitle, planContent)`: Review initial implementation
+  - `codexReviewBuildFix(buildErrors)`: Verify build fixes address the failures
+  - `codexReviewCodeFixes(issues)`: Verify code fixes address review issues
+  - All Codex prompts request JSON: `{"result": "PASS"|"FAIL", "issues": [{file, line?, severity, description}]}`
 
-**Events** (`src/events.ts`): Event system for real-time UI updates
+**Events** (`src/events.ts`): Event system for real-time UI updates with granular iteration tracking
 - `OrchestratorEventEmitter`: EventEmitter subclass with typed events
-- Event types: `init`, `step_start`, `step_complete`, `phase_start`, `phase_complete`, `log`, `github_check`, `build_attempt`, `review_start`, `review_complete`, `all_complete`, `error`
+- Event types include:
+  - Step events: `step_start`, `step_complete`
+  - Iteration events: `iteration_start`, `iteration_complete`
+  - Issue events: `issue_found`, `issue_resolved`
+  - Review events: `codex_review_start`, `codex_review_complete`
+  - Build events: `github_check` (includes `iterationId` when available)
+  - State events: `state_sync` (full state on WebSocket connect), `all_complete`, `error`, `log`
 - All events include timestamp and type discriminator
+- Events carry context like stepId, iterationId, issueId for precise UI updates
 
-**WebServer** (`src/web-server.ts`): HTTP server with WebSocket support
+**WebServer** (`src/web-server.ts`): HTTP server with WebSocket support and hierarchical UI
 - Express server serving embedded HTML/CSS/JS
 - WebSocket server for real-time event broadcasting
+- On new WebSocket connection, emits `state_sync` event with full current state from database
 - Embedded beautiful purple/pastel UI with animations
-- Features: step tracking, phase indicators, GitHub status, activity log, review progress indicators
+- **Hierarchical display**: Steps → Iterations → Issues with collapsible sections
+- Features: step tracking, iteration details (type, commit SHA), issue tracking (status, location), progress indicators
+- Color coding: pending (gray), in_progress (blue), completed (green), failed (red)
 - Auto-opens browser (configurable)
 - Default port: 3742 (configurable)
-- **Security**: All dynamic content (step titles, log messages) is HTML-escaped via `escapeHtml()` to prevent XSS attacks
+- **Security**: All dynamic content (step titles, issue descriptions, file paths, etc.) is HTML-escaped via `escapeHtml()` to prevent XSS attacks
 
 ### Key Behaviors
 
-**Git Commit Policy - One Commit Per Step**:
-- Each step results in exactly one commit in git history
-- Initial implementation creates the commit
-- All fixes (build and review) use `git commit --amend` to modify the existing commit
-- Plan file phase markers (`[implementation]`, `[review]`, `[done]`) are amended into the step commit
-- Orchestrator handles all pushes via `amendPlanFileAndPush()` method
-- Agents are explicitly instructed NOT to push (orchestrator does it after amending plan file)
-- This policy ensures clean, linear git history where each commit is a complete, tested, reviewed step
+**Git Commit Strategy - One Commit Per Iteration**:
+- Each Claude Code execution creates a separate git commit
+- Initial implementation creates Commit 1
+- Build fix creates Commit 2
+- Review fix iteration 1 creates Commit 3
+- Review fix iteration 2 creates Commit 4, etc.
+- This creates a complete audit trail with more commits per step
+- Trade-off: noisier git history, but full transparency and traceability
+- Orchestrator handles all git pushes; agents never push
+- No amending - all commits are separate
+- Each commit SHA is captured and stored in the database
 
-**Step Completion Tracking**:
-- Steps are marked with phase markers in the plan file: `[implementation]`, `[review]`, `[done]`
-- Phase markers are amended into the step commit (not separate commits)
-- On restart, Stepcat skips done steps and resumes from first pending
-- This enables fault tolerance and manual skip/rerun control
-- Example: `## Step 1: Setup Project [review]` means step is in review phase
+**Step Execution Flow**:
+1. **Initial Implementation**: Claude creates commit, orchestrator pushes and waits for GitHub Actions
+2. **Build Verification Loop**: If build fails, create build_fix iteration → Claude creates new commit → orchestrator pushes → repeat from step 2
+3. **Code Review**: Run Codex review with context-specific prompt (varies based on iteration type: implementation/build_fix/review_fix)
+4. **Review Fix Loop**: If Codex finds issues, parse JSON, save issues to DB, create review_fix iteration → Claude creates new commit → orchestrator pushes → repeat from step 2
+5. **Step Completion**: When Codex passes (result: 'PASS') and CI passes, mark step complete and move to next step
 
-**Build Fix Loop**:
-- If GitHub Actions fail, Claude Code is asked to fix and amend the commit
-- Retries up to `maxBuildAttempts` (default: 3)
-- Uses `git commit --amend` + `git push --force-with-lease` strategy
-- Orchestrator handles the push after agent amends
+**State Tracking**:
+- All execution state stored in SQLite database at `.stepcat/executions.db` in project work directory
+- Plan file is NEVER modified during execution
+- State includes: steps (with status), iterations (with logs and commit SHAs), issues (with resolution status)
+- Resume functionality: Stop execution at any time, restart later using `--execution-id`
+- Database persisted to disk in real-time as progress is made
+
+**Iteration and Issue Tracking**:
+- Each Claude execution is an iteration with: type ('implementation' | 'build_fix' | 'review_fix'), commit SHA, logs (Claude and Codex), status
+- Issues are extracted from CI failures and Codex JSON reviews
+- Issues stored with: file path, line number, severity ('error' | 'warning'), description, status ('open' | 'fixed')
+- Full traceability: Issue → Iteration that found it → Iteration that fixed it → Commit SHA
+- Max iterations per step: 10 (configurable via `maxIterationsPerStep` in OrchestratorConfig)
+- If max iterations exceeded, step marked as 'failed' and execution halts
 
 **Review Process**:
-- Orchestrator amends `[review]` marker into commit before review
-- Codex reviews last commit with full plan context
-- Uses structured markers for reliable detection (`reviewHasIssues()` method in `orchestrator.ts:331`):
-  - **Primary detection**: Looks for `[STEPCAT_REVIEW_RESULT: PASS]` or `[STEPCAT_REVIEW_RESULT: FAIL]` markers
-  - **Fallback detection**: Normalizes output (remove punctuation/whitespace) and checks multiple "no issues" patterns
-  - Backward compatible with legacy outputs like "no issues found", "no issues detected", etc.
-- If issues found, Claude Code addresses the feedback by amending the commit (not creating new commit)
-- Orchestrator pushes amended commit and verifies build still passes
+- Codex reviews use three context-specific prompts:
+  1. `codexReviewImplementation`: Reviews initial implementation commit
+  2. `codexReviewBuildFix`: Verifies build fixes address the CI failures
+  3. `codexReviewCodeFixes`: Verifies code fixes address previous review issues
+- All Codex prompts request structured JSON output: `{"result": "PASS"|"FAIL", "issues": [...]}`
+- JSON parsing with graceful fallback for malformed output
+- Issues are parsed and stored in database with full context
+- No text pattern matching - all detection based on JSON structure
 
 **Execution Model**:
-- Steps parsed once at startup (immutable during run)
+- State persisted to database in real-time
+- Resume support: can stop and restart execution at any time
 - Each phase is sequential: implement → build verify → review
 - No parallelization between steps
+- Steps are processed in order from first pending/in_progress step
 
 **Target Project Requirements**:
 - Must have `justfile` with `build`, `lint`, `test` commands
 - Must be a GitHub repo with Actions enabled
 - Must have remote origin pointing to GitHub
+- Must be executed from within the target project directory
 
 ## TypeScript Configuration
 
@@ -167,18 +266,24 @@ stepcat --file plan.md --dir /path/to/project --ui --port 8080 --no-auto-open
 
 ## Important Notes for Development
 
-1. **Git Commit Policy**: Maintain "one commit per step" - all fixes must use `git commit --amend`, never create new commits for fixes. Plan file updates are amended into the step commit by the orchestrator. Agents are instructed NOT to push (orchestrator handles it).
+1. **Git Commit Policy**: Maintain "one commit per iteration" - each Claude execution creates a NEW commit (never use `git commit --amend`). All commits are separate for full audit trail. Orchestrator handles all pushes; agents are instructed NOT to push.
 
-2. **Review Detection**: Use the `reviewHasIssues()` method which checks for structured markers first (`[STEPCAT_REVIEW_RESULT: PASS/FAIL]`), then falls back to normalized pattern matching. Never use simple substring matching for review results.
+2. **Database First**: All state is in the database. Plan file is never modified during execution. Use Database methods for all state operations. Database location: `.stepcat/executions.db` in work directory.
 
-3. **Prompt customization**: All agent prompts are in `src/prompts.ts` - modify there to change agent behavior. Prompts explicitly instruct agents NOT to push.
+3. **Review Detection**: Use `parseCodexOutput()` method in `codex-runner.ts` to parse JSON from Codex reviews. Handles markdown-wrapped JSON and malformed output gracefully. Returns structured `CodexReviewResult` with `result` and `issues` fields.
 
-4. **CLI entry point**: `src/cli.ts` has shebang added post-build by npm script
+4. **Prompt customization**: All agent prompts are in `src/prompts.ts` - modify there to change agent behavior. Claude prompts explicitly instruct to create new commits and NOT to push. Codex prompts request JSON output with consistent schema.
 
-5. **Error handling**: All runners throw on non-zero exit codes
+5. **Iteration Types**: Three types - 'implementation' (initial), 'build_fix' (CI failures), 'review_fix' (code review issues). Each type uses context-specific Codex review prompt.
 
-6. **Dependencies**: `@anthropic-ai/claude-code` and `@openai/codex` are required runtime deps (specified as wildcard "*")
+6. **CLI entry point**: A shebang is added to `dist/cli.js` by the postbuild script
 
-7. **GitHub token**: Must be provided via `--token` flag or `GITHUB_TOKEN` env var
+7. **Error handling**: All runners throw on non-zero exit codes
 
-8. **Web UI Security**: All dynamic content rendered in the UI must be HTML-escaped to prevent XSS. Use the `escapeHtml()` function for any user-controlled content (step titles, messages, etc.) before inserting into `innerHTML`
+8. **Dependencies**: Required runtime deps include `@anthropic-ai/claude-code`, `@openai/codex` (specified as wildcard "*"), `better-sqlite3` for database, and `@octokit/rest` for GitHub integration
+
+9. **GitHub token**: Must be provided via `--token` flag or `GITHUB_TOKEN` env var
+
+10. **Web UI Security**: All dynamic content rendered in the UI must be HTML-escaped to prevent XSS. Use the `escapeHtml()` function for any user-controlled content (step titles, issue descriptions, file paths, etc.) before inserting into `innerHTML`
+
+11. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database and continues from first pending/in_progress step.
