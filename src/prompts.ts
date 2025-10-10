@@ -22,8 +22,8 @@ Stage: implementation
 ---
 
 IMPORTANT:
+- Create a new commit for your changes. Do NOT use git commit --amend. Do NOT push to remote (the orchestrator will handle pushing)
 - Make sure to commit your changes before completing this task
-- DO NOT push to GitHub - the orchestrator will handle pushing
 - Do not modify the plan file yourself - the orchestrator will update phase markers`,
 
   buildFix: (
@@ -34,12 +34,11 @@ IMPORTANT:
 ${buildErrors}
 ---
 
-Please fix these errors and amend your previous commit.
+Please fix these errors.
 
 IMPORTANT:
-- Use git commit --amend to fix the previous commit
-- DO NOT push to GitHub - the orchestrator will handle pushing
-- Commit your changes by appending a clear commit message to an existing one, starting with relative file path and implementation step, e.g.:
+- Create a new commit for your changes. Do NOT use git commit --amend. Do NOT push to remote (the orchestrator will handle pushing)
+- Commit your changes with a clear commit message starting with relative file path and implementation step, e.g.:
 
 ---
 Plan: docs/plans/PLAN.md
@@ -61,10 +60,8 @@ ${reviewComments}
 Please review these comments and fix any legitimate issues.
 
 IMPORTANT:
-- If you make changes, use git commit --amend to amend the previous commit
-- There should be only one commit for this step
-- DO NOT push to GitHub - the orchestrator will handle pushing
-- Commit your changes by appending a clear commit message to an existing one, starting with relative file path and implementation step, e.g.:
+- Create a new commit for your changes. Do NOT use git commit --amend. Do NOT push to remote (the orchestrator will handle pushing)
+- Commit your changes with a clear commit message starting with relative file path and implementation step, e.g.:
 
 ---
 Plan: docs/plans/PLAN.md
@@ -75,6 +72,7 @@ Stage: code review fix
 ---
 `,
 
+  // @deprecated Use codexReviewImplementation, codexReviewBuildFix, or codexReviewCodeFixes instead
   codexReview: (
     stepNumber: number,
     planFilePath: string,
@@ -97,4 +95,118 @@ Example with issues:
 Example without issues:
 [STEPCAT_REVIEW_RESULT: PASS]
 No issues found`,
+
+  codexReviewImplementation: (
+    stepNumber: number,
+    stepTitle: string,
+    planContent: string,
+  ) => `This is the initial implementation of Step ${stepNumber}: ${stepTitle} from the following plan:
+
+---
+${planContent}
+---
+
+Review the last commit for code quality, correctness, and adherence to the plan.
+
+Respond with a JSON object in the following format:
+{
+  "result": "PASS" or "FAIL",
+  "issues": [
+    {
+      "file": "path/to/file",
+      "line": 123,
+      "severity": "error" or "warning",
+      "description": "detailed description of the issue"
+    }
+  ]
+}
+
+If there are no issues, return:
+{
+  "result": "PASS",
+  "issues": []
+}
+
+IMPORTANT:
+- Output ONLY valid JSON, no additional text or markdown formatting
+- The "line" field is optional and can be omitted if not applicable
+- Use "error" severity for critical issues, "warning" for suggestions
+- Be specific and actionable in issue descriptions`,
+
+  codexReviewBuildFix: (
+    buildErrors: string,
+  ) => `This commit attempts to fix the following build failures:
+
+---
+${buildErrors}
+---
+
+Review the last commit to verify it properly addresses the build issues.
+
+Respond with a JSON object in the following format:
+{
+  "result": "PASS" or "FAIL",
+  "issues": [
+    {
+      "file": "path/to/file",
+      "line": 123,
+      "severity": "error" or "warning",
+      "description": "detailed description of the issue"
+    }
+  ]
+}
+
+If there are no issues, return:
+{
+  "result": "PASS",
+  "issues": []
+}
+
+IMPORTANT:
+- Output ONLY valid JSON, no additional text or markdown formatting
+- The "line" field is optional and can be omitted if not applicable
+- Use "error" severity for critical issues, "warning" for suggestions
+- Be specific and actionable in issue descriptions
+- Focus on whether the build errors were properly fixed`,
+
+  codexReviewCodeFixes: (
+    issues: Array<{
+      file: string;
+      line?: number;
+      severity: string;
+      description: string;
+    }>,
+  ) => `This commit attempts to fix the following code review issues from the previous iteration:
+
+---
+${JSON.stringify(issues, null, 2)}
+---
+
+Review the last commit to verify it properly addresses these concerns.
+
+Respond with a JSON object in the following format:
+{
+  "result": "PASS" or "FAIL",
+  "issues": [
+    {
+      "file": "path/to/file",
+      "line": 123,
+      "severity": "error" or "warning",
+      "description": "detailed description of the issue"
+    }
+  ]
+}
+
+If there are no issues, return:
+{
+  "result": "PASS",
+  "issues": []
+}
+
+IMPORTANT:
+- Output ONLY valid JSON, no additional text or markdown formatting
+- The "line" field is optional and can be omitted if not applicable
+- Use "error" severity for critical issues, "warning" for suggestions
+- Be specific and actionable in issue descriptions
+- Focus on whether the previous issues were properly addressed`,
 };

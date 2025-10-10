@@ -110,7 +110,7 @@ Update `OrchestratorEventEmitter` class to support the new event types.
 - TypeScript compilation succeeds
 - No breaking changes to existing event consumers
 
-## Step 4: Update Prompts for New Architecture
+## Step 4: Update Prompts for New Architecture [done]
 
 ### Status Quo
 
