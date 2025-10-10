@@ -26,7 +26,7 @@ Add `better-sqlite3` as a project dependency to enable SQLite database functiona
 - `npm install` completes without errors
 - The project builds successfully with `npm run build`
 
-## Step 2: Create Database Models and Schema
+## Step 2: Create Database Models and Schema [done]
 
 ### Status Quo
 
