@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Header } from './components/Header';
 import { StatusBanner } from './components/StatusBanner';
 import { StepsContainer } from './components/StepsContainer';
-import { LogsContainer } from './components/LogsContainer';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import {
@@ -20,9 +19,7 @@ import {
   GitHubCheckEvent,
   CodexReviewStartEvent,
   CodexReviewCompleteEvent,
-  LogEvent,
   ExecutionStartedEvent,
-  ErrorEvent,
 } from './types/events';
 import './App.css';
 
@@ -34,15 +31,8 @@ interface AppState {
   steps: Map<number, Step>;
   iterations: Map<number, Iteration>;
   issues: Map<number, Issue>;
-  logs: LogEntry[];
   owner: string;
   repo: string;
-}
-
-interface LogEntry {
-  message: string;
-  level: 'info' | 'success' | 'warn' | 'error';
-  timestamp: number;
 }
 
 interface ExpansionState {
@@ -59,7 +49,6 @@ function App() {
     steps: new Map(),
     iterations: new Map(),
     issues: new Map(),
-    logs: [],
     owner: '',
     repo: '',
   });
@@ -77,8 +66,6 @@ function App() {
       ...prev,
       executionId: event.executionId.toString(),
     }));
-    const resumeText = event.isResume ? ' (resumed)' : ' (new)';
-    addLog(`Execution ${event.executionId}${resumeText} started`, 'success', event.timestamp);
   }
 
   function handleStateSync(event: StateSyncEvent) {
@@ -204,8 +191,6 @@ function App() {
         return { ...prev, steps: newSteps, iterations: newIterations };
       }
     });
-
-    addLog(`Iteration ${event.iterationNumber}: ${event.iterationType}`, 'info', event.timestamp);
   }
 
   function handleIterationComplete(event: IterationCompleteEvent) {
@@ -266,8 +251,6 @@ function App() {
 
       return prev;
     });
-
-    addLog(`Issue found: ${event.description}`, 'warn', event.timestamp);
   }
 
   function handleIssueResolved(event: IssueResolvedEvent) {
@@ -283,8 +266,6 @@ function App() {
       }
       return { ...prev, issues: newIssues };
     });
-
-    addLog('Issue resolved', 'success', event.timestamp);
   }
 
   function handleGitHubCheck(event: GitHubCheckEvent) {
@@ -323,7 +304,6 @@ function App() {
         return { ...prev, iterations: newIterations };
       });
     }
-    addLog(`Codex review starting (${event.promptType})...`, 'info', event.timestamp);
   }
 
   function handleCodexReviewComplete(event: CodexReviewCompleteEvent) {
@@ -340,22 +320,6 @@ function App() {
         return { ...prev, iterations: newIterations };
       });
     }
-    const statusMsg =
-      event.result === 'PASS'
-        ? `Codex review passed (${event.issueCount} issues)`
-        : `Codex review failed (${event.issueCount} issues)`;
-    addLog(statusMsg, event.result === 'PASS' ? 'success' : 'warn', event.timestamp);
-  }
-
-  function handleLog(event: LogEvent) {
-    addLog(event.message, event.level, event.timestamp);
-  }
-
-  function addLog(message: string, level: 'info' | 'success' | 'warn' | 'error', timestamp: number) {
-    setState((prev) => ({
-      ...prev,
-      logs: [...prev.logs, { message, level, timestamp }],
-    }));
   }
 
   function handleToggleStep(stepId: number) {
@@ -420,13 +384,10 @@ function App() {
         handleCodexReviewComplete(event as CodexReviewCompleteEvent);
         break;
       case 'log':
-        handleLog(event as LogEvent);
         break;
       case 'all_complete':
-        addLog(`All steps completed`, 'success', event.timestamp);
         break;
       case 'error':
-        addLog(`ERROR: ${(event as ErrorEvent).error}`, 'error', event.timestamp);
         break;
     }
   }
@@ -454,7 +415,6 @@ function App() {
         owner={state.owner}
         repo={state.repo}
       />
-      <LogsContainer logs={state.logs} />
     </div>
   );
 }

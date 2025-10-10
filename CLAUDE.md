@@ -225,7 +225,6 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
   - `components/StepsContainer.tsx`, `StepCard.tsx`: Step display and management
   - `components/IterationsContainer.tsx`, `Iteration.tsx`: Iteration tracking with badges
   - `components/IssuesContainer.tsx`, `Issue.tsx`: Issue display
-  - `components/LogsContainer.tsx`, `LogEntry.tsx`: Activity log
 
 ### Key Behaviors
 
