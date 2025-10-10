@@ -380,6 +380,10 @@ export class Orchestrator {
       }
 
       try {
+        execSync("git fetch", {
+          cwd: this.workDir,
+          stdio: "inherit",
+        });
         execSync("git push --force-with-lease", {
           cwd: this.workDir,
           stdio: "inherit",
@@ -503,6 +507,10 @@ export class Orchestrator {
     }
 
     try {
+      execSync("git fetch", {
+        cwd: this.workDir,
+        stdio: "inherit",
+      });
       execSync("git push --force-with-lease", {
         cwd: this.workDir,
         stdio: "inherit",
@@ -530,6 +538,10 @@ export class Orchestrator {
         stdio: "inherit",
       });
       execSync("git commit --amend --no-edit", {
+        cwd: this.workDir,
+        stdio: "inherit",
+      });
+      execSync("git fetch", {
         cwd: this.workDir,
         stdio: "inherit",
       });
