@@ -196,7 +196,7 @@ Remove commit count validation and baseline enforcement. Add logic to capture th
 - Existing tests are updated to reflect new signature
 - Manual test: Run Claude and verify commit SHA is correctly captured
 
-## Step 6: Update CodexRunner with JSON Parsing
+## Step 6: Update CodexRunner with JSON Parsing [done]
 
 ### Status Quo
 
