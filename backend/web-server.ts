@@ -43,10 +43,7 @@ export class WebServer {
   }
 
   private setupRoutes(): void {
-    const isCompiledDist = __dirname.endsWith('/dist');
-    const frontendDistPath = isCompiledDist
-      ? path.resolve(__dirname, '../frontend/dist')
-      : path.resolve(__dirname, '../../frontend/dist');
+    const frontendDistPath = path.resolve(__dirname, '../frontend/dist');
 
     this.app.use(express.static(frontendDistPath));
 
