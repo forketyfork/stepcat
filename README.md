@@ -152,7 +152,7 @@ The execution will continue from the first pending or in-progress step.
 
 ## Customizing Prompts
 
-All prompts used by Stepcat are defined in `src/prompts.ts`. You can customize these prompts to match your project's needs:
+All prompts used by Stepcat are defined in `backend/prompts.ts`. You can customize these prompts to match your project's needs:
 
 **Claude Code prompts** (create new commits, never amend):
 - `implementation()` - Initial implementation of a step
@@ -259,25 +259,55 @@ For each pending step in the plan:
 
 - `GITHUB_TOKEN` - GitHub personal access token (required if not provided via `--token`)
 
+## Project Architecture
+
+Stepcat is organized into two main components:
+
+### Backend (`backend/`)
+- **TypeScript + Node.js** backend with Express
+- SQLite database for execution state
+- Claude Code and Codex integration
+- WebSocket server for real-time updates
+
+### Frontend (`frontend/`)
+- **React 18 + TypeScript + Vite** frontend
+- Beautiful purple/pastel UI with smooth animations
+- WebSocket client for real-time updates
+- Component-based architecture with proper separation of concerns
+
+The backend serves the built frontend as static files, creating a seamless single-application experience.
+
 ## Development
 
 Stepcat includes a `justfile` for convenient development commands:
 
 ```bash
-# Install dependencies
+# Install dependencies (both root and frontend)
 just install
 
-# Build the project
+# Build the entire project (frontend + backend)
 just build
 
-# Run linting
+# Build only backend
+just build-backend
+
+# Build only frontend
+just build-frontend
+
+# Run backend linting
 just lint
 
-# Run tests
+# Run frontend linting
+just lint-frontend
+
+# Run tests (backend only)
 just test
 
-# Run in development mode
+# Run backend in development mode
 just dev --file plan.md --dir /path/to/project
+
+# Clean build artifacts
+just clean
 
 # Full CI check (lint + test + build)
 just ci
@@ -286,18 +316,40 @@ just ci
 Or using npm directly:
 
 ```bash
-# Install dependencies
+# Install root dependencies
 npm install
 
-# Build the project
+# Build the entire project
 npm run build
 
-# Run in development mode
+# Build only backend
+npm run build:backend
+
+# Build only frontend
+npm run build:frontend
+
+# Run backend in development mode
 npm run dev -- --file plan.md --dir /path/to/project
 
-# Run linting
+# Run frontend dev server (for UI development)
+npm run dev:frontend
+
+# Run backend linting
 npm run lint
 ```
+
+### Frontend Development
+
+To work on the web UI separately:
+
+```bash
+# Start the frontend dev server with hot reload
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend dev server runs on `http://localhost:5173` and expects the backend WebSocket server to be running on port 3742.
 
 ## License
 

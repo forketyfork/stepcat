@@ -1,0 +1,11 @@
+.iterations-container {
+  margin-top: 1.5rem;
+  padding-left: 2rem;
+  border-left: 3px solid var(--purple-200);
+}
+
+.no-iterations {
+  padding: 1rem;
+  color: var(--gray-600);
+  font-size: 0.875rem;
+}

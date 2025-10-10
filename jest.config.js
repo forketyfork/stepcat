@@ -1,13 +1,13 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/src'],
+  roots: ['<rootDir>/backend'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
   collectCoverageFrom: [
-    'src/**/*.ts',
-    '!src/**/*.d.ts'
+    'backend/**/*.ts',
+    '!backend/**/*.d.ts'
   ],
   moduleNameMapper: {
-    '^@octokit/(.*)$': '<rootDir>/src/__mocks__/@octokit/$1.ts'
+    '^@octokit/(.*)$': '<rootDir>/backend/__mocks__/@octokit/$1.ts'
   }
 };

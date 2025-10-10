@@ -12,21 +12,27 @@ Stepcat is a step-by-step agent orchestration solution that automates multi-step
 
 ### Development
 ```bash
-just build          # Build the project (npm run build)
-just lint           # Run ESLint
-just test           # Run Jest tests
+just build              # Build the entire project (frontend + backend)
+just build-frontend     # Build only frontend
+just build-backend      # Build only backend
+just lint               # Run backend ESLint
+just lint-frontend      # Run frontend ESLint
+just test               # Run Jest tests
 just dev --file plan.md --dir /path/to/project  # Run in dev mode with ts-node
 just dev --file plan.md --dir /path/to/project --ui  # Run with web UI
-just ci             # Run full CI check (lint + test + build)
+just ci                 # Run full CI check (lint + test + build)
 ```
 
 ### npm Scripts
 ```bash
-npm run build       # Compile TypeScript to dist/
-npm run dev         # Run with ts-node (requires TypeScript sources, development setup only)
-npm run start       # Run from built dist/ (works without TypeScript sources)
-npm test            # Run Jest
-npm run lint        # Run ESLint
+npm run build           # Build entire project (frontend + backend)
+npm run build:frontend  # Build only frontend (React + Vite)
+npm run build:backend   # Compile backend TypeScript to dist/
+npm run dev             # Run backend with ts-node
+npm run dev:frontend    # Run frontend dev server with hot reload
+npm run start           # Run from built dist/
+npm test                # Run Jest
+npm run lint            # Run backend ESLint
 ```
 
 ### Local Testing
@@ -54,6 +60,22 @@ stepcat --file plan.md --dir /path/to/project --ui --port 8080 --no-auto-open
 ```
 
 ## Architecture
+
+### Project Structure
+
+Stepcat is organized into two main components:
+
+**Backend** (`backend/`): TypeScript + Node.js
+- Express server with WebSocket support
+- SQLite database for execution state
+- Claude Code and Codex integration
+- Serves built React frontend as static files
+
+**Frontend** (`frontend/`): React 18 + TypeScript + Vite
+- Beautiful purple/pastel UI with animations
+- WebSocket client for real-time updates
+- Component-based architecture
+- Separate dev server for frontend development
 
 ### Database Schema
 
@@ -102,7 +124,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 ### Core Components
 
-**Orchestrator** (`src/orchestrator.ts`): Main coordinator that implements iteration loop logic
+**Orchestrator** (`backend/orchestrator.ts`): Main coordinator that implements iteration loop logic
 - Uses Database for state persistence and never modifies plan file
 - Creates separate commits for each Claude execution (not amending)
 - For each step, runs iteration loop:
@@ -116,7 +138,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Supports `silent` mode for web UI (suppresses console.log, only emits events)
 - All pushes handled by orchestrator; agents never push
 
-**Database** (`src/database.ts`): SQLite database management
+**Database** (`backend/database.ts`): SQLite database management
 - Initializes database at `.stepcat/executions.db` in work directory
 - Creates schema with four tables: plan, step, iteration, issue
 - CRUD methods for all entities with proper type safety
@@ -124,13 +146,13 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Handles foreign key constraints and transactions
 - Used by Orchestrator for all state persistence
 
-**StepParser** (`src/step-parser.ts`): Parses markdown plan files
+**StepParser** (`backend/step-parser.ts`): Parses markdown plan files
 - Expects format: `## Step N: Title` (case-insensitive)
 - Returns sorted array of `Step` objects with `{number, title, fullHeader}`
 - Validates no duplicate step numbers
 - Used once at startup to populate database with steps
 
-**ClaudeRunner** (`src/claude-runner.ts`): Executes Claude Code and captures commit SHA
+**ClaudeRunner** (`backend/claude-runner.ts`): Executes Claude Code and captures commit SHA
 - Locates binary at `../node_modules/.bin/claude`
 - Runs with `--print`, `--verbose`, `--add-dir`, `--permission-mode acceptEdits` flags
 - Uses async `spawn` with stdin for prompt and configurable timeout
@@ -138,9 +160,9 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - After execution, captures commit SHA via `git rev-parse HEAD`
 - Returns `{ success: boolean; commitSha: string | null }`
 - No longer enforces commit amending (creates new commits instead)
-- Three prompt types: implementation, buildFix, reviewFix (see `src/prompts.ts`)
+- Three prompt types: implementation, buildFix, reviewFix (see `backend/prompts.ts`)
 
-**CodexRunner** (`src/codex-runner.ts`): Executes Codex for code review with JSON parsing
+**CodexRunner** (`backend/codex-runner.ts`): Executes Codex for code review with JSON parsing
 - Locates binary at `../node_modules/.bin/codex`
 - Runs with `exec` subcommand
 - Captures stdout for review output
@@ -148,16 +170,16 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Handles JSON wrapped in markdown code blocks
 - Returns `CodexReviewResult` with `result` ('PASS' | 'FAIL') and `issues` array
 - Falls back gracefully if JSON parsing fails
-- Three context-specific prompts for different iteration types (see `src/prompts.ts`)
+- Three context-specific prompts for different iteration types (see `backend/prompts.ts`)
 
-**GitHubChecker** (`src/github-checker.ts`): Monitors GitHub Actions
+**GitHubChecker** (`backend/github-checker.ts`): Monitors GitHub Actions
 - Uses Octokit to poll check runs via GitHub API
 - Polls every 30 seconds until completion or timeout
 - Parses repo info from `git remote get-url origin`
 - Expects format: `github.com[:/]owner/repo`
 - Returns true if all checks pass/skip, false otherwise
 
-**Prompts** (`src/prompts.ts`): All agent prompts with explicit instructions to create new commits
+**Prompts** (`backend/prompts.ts`): All agent prompts with explicit instructions to create new commits
 - **Claude Code prompts** (all explicitly instruct NOT to use `git commit --amend` and NOT to push):
   - `implementation(stepNumber, planFilePath)`: Initial implementation task pointing to plan file path, creates new commit
   - `buildFix(buildErrors)`: Fix build failures, creates new commit
@@ -168,7 +190,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
   - `codexReviewCodeFixes(issues)`: Verify code fixes address review issues
   - All Codex prompts request JSON: `{"result": "PASS"|"FAIL", "issues": [{file, line?, severity, description}]}`
 
-**Events** (`src/events.ts`): Event system for real-time UI updates with granular iteration tracking
+**Events** (`backend/events.ts`): Event system for real-time UI updates with granular iteration tracking
 - `OrchestratorEventEmitter`: EventEmitter subclass with typed events
 - Event types include:
   - Step events: `step_start`, `step_complete`
@@ -180,17 +202,30 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - All events include timestamp and type discriminator
 - Events carry context like stepId, iterationId, issueId for precise UI updates
 
-**WebServer** (`src/web-server.ts`): HTTP server with WebSocket support and hierarchical UI
-- Express server serving embedded HTML/CSS/JS
+**WebServer** (`backend/web-server.ts`): HTTP server with WebSocket support serving React frontend
+- Express server serving built React frontend as static files
 - WebSocket server for real-time event broadcasting
 - On new WebSocket connection, emits `state_sync` event with full current state from database
-- Embedded beautiful purple/pastel UI with animations
+- Serves React app from `frontend/dist/` directory
+- Auto-opens browser (configurable)
+- Default port: 3742 (configurable)
+
+**Frontend** (`frontend/`): React 18 + TypeScript + Vite application
+- Beautiful purple/pastel UI with smooth animations
 - **Hierarchical display**: Steps → Iterations → Issues with collapsible sections
 - Features: step tracking, iteration details (type, commit SHA), issue tracking (status, location), progress indicators
 - Color coding: pending (gray), in_progress (blue), completed (green), failed (red)
-- Auto-opens browser (configurable)
-- Default port: 3742 (configurable)
-- **Security**: All dynamic content (step titles, issue descriptions, file paths, etc.) is HTML-escaped via `escapeHtml()` to prevent XSS attacks
+- WebSocket client with automatic reconnection (`frontend/src/hooks/useWebSocket.ts`)
+- LocalStorage persistence for UI state (`frontend/src/hooks/useLocalStorage.ts`)
+- **Security**: All dynamic content is HTML-escaped in React to prevent XSS attacks
+- Component structure:
+  - `App.tsx`: Main application with state management
+  - `components/Header.tsx`: Title and subtitle
+  - `components/StatusBanner.tsx`: Execution stats and connection status
+  - `components/StepsContainer.tsx`, `StepCard.tsx`: Step display and management
+  - `components/IterationsContainer.tsx`, `Iteration.tsx`: Iteration tracking with badges
+  - `components/IssuesContainer.tsx`, `Issue.tsx`: Issue display
+  - `components/LogsContainer.tsx`, `LogEntry.tsx`: Activity log
 
 ### Key Behaviors
 
@@ -260,10 +295,11 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 ## Testing
 
-- Jest with ts-jest preset
-- Tests in `src/__tests__/` or `*.test.ts` files
+- Jest with ts-jest preset for backend tests
+- Tests in `backend/__tests__/` or `*.test.ts` files
 - Run: `just test` or `npm test`
 - **Integration testing**: See `docs/INTEGRATION_TEST_CHECKLIST.md` for comprehensive manual integration testing procedures and acceptance criteria
+- Frontend testing: Tests can be added to `frontend/src/` (not yet implemented)
 
 ## Important Notes for Development
 
@@ -271,9 +307,9 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 2. **Database First**: All state is in the database. Plan file is never modified during execution. Use Database methods for all state operations. Database location: `.stepcat/executions.db` in work directory.
 
-3. **Review Detection**: Use `parseCodexOutput()` method in `codex-runner.ts` to parse JSON from Codex reviews. Handles markdown-wrapped JSON and malformed output gracefully. Returns structured `CodexReviewResult` with `result` and `issues` fields.
+3. **Review Detection**: Use `parseCodexOutput()` method in `backend/codex-runner.ts` to parse JSON from Codex reviews. Handles markdown-wrapped JSON and malformed output gracefully. Returns structured `CodexReviewResult` with `result` and `issues` fields.
 
-4. **Prompt customization**: All agent prompts are in `src/prompts.ts` - modify there to change agent behavior. Claude prompts explicitly instruct to create new commits and NOT to push. Codex prompts request JSON output with consistent schema.
+4. **Prompt customization**: All agent prompts are in `backend/prompts.ts` - modify there to change agent behavior. Claude prompts explicitly instruct to create new commits and NOT to push. Codex prompts request JSON output with consistent schema.
 
 5. **Iteration Types**: Three types - 'implementation' (initial), 'build_fix' (CI failures), 'review_fix' (code review issues). Each type uses context-specific Codex review prompt.
 
@@ -285,6 +321,18 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 9. **GitHub token**: Must be provided via `--token` flag or `GITHUB_TOKEN` env var
 
-10. **Web UI Security**: All dynamic content rendered in the UI must be HTML-escaped to prevent XSS. Use the `escapeHtml()` function for any user-controlled content (step titles, issue descriptions, file paths, etc.) before inserting into `innerHTML`
+10. **Web UI Security**: All dynamic content in the React frontend is automatically escaped by React. No need for manual HTML escaping in JSX.
 
 11. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database and continues from first pending/in_progress step.
+
+12. **Build Process**: The build process is now two-stage:
+    - Frontend: React app built with Vite to `frontend/dist/`
+    - Backend: TypeScript compiled to `dist/`
+    - Backend serves frontend static files from `frontend/dist/`
+    - Use `npm run build` to build both, or `npm run build:frontend` / `npm run build:backend` individually
+
+13. **Frontend Development**: To work on the React UI:
+    - Run `cd frontend && npm run dev` for hot reload dev server
+    - Frontend dev server runs on port 5173
+    - Expects backend WebSocket on port 3742
+    - Make sure to run `npm run build:frontend` before deploying

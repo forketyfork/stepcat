@@ -1,18 +1,31 @@
-# Build the project
+# Build the project (both frontend and backend)
 build:
     npm run build
 
-# Run linting
+# Build only backend
+build-backend:
+    npm run build:backend
+
+# Build only frontend
+build-frontend:
+    npm run build:frontend
+
+# Run linting (backend only, frontend has its own lint script)
 lint:
     npm run lint
 
-# Run tests
+# Run frontend linting
+lint-frontend:
+    cd frontend && npm run lint
+
+# Run tests (backend only for now)
 test:
     npm test
 
 # Clean build artifacts
 clean:
     rm -rf dist
+    rm -rf frontend/dist
 
 # Install dependencies
 install:
@@ -32,11 +45,11 @@ uninstall-local:
 
 # Format check
 format-check:
-    npx prettier --check "src/**/*.ts"
+    npx prettier --check "backend/**/*.ts"
 
 # Format files
 format:
-    npx prettier --write "src/**/*.ts"
+    npx prettier --write "backend/**/*.ts"
 
 # Full CI check (run after npm install)
 ci: lint test build

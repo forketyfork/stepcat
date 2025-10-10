@@ -37,6 +37,7 @@ module.exports = tseslint.config(
       '**/__tests__/**',
       'dist/**',
       'node_modules/**',
+      'frontend/**',
     ],
   }
 );
