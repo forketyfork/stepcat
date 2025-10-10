@@ -72,7 +72,7 @@ Create TypeScript interfaces for the database entities and implement the databas
 - TypeScript compilation succeeds with `npm run build`
 - Basic manual test: can create a plan, steps, iterations, and issues
 
-## Step 3: Update Event System
+## Step 3: Update Event System [done]
 
 ### Status Quo
 
