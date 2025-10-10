@@ -296,6 +296,11 @@ export class Orchestrator {
 
       while (iterationNumber <= this.maxIterationsPerStep) {
         const sha = this.githubChecker.getLatestCommitSha();
+        const previousIterationId = this.database.getIterations(step.id)[iterationNumber - 2]?.id;
+
+        if (previousIterationId) {
+          this.database.updateIteration(previousIterationId, { buildStatus: 'pending' });
+        }
 
         this.eventEmitter.emit("event", {
           type: "github_check",
@@ -304,7 +309,7 @@ export class Orchestrator {
           sha,
           attempt: iterationNumber - 1,
           maxAttempts: this.maxIterationsPerStep,
-          iterationId: this.database.getIterations(step.id)[iterationNumber - 2]?.id,
+          iterationId: previousIterationId,
         });
 
         this.log(`\nChecking GitHub Actions for commit ${sha}`);
@@ -317,6 +322,9 @@ export class Orchestrator {
         );
 
         if (!checksPass) {
+          if (previousIterationId) {
+            this.database.updateIteration(previousIterationId, { buildStatus: 'failed' });
+          }
           const buildErrors = await this.extractBuildErrors(sha);
           const iteration = this.database.createIteration(step.id, iterationNumber, 'build_fix');
 
@@ -381,6 +389,10 @@ export class Orchestrator {
           continue;
         }
 
+        if (previousIterationId) {
+          this.database.updateIteration(previousIterationId, { buildStatus: 'passed' });
+        }
+
         this.eventEmitter.emit("event", {
           type: "github_check",
           timestamp: Date.now(),
@@ -388,6 +400,7 @@ export class Orchestrator {
           sha,
           attempt: iterationNumber - 1,
           maxAttempts: this.maxIterationsPerStep,
+          iterationId: previousIterationId,
         });
 
         this.log("✓ All GitHub Actions checks passed", "success");

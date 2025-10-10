@@ -590,6 +590,38 @@ export class WebServer {
       color: var(--gray-700);
     }
 
+    .build-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      white-space: nowrap;
+    }
+
+    .build-status-badge.pending {
+      background: var(--orange-100);
+      color: var(--orange-500);
+    }
+
+    .build-status-badge.in_progress {
+      background: var(--orange-100);
+      color: var(--orange-500);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .build-status-badge.passed {
+      background: var(--green-100);
+      color: var(--green-500);
+    }
+
+    .build-status-badge.failed {
+      background: var(--red-100);
+      color: var(--red-500);
+    }
+
     .issues-container {
       margin-top: 1rem;
       padding-left: 1.5rem;
@@ -684,52 +716,6 @@ export class WebServer {
 
     .expand-icon.expanded {
       transform: rotate(90deg);
-    }
-
-    .github-status {
-      background: white;
-      border-radius: 1rem;
-      padding: 1.5rem 2rem;
-      margin-bottom: 2rem;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-      border: 2px solid var(--purple-100);
-      animation: fadeInUp 0.6s ease-out;
-      display: none;
-    }
-
-    .github-status.visible {
-      display: block;
-    }
-
-    .github-header {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      margin-bottom: 1rem;
-    }
-
-    .github-icon {
-      width: 32px;
-      height: 32px;
-      background: var(--purple-500);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-weight: 700;
-    }
-
-    .github-title {
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: var(--gray-800);
-    }
-
-    .github-info {
-      font-size: 0.875rem;
-      color: var(--gray-600);
-      margin-top: 0.5rem;
     }
 
     .logs-container {
@@ -933,19 +919,6 @@ export class WebServer {
           <span class="connection-dot"></span>
           <span>Connected</span>
         </div>
-      </div>
-    </div>
-
-    <div id="githubStatus" class="github-status">
-      <div class="github-header">
-        <div class="github-icon">GH</div>
-        <div>
-          <div class="github-title" id="githubTitle">GitHub Actions</div>
-          <div class="github-info" id="githubInfo"></div>
-        </div>
-      </div>
-      <div class="progress-bar">
-        <div class="progress-fill" id="githubProgress" style="width: 0%"></div>
       </div>
     </div>
 
@@ -1270,34 +1243,18 @@ export class WebServer {
     }
 
     function handleGitHubCheck(event) {
-      const githubStatus = document.getElementById('githubStatus');
-      const githubInfo = document.getElementById('githubInfo');
-      const githubProgress = document.getElementById('githubProgress');
-
-      githubStatus.classList.add('visible');
-
-      const statusText = {
-        'waiting': '⏳ Waiting for checks to start...',
-        'running': '🔄 Checks running...',
-        'success': '✓ All checks passed!',
-        'failure': '✗ Checks failed'
-      };
-
-      const statusMessage = event.checkName
-        ? \`\${statusText[event.status]} - \${event.checkName} (SHA: \${event.sha.substring(0, 7)})\`
-        : \`\${statusText[event.status]} (SHA: \${event.sha.substring(0, 7)})\`;
-
-      githubInfo.textContent = statusMessage;
-
-      if (event.status === 'waiting') {
-        githubProgress.style.width = '10%';
-      } else if (event.status === 'running') {
-        githubProgress.style.width = '50%';
-      } else if (event.status === 'success') {
-        githubProgress.style.width = '100%';
-      } else if (event.status === 'failure') {
-        githubProgress.style.width = '100%';
-        githubProgress.style.background = 'var(--red-500)';
+      if (event.iterationId) {
+        const iteration = state.iterations.get(event.iterationId);
+        if (iteration) {
+          const buildStatusMap = {
+            'waiting': 'pending',
+            'running': 'in_progress',
+            'success': 'passed',
+            'failure': 'failed'
+          };
+          iteration.buildStatus = buildStatusMap[event.status] || 'pending';
+          renderSteps();
+        }
       }
     }
 
@@ -1398,6 +1355,21 @@ export class WebServer {
         const issueIds = iteration.issues || [];
         const issuesHTML = renderIssues(issueIds);
 
+        let buildStatusBadge = '';
+        if (iteration.commitSha && iteration.buildStatus) {
+          const buildStatusIcons = {
+            'pending': '🔨',
+            'in_progress': '🔨',
+            'passed': '✓',
+            'failed': '✗'
+          };
+          const icon = buildStatusIcons[iteration.buildStatus] || '';
+          const statusLabel = iteration.buildStatus === 'in_progress' ? 'Building' :
+                             iteration.buildStatus === 'passed' ? 'Build OK' :
+                             iteration.buildStatus === 'failed' ? 'Build Failed' : 'Pending';
+          buildStatusBadge = \`<span class="build-status-badge \${iteration.buildStatus}">\${icon} \${statusLabel}</span>\`;
+        }
+
         return \`
           <div class="iteration \${statusClass}" data-iteration-id="\${iteration.id}">
             <div class="iteration-header" onclick="toggleIteration(\${iteration.id})">
@@ -1408,6 +1380,7 @@ export class WebServer {
               </div>
               <div style="display: flex; align-items: center; gap: 0.5rem;">
                 \${iteration.commitSha ? \`<span class="commit-sha">\${iteration.commitSha.substring(0, 7)}</span>\` : ''}
+                \${buildStatusBadge}
                 <span style="font-size: 0.75rem; color: var(--gray-600);">\${issueIds.length} issue\${issueIds.length !== 1 ? 's' : ''}</span>
                 <span class="expand-icon \${isExpanded ? 'expanded' : ''}">▸</span>
               </div>

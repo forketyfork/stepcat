@@ -56,6 +56,7 @@ export class Database {
         commitSha TEXT,
         claudeLog TEXT,
         codexLog TEXT,
+        buildStatus TEXT CHECK(buildStatus IN ('pending', 'in_progress', 'passed', 'failed')),
         status TEXT NOT NULL CHECK(status IN ('in_progress', 'completed', 'failed')),
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
@@ -141,6 +142,7 @@ export class Database {
       commitSha: null,
       claudeLog: null,
       codexLog: null,
+      buildStatus: null,
       status: 'in_progress',
       createdAt: now,
       updatedAt: now,
@@ -168,6 +170,10 @@ export class Database {
     if (updates.codexLog !== undefined) {
       fields.push('codexLog = ?');
       values.push(updates.codexLog);
+    }
+    if (updates.buildStatus !== undefined) {
+      fields.push('buildStatus = ?');
+      values.push(updates.buildStatus);
     }
     if (updates.status !== undefined) {
       fields.push('status = ?');
