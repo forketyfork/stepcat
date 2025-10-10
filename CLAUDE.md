@@ -263,6 +263,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Jest with ts-jest preset
 - Tests in `src/__tests__/` or `*.test.ts` files
 - Run: `just test` or `npm test`
+- **Integration testing**: See `docs/INTEGRATION_TEST_CHECKLIST.md` for comprehensive manual integration testing procedures and acceptance criteria
 
 ## Important Notes for Development
 
