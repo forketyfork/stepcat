@@ -1,15 +1,21 @@
 import { UIAdapter, UIAdapterConfig } from './ui-adapter';
 import { OrchestratorEvent } from '../events';
 import { TUIState, initialState } from '../tui/types';
-import { App } from '../tui/components';
-import React from 'react';
-import { render, Instance } from 'ink';
 import { Storage } from '../storage';
+import type * as ReactTypes from 'react';
+
+type InkModule = typeof import('ink');
+type ReactModule = typeof import('react');
+type InkInstance = { rerender: (node: unknown) => void; unmount: () => void };
+type AppComponent = ReactTypes.FC<{ state: TUIState }>;
 
 export class TUIAdapter implements UIAdapter {
   private state: TUIState;
-  private inkInstance: Instance | null = null;
+  private inkInstance: InkInstance | null = null;
   private storage?: Storage;
+  private ink: InkModule | null = null;
+  private React: ReactModule | null = null;
+  private App: AppComponent | null = null;
 
   constructor(config: UIAdapterConfig) {
     this.state = { ...initialState };
@@ -21,7 +27,12 @@ export class TUIAdapter implements UIAdapter {
   }
 
   async initialize(): Promise<void> {
-    this.inkInstance = render(React.createElement(App, { state: this.state }));
+    this.ink = await import('ink');
+    this.React = await import('react');
+    const componentsModule = await import('../tui/components/index.js');
+    this.App = componentsModule.App;
+
+    this.inkInstance = this.ink.render(this.React.createElement(this.App, { state: this.state }));
   }
 
   onEvent(event: OrchestratorEvent): void {
@@ -148,8 +159,8 @@ export class TUIAdapter implements UIAdapter {
   }
 
   private rerender(): void {
-    if (this.inkInstance) {
-      this.inkInstance.rerender(React.createElement(App, { state: this.state }));
+    if (this.inkInstance && this.React && this.App) {
+      this.inkInstance.rerender(this.React.createElement(this.App, { state: this.state }));
     }
   }
 
