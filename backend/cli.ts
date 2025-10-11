@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import { Orchestrator } from './orchestrator';
 import { OrchestratorEventEmitter } from './events';
 import { Database } from './database';
-import { WebSocketUIAdapter, UIAdapter } from './ui';
+import { WebSocketUIAdapter, TUIAdapter, UIAdapter } from './ui';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { execSync } from 'child_process';
@@ -22,6 +22,7 @@ program
   .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseInt)
   .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseInt)
   .option('--ui', 'Launch web UI (default: false)')
+  .option('--tui', 'Launch terminal UI (default: false)')
   .option('--port <number>', 'Web UI port (default: 3742)', parseInt)
   .option('--no-auto-open', 'Do not automatically open browser when using --ui')
   .action(async (options) => {
@@ -132,7 +133,7 @@ program
           throw error;
         }
 
-        if (!options.ui) {
+        if (!options.ui && !options.tui) {
           console.log('═'.repeat(80));
           console.log('STEPCAT - Resuming Execution');
           console.log('═'.repeat(80));
@@ -157,7 +158,7 @@ program
         planFile = resolve(options.file);
         workDir = resolve(options.dir);
 
-        if (!options.ui) {
+        if (!options.ui && !options.tui) {
           console.log('═'.repeat(80));
           console.log('STEPCAT - Step-by-step Agent Orchestration');
           console.log('═'.repeat(80));
@@ -193,6 +194,12 @@ program
         uiAdapters.push(uiAdapter);
       }
 
+      if (options.tui) {
+        const tuiAdapter = new TUIAdapter({ storage });
+        await tuiAdapter.initialize();
+        uiAdapters.push(tuiAdapter);
+      }
+
       const orchestrator = new Orchestrator({
         planFile,
         workDir,
@@ -201,13 +208,13 @@ program
         agentTimeoutMinutes: options.agentTimeout,
         eventEmitter,
         uiAdapters,
-        silent: options.ui,
+        silent: options.ui || options.tui,
         executionId,
         storage
       });
 
       eventEmitter.on('event', (event) => {
-        if (event.type === 'execution_started') {
+        if (event.type === 'execution_started' && !options.ui && !options.tui) {
           console.log('═'.repeat(80));
           console.log(`Execution ID: ${event.executionId}`);
           console.log('═'.repeat(80));
@@ -230,7 +237,7 @@ program
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
 
-      if (!options.ui) {
+      if (!options.ui && !options.tui) {
         console.log('\n' + '═'.repeat(80));
         console.log('✓✓✓ SUCCESS ✓✓✓');
         console.log('═'.repeat(80));
