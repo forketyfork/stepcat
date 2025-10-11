@@ -36,7 +36,7 @@ export class WebServer {
 
     this.app = express();
     this.httpServer = createServer(this.app);
-    this.wss = new WebSocketServer({ server: this.httpServer });
+    this.wss = new WebSocketServer({ server: this.httpServer, path: '/ws' });
 
     this.setupRoutes();
     this.setupWebSocket();

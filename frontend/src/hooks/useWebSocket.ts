@@ -14,10 +14,20 @@ export function useWebSocket(onEvent: (event: OrchestratorEvent) => void): UseWe
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const onEventRef = useRef(onEvent);
+
+  // Keep a stable reference to the event handler to avoid reconnects on re-render
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}`);
+    const isViteDev = window.location.port === '5173';
+    const hostname = window.location.hostname;
+    const port = isViteDev ? '3742' : (window.location.port || (protocol === 'wss:' ? '443' : '80'));
+    const url = `${protocol}//${hostname}:${port}/ws`;
+    const ws = new WebSocket(url);
 
     ws.onopen = () => {
       console.log('Connected to Stepcat');
@@ -44,14 +54,14 @@ export function useWebSocket(onEvent: (event: OrchestratorEvent) => void): UseWe
       try {
         const data = JSON.parse(event.data) as OrchestratorEvent;
         setEvents((prev) => [...prev, data]);
-        onEvent(data);
+        onEventRef.current(data);
       } catch (error) {
         console.error('Failed to parse message:', error);
       }
     };
 
     wsRef.current = ws;
-  }, [onEvent]);
+  }, []);
 
   useEffect(() => {
     connect();
