@@ -11,34 +11,36 @@ interface AppProps {
 export const App: React.FC<AppProps> = ({ state }) => {
   return (
     <Box flexDirection="column" width={state.terminalWidth} height={state.terminalHeight}>
-      <Header state={state} />
+      <Box flexDirection="column" flexGrow={1}>
+        <Header state={state} />
 
-      {state.currentPhase && !state.isComplete && !state.error && (
-        <Box marginBottom={1}>
-          <Text dimColor>Current: </Text>
-          <Text color="cyan">{state.currentPhase}</Text>
-        </Box>
-      )}
+        {state.currentPhase && !state.isComplete && !state.error && (
+          <Box marginBottom={1}>
+            <Text dimColor>Current: </Text>
+            <Text color="cyan">{state.currentPhase}</Text>
+          </Box>
+        )}
 
-      {state.steps.length === 0 && !state.error ? (
-        <Box>
-          <Text dimColor>Loading steps...</Text>
-        </Box>
-      ) : (
-        <Box flexDirection="column">
-          {state.steps.map(step => (
-            <StepItem
-              key={step.id}
-              step={step}
-              iterations={state.iterations.get(step.id) || []}
-              issues={state.issues}
-            />
-          ))}
-        </Box>
-      )}
+        {state.steps.length === 0 && !state.error ? (
+          <Box>
+            <Text dimColor>Loading steps...</Text>
+          </Box>
+        ) : (
+          <Box flexDirection="column">
+            {state.steps.map(step => (
+              <StepItem
+                key={step.id}
+                step={step}
+                iterations={state.iterations.get(step.id) || []}
+                issues={state.issues}
+              />
+            ))}
+          </Box>
+        )}
+      </Box>
 
       {state.logs.length > 0 && (
-        <Box flexDirection="column" marginTop={1} borderStyle="single" borderColor="gray" paddingX={1}>
+        <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
           <Text bold>Recent Logs:</Text>
           {state.logs.slice(-5).map((log, idx) => (
             <Box key={idx}>
