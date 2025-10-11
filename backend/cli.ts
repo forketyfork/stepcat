@@ -3,8 +3,8 @@
 import { Command } from 'commander';
 import { Orchestrator } from './orchestrator';
 import { OrchestratorEventEmitter } from './events';
-import { WebServer } from './web-server';
 import { Database } from './database';
+import { WebSocketUIAdapter, UIAdapter } from './ui';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { execSync } from 'child_process';
@@ -26,7 +26,7 @@ program
   .option('--no-auto-open', 'Do not automatically open browser when using --ui')
   .action(async (options) => {
     const startTime = Date.now();
-    let webServer: WebServer | null = null;
+    let uiAdapter: UIAdapter | null = null;
     let storage: Database | null = null;
 
     try {
@@ -180,15 +180,17 @@ program
       const eventEmitter = new OrchestratorEventEmitter();
       storage = new Database(workDir);
 
+      const uiAdapters: UIAdapter[] = [];
+
       if (options.ui) {
-        webServer = new WebServer({
+        uiAdapter = new WebSocketUIAdapter({
           port: options.port,
-          eventEmitter,
           autoOpen: options.autoOpen,
           storage
         });
 
-        await webServer.start();
+        await uiAdapter.initialize();
+        uiAdapters.push(uiAdapter);
       }
 
       const orchestrator = new Orchestrator({
@@ -198,6 +200,7 @@ program
         buildTimeoutMinutes: options.buildTimeout,
         agentTimeoutMinutes: options.agentTimeout,
         eventEmitter,
+        uiAdapters,
         silent: options.ui,
         executionId,
         storage
@@ -246,7 +249,7 @@ program
         console.log('═'.repeat(80));
       }
 
-      if (webServer) {
+      if (uiAdapter) {
         console.log('\n' + '═'.repeat(80));
         console.log('All steps completed! Web UI will remain open for viewing.');
         console.log('Press Ctrl+C to exit.');
@@ -276,8 +279,8 @@ program
         console.error(error.stack);
       }
 
-      if (webServer) {
-        await webServer.stop();
+      if (uiAdapter) {
+        await uiAdapter.shutdown();
       }
 
       if (storage) {

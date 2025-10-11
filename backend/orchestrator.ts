@@ -3,11 +3,12 @@ import { ClaudeRunner } from "./claude-runner";
 import { CodexRunner } from "./codex-runner";
 import { GitHubChecker } from "./github-checker";
 import { execSync } from "child_process";
-import { OrchestratorEventEmitter } from "./events";
+import { OrchestratorEventEmitter, OrchestratorEvent } from "./events";
 import { Database } from "./database";
 import { Storage } from "./storage";
 import { Plan, DbStep, Iteration } from "./models";
 import { PROMPTS } from "./prompts";
+import { UIAdapter } from "./ui/ui-adapter";
 
 export interface OrchestratorConfig {
   planFile: string;
@@ -16,6 +17,7 @@ export interface OrchestratorConfig {
   buildTimeoutMinutes?: number;
   agentTimeoutMinutes?: number;
   eventEmitter?: OrchestratorEventEmitter;
+  uiAdapters?: UIAdapter[];
   silent?: boolean;
   executionId?: number;
   maxIterationsPerStep?: number;
@@ -35,6 +37,7 @@ export class Orchestrator {
   private buildTimeoutMinutes: number;
   private agentTimeoutMinutes: number;
   private eventEmitter: OrchestratorEventEmitter;
+  private uiAdapters: UIAdapter[];
   private silent: boolean;
   private executionId?: number;
   private maxIterationsPerStep: number;
@@ -51,6 +54,7 @@ export class Orchestrator {
     this.buildTimeoutMinutes = config.buildTimeoutMinutes ?? 30;
     this.agentTimeoutMinutes = config.agentTimeoutMinutes ?? 30;
     this.eventEmitter = config.eventEmitter ?? new OrchestratorEventEmitter();
+    this.uiAdapters = config.uiAdapters ?? [];
     this.silent = config.silent ?? false;
     this.executionId = config.executionId;
     this.maxIterationsPerStep = config.maxIterationsPerStep ?? 10;
@@ -73,6 +77,13 @@ export class Orchestrator {
     return this.eventEmitter;
   }
 
+  private emitEvent(event: OrchestratorEvent): void {
+    this.eventEmitter.emit("event", event);
+    for (const adapter of this.uiAdapters) {
+      adapter.onEvent(event);
+    }
+  }
+
   private log(
     message: string,
     level: "info" | "warn" | "error" | "success" = "info",
@@ -81,7 +92,7 @@ export class Orchestrator {
     if (!this.silent) {
       console.log(message);
     }
-    this.eventEmitter.emit("event", {
+    this.emitEvent({
       type: "log",
       timestamp: Date.now(),
       level,
@@ -200,7 +211,7 @@ export class Orchestrator {
       throw new Error("Plan not initialized");
     }
 
-    this.eventEmitter.emit("event", {
+    this.emitEvent({
       type: "execution_started",
       timestamp: Date.now(),
       executionId: this.plan.id,
@@ -211,7 +222,7 @@ export class Orchestrator {
     const allIterations = allSteps.flatMap((s) => this.storage.getIterations(s.id));
     const allIssues = allIterations.flatMap((i) => this.storage.getIssues(i.id));
 
-    this.eventEmitter.emit("event", {
+    this.emitEvent({
       type: "state_sync",
       timestamp: Date.now(),
       plan: this.plan,
@@ -238,7 +249,7 @@ export class Orchestrator {
       const freshSteps = this.storage.getSteps(this.plan.id);
       const completedCount = freshSteps.filter(s => s.status === 'completed').length;
 
-      this.eventEmitter.emit("event", {
+      this.emitEvent({
         type: "step_start",
         timestamp: Date.now(),
         stepNumber: step.stepNumber,
@@ -261,7 +272,7 @@ export class Orchestrator {
       if (iterationNumber === 1) {
         const iteration = this.storage.createIteration(step.id, 1, 'implementation');
 
-        this.eventEmitter.emit("event", {
+        this.emitEvent({
           type: "iteration_start",
           timestamp: Date.now(),
           iterationId: iteration.id,
@@ -282,7 +293,7 @@ export class Orchestrator {
 
         if (!result || !result.commitSha) {
           this.storage.updateIteration(iteration.id, { status: 'failed' });
-          this.eventEmitter.emit("event", {
+          this.emitEvent({
             type: "error",
             timestamp: Date.now(),
             error: "Claude Code completed but did not create a commit",
@@ -298,7 +309,7 @@ export class Orchestrator {
 
         await this.pushCommit();
 
-        this.eventEmitter.emit("event", {
+        this.emitEvent({
           type: "iteration_complete",
           timestamp: Date.now(),
           stepId: step.id,
@@ -318,7 +329,7 @@ export class Orchestrator {
           this.storage.updateIteration(previousIterationId, { buildStatus: 'pending' });
         }
 
-        this.eventEmitter.emit("event", {
+        this.emitEvent({
           type: "github_check",
           timestamp: Date.now(),
           status: "waiting",
@@ -346,7 +357,7 @@ export class Orchestrator {
 
           const issue = this.storage.createIssue(previousIterationId!, 'ci_failure', buildErrors);
 
-          this.eventEmitter.emit("event", {
+          this.emitEvent({
             type: "issue_found",
             timestamp: Date.now(),
             issueId: issue.id,
@@ -355,7 +366,7 @@ export class Orchestrator {
             description: buildErrors,
           });
 
-          this.eventEmitter.emit("event", {
+          this.emitEvent({
             type: "iteration_start",
             timestamp: Date.now(),
             iterationId: iteration.id,
@@ -376,7 +387,7 @@ export class Orchestrator {
 
           if (!result || !result.commitSha) {
             this.storage.updateIteration(iteration.id, { status: 'failed' });
-            this.eventEmitter.emit("event", {
+            this.emitEvent({
               type: "error",
               timestamp: Date.now(),
               error: "Claude Code completed but did not create a commit",
@@ -392,7 +403,7 @@ export class Orchestrator {
 
           await this.pushCommit();
 
-          this.eventEmitter.emit("event", {
+          this.emitEvent({
             type: "iteration_complete",
             timestamp: Date.now(),
             stepId: step.id,
@@ -409,7 +420,7 @@ export class Orchestrator {
           this.storage.updateIteration(previousIterationId, { buildStatus: 'passed' });
         }
 
-        this.eventEmitter.emit("event", {
+        this.emitEvent({
           type: "github_check",
           timestamp: Date.now(),
           status: "success",
@@ -447,7 +458,7 @@ export class Orchestrator {
 
         this.storage.updateIteration(previousIteration.id, { reviewStatus: 'in_progress' });
 
-        this.eventEmitter.emit("event", {
+        this.emitEvent({
           type: "codex_review_start",
           timestamp: Date.now(),
           iterationId: previousIteration.id,
@@ -469,7 +480,7 @@ export class Orchestrator {
           reviewStatus: reviewResult.result === 'PASS' ? 'passed' : 'failed',
         });
 
-        this.eventEmitter.emit("event", {
+        this.emitEvent({
           type: "codex_review_complete",
           timestamp: Date.now(),
           iterationId: previousIteration.id,
@@ -491,7 +502,7 @@ export class Orchestrator {
               'open'
             );
 
-            this.eventEmitter.emit("event", {
+            this.emitEvent({
               type: "issue_found",
               timestamp: Date.now(),
               issueId: dbIssue.id,
@@ -504,7 +515,7 @@ export class Orchestrator {
             });
           }
 
-          this.eventEmitter.emit("event", {
+          this.emitEvent({
             type: "iteration_start",
             timestamp: Date.now(),
             iterationId: iteration.id,
@@ -525,7 +536,7 @@ export class Orchestrator {
 
           if (!result || !result.commitSha) {
             this.storage.updateIteration(iteration.id, { status: 'failed' });
-            this.eventEmitter.emit("event", {
+            this.emitEvent({
               type: "error",
               timestamp: Date.now(),
               error: "Claude Code completed but did not create a commit",
@@ -541,7 +552,7 @@ export class Orchestrator {
 
           await this.pushCommit();
 
-          this.eventEmitter.emit("event", {
+          this.emitEvent({
             type: "iteration_complete",
             timestamp: Date.now(),
             stepId: step.id,
@@ -553,7 +564,7 @@ export class Orchestrator {
           const openIssues = this.storage.getOpenIssues(step.id);
           for (const issue of openIssues) {
             this.storage.updateIssueStatus(issue.id, 'fixed', new Date().toISOString());
-            this.eventEmitter.emit("event", {
+            this.emitEvent({
               type: "issue_resolved",
               timestamp: Date.now(),
               issueId: issue.id,
@@ -566,7 +577,7 @@ export class Orchestrator {
           this.log("✓ Code review passed with no issues", "success");
           this.storage.updateStepStatus(step.id, 'completed');
 
-          this.eventEmitter.emit("event", {
+          this.emitEvent({
             type: "step_complete",
             timestamp: Date.now(),
             stepNumber: step.stepNumber,
@@ -579,7 +590,7 @@ export class Orchestrator {
 
       if (iterationNumber > this.maxIterationsPerStep) {
         this.storage.updateStepStatus(step.id, 'failed');
-        this.eventEmitter.emit("event", {
+        this.emitEvent({
           type: "error",
           timestamp: Date.now(),
           error: `Step ${step.stepNumber} exceeded maximum iterations`,
@@ -593,7 +604,7 @@ export class Orchestrator {
 
     const totalTime = Date.now() - startTime;
 
-    this.eventEmitter.emit("event", {
+    this.emitEvent({
       type: "all_complete",
       timestamp: Date.now(),
       totalTime,
