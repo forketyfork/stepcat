@@ -1,5 +1,5 @@
-import { OrchestratorEvent } from '../events';
-import { Storage } from '../storage';
+import { OrchestratorEvent } from '../events.js';
+import { Storage } from '../storage.js';
 
 export interface UIAdapterConfig {
   storage?: Storage;

@@ -2,6 +2,7 @@
   "name": "stepcat",
   "version": "0.1.0",
   "description": "Step-by-step agent orchestration solution",
+  "type": "module",
   "main": "dist/index.js",
   "bin": {
     "stepcat": "dist/cli.js"
@@ -12,7 +13,7 @@
     "build:backend": "tsc",
     "postbuild": "node -e \"const fs = require('fs'); const path = 'dist/cli.js'; let content = fs.readFileSync(path, 'utf8'); if (!content.startsWith('#!')) { content = '#!/usr/bin/env node\\n' + content; fs.writeFileSync(path, content); fs.chmodSync(path, '755'); }\"",
     "start": "node dist/cli.js",
-    "dev": "ts-node backend/cli.ts",
+    "dev": "npm run build:backend && node dist/cli.js",
     "dev:frontend": "cd frontend && npm run dev",
     "test": "jest",
     "lint": "eslint backend && cd frontend && npm run lint",
@@ -28,7 +29,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/claude-code": "^2.0.13",
+    "@anthropic-ai/claude-code": "^2.0.14",
     "@octokit/rest": "^22.0.0",
     "@openai/codex": "^0.46.0",
     "better-sqlite3": "^12.4.1",
@@ -44,7 +45,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.3",
     "@types/jest": "^30.0.0",
-    "@types/node": "^24.7.1",
+    "@types/node": "^24.7.2",
     "@types/react": "^19.2.2",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.46.0",
@@ -53,6 +54,7 @@
     "jest": "^30.2.0",
     "ts-jest": "^29.4.5",
     "ts-node": "^10.9.1",
+    "tsx": "^4.20.6",
     "typescript": "^5.3.2",
     "typescript-eslint": "^8.46.0"
   }

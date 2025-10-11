@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { Orchestrator } from './orchestrator.js';
-import { OrchestratorEventEmitter } from './events.js';
+import { OrchestratorEventEmitter, OrchestratorEvent } from './events.js';
 import { Database } from './database.js';
 import { WebSocketUIAdapter, TUIAdapter, UIAdapter } from './ui/index.js';
 import { resolve } from 'path';
@@ -213,7 +213,7 @@ program
         storage
       });
 
-      eventEmitter.on('event', (event) => {
+      eventEmitter.on('event', (event: OrchestratorEvent) => {
         if (event.type === 'execution_started' && !options.ui && !options.tui) {
           console.log('═'.repeat(80));
           console.log(`Execution ID: ${event.executionId}`);

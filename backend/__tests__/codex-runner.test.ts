@@ -1,4 +1,4 @@
-import { CodexRunner } from '../codex-runner';
+import { CodexRunner } from '../codex-runner.js';
 
 describe('CodexRunner', () => {
   let runner: CodexRunner;

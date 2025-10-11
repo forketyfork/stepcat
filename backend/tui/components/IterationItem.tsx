@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { Iteration, Issue } from '../../models';
+import { Iteration, Issue } from '../../models.js';
 
 interface IterationItemProps {
   iteration: Iteration;

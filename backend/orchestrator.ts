@@ -1,14 +1,14 @@
-import { StepParser } from "./step-parser";
-import { ClaudeRunner } from "./claude-runner";
-import { CodexRunner } from "./codex-runner";
-import { GitHubChecker } from "./github-checker";
+import { StepParser } from "./step-parser.js";
+import { ClaudeRunner } from "./claude-runner.js";
+import { CodexRunner } from "./codex-runner.js";
+import { GitHubChecker } from "./github-checker.js";
 import { execSync } from "child_process";
-import { OrchestratorEventEmitter, OrchestratorEvent } from "./events";
-import { Database } from "./database";
-import { Storage } from "./storage";
-import { Plan, DbStep, Iteration } from "./models";
-import { PROMPTS } from "./prompts";
-import { UIAdapter } from "./ui/ui-adapter";
+import { OrchestratorEventEmitter, OrchestratorEvent } from "./events.js";
+import { Database } from "./database.js";
+import { Storage } from "./storage.js";
+import { Plan, DbStep, Iteration } from "./models.js";
+import { PROMPTS } from "./prompts.js";
+import { UIAdapter } from "./ui/ui-adapter.js";
 
 export interface OrchestratorConfig {
   planFile: string;

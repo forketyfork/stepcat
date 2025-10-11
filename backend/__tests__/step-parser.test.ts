@@ -1,4 +1,4 @@
-import { StepParser } from '../step-parser';
+import { StepParser } from '../step-parser.js';
 import { writeFileSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';

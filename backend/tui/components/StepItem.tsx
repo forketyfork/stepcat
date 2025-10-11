@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { DbStep, Iteration, Issue } from '../../models';
-import { IterationItem } from './IterationItem';
+import { DbStep, Iteration, Issue } from '../../models.js';
+import { IterationItem } from './IterationItem.js';
 
 interface StepItemProps {
   step: DbStep;

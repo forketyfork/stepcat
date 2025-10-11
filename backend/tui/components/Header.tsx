@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { TUIState } from '../types';
+import { TUIState } from '../types.js';
 
 interface HeaderProps {
   state: TUIState;

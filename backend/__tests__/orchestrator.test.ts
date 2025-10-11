@@ -1,9 +1,9 @@
-import { Orchestrator } from '../orchestrator';
-import { Database } from '../database';
-import { ClaudeRunner } from '../claude-runner';
-import { CodexRunner } from '../codex-runner';
-import { GitHubChecker } from '../github-checker';
-import { OrchestratorEventEmitter } from '../events';
+import { Orchestrator } from '../orchestrator.js';
+import { Database } from '../database.js';
+import { ClaudeRunner } from '../claude-runner.js';
+import { CodexRunner } from '../codex-runner.js';
+import { GitHubChecker } from '../github-checker.js';
+import { OrchestratorEventEmitter } from '../events.js';
 import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';

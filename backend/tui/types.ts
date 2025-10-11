@@ -1,4 +1,4 @@
-import { Plan, DbStep, Iteration, Issue } from '../models';
+import { Plan, DbStep, Iteration, Issue } from '../models.js';
 
 export interface TUIState {
   plan: Plan | null;

@@ -1,11 +1,15 @@
 import express, { Express } from 'express';
 import { createServer, Server as HTTPServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { OrchestratorEventEmitter, OrchestratorEvent } from './events';
-import { Storage } from './storage';
-import { Iteration, Issue } from './models';
+import { OrchestratorEventEmitter, OrchestratorEvent } from './events.js';
+import { Storage } from './storage.js';
+import { Iteration, Issue } from './models.js';
 import open from 'open';
-import path from 'path';
+import path, { dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export interface WebServerConfig {
   port?: number;

@@ -1,8 +1,8 @@
 import BetterSqlite3 from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Plan, DbStep, Iteration, Issue } from './models';
-import { Storage, IterationUpdate } from './storage';
+import { Plan, DbStep, Iteration, Issue } from './models.js';
+import { Storage, IterationUpdate } from './storage.js';
 
 export class Database implements Storage {
   private db: BetterSqlite3.Database;

@@ -1,8 +1,13 @@
-import { UIAdapter, UIAdapterConfig } from './ui-adapter';
-import { OrchestratorEvent } from '../events';
-import { TUIState, initialState } from '../tui/types';
-import { Storage } from '../storage';
+import { UIAdapter, UIAdapterConfig } from './ui-adapter.js';
+import { OrchestratorEvent } from '../events.js';
+import { TUIState, initialState } from '../tui/types.js';
+import { Storage } from '../storage.js';
 import type * as ReactTypes from 'react';
+import { pathToFileURL, fileURLToPath } from 'url';
+import { resolve, join, dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 type InkModule = typeof import('ink');
 type ReactModule = typeof import('react');
@@ -29,7 +34,13 @@ export class TUIAdapter implements UIAdapter {
   async initialize(): Promise<void> {
     this.ink = await import('ink');
     this.React = await import('react');
-    const componentsModule = await import('../tui/components/index.js');
+
+    const isDev = process.env.NODE_ENV !== 'production' && !__dirname.includes('/dist/');
+    const fileName = isDev ? 'App.tsx' : 'App.js';
+    const componentPath = resolve(__dirname, '../tui/components', fileName);
+    const componentUrl = pathToFileURL(componentPath).href;
+
+    const componentsModule = await import(componentUrl);
     this.App = componentsModule.App;
 
     if (!this.App) {

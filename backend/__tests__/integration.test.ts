@@ -1,5 +1,5 @@
-import { Database } from '../database';
-import { StepParser } from '../step-parser';
+import { Database } from '../database.js';
+import { StepParser } from '../step-parser.js';
 import { mkdtempSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';

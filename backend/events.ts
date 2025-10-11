@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import type { Plan, DbStep, Iteration, Issue } from './models';
+import type { Plan, DbStep, Iteration, Issue } from './models.js';
 
 export interface StepCatEvent {
   type: string;

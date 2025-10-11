@@ -1,4 +1,4 @@
-import { Database } from '../database';
+import { Database } from '../database.js';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';

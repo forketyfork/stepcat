@@ -1,5 +1,5 @@
-import { ClaudeRunner } from '../claude-runner';
-import { PROMPTS } from '../prompts';
+import { ClaudeRunner } from '../claude-runner.js';
+import { PROMPTS } from '../prompts.js';
 
 describe('ClaudeRunner', () => {
   let runner: ClaudeRunner;

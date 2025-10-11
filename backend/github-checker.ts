@@ -1,6 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import { execSync } from 'child_process';
-import { OrchestratorEventEmitter } from './events';
+import { OrchestratorEventEmitter } from './events.js';
 
 export interface GitHubConfig {
   owner: string;

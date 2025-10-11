@@ -1,4 +1,4 @@
-export { App } from './App';
-export { Header } from './Header';
-export { StepItem } from './StepItem';
-export { IterationItem } from './IterationItem';
+export { App } from './App.js';
+export { Header } from './Header.js';
+export { StepItem } from './StepItem.js';
+export { IterationItem } from './IterationItem.js';

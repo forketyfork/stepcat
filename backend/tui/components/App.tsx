@@ -1,8 +1,8 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import { TUIState } from '../types';
-import { Header } from './Header';
-import { StepItem } from './StepItem';
+import { TUIState } from '../types.js';
+import { Header } from './Header.js';
+import { StepItem } from './StepItem.js';
 
 interface AppProps {
   state: TUIState;

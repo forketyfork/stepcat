@@ -1,4 +1,4 @@
-import { Plan, DbStep, Iteration, Issue } from './models';
+import { Plan, DbStep, Iteration, Issue } from './models.js';
 
 export type IterationUpdate = Partial<
   Omit<Iteration, 'id' | 'stepId' | 'iterationNumber' | 'type' | 'createdAt'>
