@@ -17,6 +17,7 @@ export interface ClaudeRunOptions {
   workDir: string;
   prompt: string;
   timeoutMinutes?: number;
+  captureOutput?: boolean;
 }
 
 export class ClaudeRunner {
@@ -52,7 +53,7 @@ export class ClaudeRunner {
 
   async run(
     options: ClaudeRunOptions,
-  ): Promise<{ success: boolean; commitSha: string | null }> {
+  ): Promise<{ success: boolean; commitSha: string | null; output?: string }> {
     const claudePath = this.getClaudePath();
 
     console.log("─".repeat(80));
@@ -67,9 +68,12 @@ export class ClaudeRunner {
 
     const timeout = (options.timeoutMinutes ?? 30) * 60 * 1000;
 
+    const captureOutput = options.captureOutput ?? false;
+
     const result = await new Promise<{
       exitCode: number | null;
       error?: Error;
+      stdout?: string;
     }>((resolve) => {
       const child = spawn(
         claudePath,
@@ -83,12 +87,16 @@ export class ClaudeRunner {
         ],
         {
           cwd: options.workDir,
-          // Inherit stdout/stderr to enable true realtime streaming from Claude Code
-          stdio: ["pipe", "inherit", "inherit"],
+          stdio: [
+            "pipe",
+            captureOutput ? "pipe" : "inherit",
+            "inherit",
+          ],
         },
       );
 
       let timeoutId: NodeJS.Timeout | undefined;
+      let stdoutData = "";
 
       if (timeout > 0) {
         timeoutId = setTimeout(() => {
@@ -100,10 +108,20 @@ export class ClaudeRunner {
         }, timeout);
       }
 
+      if (!child.stdin) {
+        throw new Error('Claude Code process did not provide stdin stream');
+      }
+
       child.stdin.write(options.prompt);
       child.stdin.end();
 
-      // Stdout is inherited; no need to listen and re-print here
+      if (captureOutput && child.stdout) {
+        child.stdout.on("data", (chunk) => {
+          const text = chunk.toString();
+          stdoutData += text;
+          process.stdout.write(text);
+        });
+      }
 
       child.on("error", (error) => {
         if (timeoutId) clearTimeout(timeoutId);
@@ -112,7 +130,7 @@ export class ClaudeRunner {
 
       child.on("close", (code) => {
         if (timeoutId) clearTimeout(timeoutId);
-        resolve({ exitCode: code });
+        resolve({ exitCode: code, stdout: captureOutput ? stdoutData : undefined });
       });
     });
 
@@ -130,6 +148,10 @@ export class ClaudeRunner {
       throw new Error(`Claude Code failed with exit code ${result.exitCode}`);
     }
 
+    const capturedOutput = captureOutput && result.stdout !== undefined
+      ? result.stdout
+      : undefined;
+
     const headAfter = this.tryGetHeadCommit(options.workDir);
     console.log("─".repeat(80));
     console.log(`HEAD after: ${headAfter ?? "(no commit yet)"}`);
@@ -139,20 +161,29 @@ export class ClaudeRunner {
         "⚠ Claude Code completed but could not read HEAD commit",
       );
       console.log("─".repeat(80));
-      return { success: true, commitSha: null };
+      return { success: true, commitSha: null, output: capturedOutput };
     }
 
     if (headBefore === headAfter) {
       console.log("✓ Claude Code completed (no commit created)");
       console.log("─".repeat(80));
-      return { success: true, commitSha: null };
+      return { success: true, commitSha: null, output: capturedOutput };
     }
 
     console.log("✓ Claude Code completed successfully and created a commit");
     console.log(`Commit SHA: ${headAfter}`);
     console.log("─".repeat(80));
 
-    return { success: true, commitSha: headAfter };
+    const response: { success: boolean; commitSha: string | null; output?: string } = {
+      success: true,
+      commitSha: headAfter,
+    };
+
+    if (capturedOutput !== undefined) {
+      response.output = capturedOutput;
+    }
+
+    return response;
   }
 
   buildImplementationPrompt(stepNumber: number, planFilePath: string): string {

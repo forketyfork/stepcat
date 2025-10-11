@@ -91,8 +91,8 @@ Add new event types to the union:
 - `iteration_complete`: { type, timestamp, stepId, iterationNumber, commitSha, status }
 - `issue_found`: { type, timestamp, iterationId, issueType, description, filePath?, lineNumber?, severity? }
 - `issue_resolved`: { type, timestamp, issueId }
-- `codex_review_start`: { type, timestamp, iterationId, promptType }
-- `codex_review_complete`: { type, timestamp, iterationId, result, issueCount }
+- `codex_review_start`: { type, timestamp, iterationId, promptType, agent? }
+- `codex_review_complete`: { type, timestamp, iterationId, result, issueCount, agent? }
 
 Update existing events to include iteration context where relevant:
 - `build_attempt`: Add `iterationId` field

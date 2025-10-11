@@ -115,6 +115,7 @@ export interface CodexReviewStartEvent extends BaseEvent {
   type: 'codex_review_start';
   iterationId?: number;
   promptType: string;
+  agent?: 'claude' | 'codex';
 }
 
 export interface CodexReviewCompleteEvent extends BaseEvent {
@@ -122,6 +123,7 @@ export interface CodexReviewCompleteEvent extends BaseEvent {
   iterationId?: number;
   result: 'PASS' | 'FAIL';
   issueCount: number;
+  agent?: 'claude' | 'codex';
 }
 
 export interface LogEvent extends BaseEvent {

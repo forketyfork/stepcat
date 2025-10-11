@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawn, execSync } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -16,6 +16,7 @@ export interface CodexRunOptions {
   workDir: string;
   prompt: string;
   timeoutMinutes?: number;
+  expectCommit?: boolean;
 }
 
 export interface CodexReviewResult {
@@ -45,9 +46,23 @@ export class CodexRunner {
     return localBin;
   }
 
+  private tryGetHeadCommit(workDir: string): string | null {
+    try {
+      return execSync("git rev-parse HEAD", {
+        cwd: workDir,
+        encoding: "utf-8",
+      }).trim();
+    } catch (error) {
+      console.warn(
+        `Warning: Could not get HEAD commit (repo may be empty or unborn): ${error}`,
+      );
+      return null;
+    }
+  }
+
   async run(
     options: CodexRunOptions,
-  ): Promise<{ success: boolean; output: string }> {
+  ): Promise<{ success: boolean; output: string; commitSha?: string | null }> {
     const codexPath = this.getCodexPath();
 
     console.log("─".repeat(80));
@@ -55,6 +70,13 @@ export class CodexRunner {
     console.log(`Binary: ${codexPath}`);
     console.log(`Timeout: ${options.timeoutMinutes || 30} minutes`);
     console.log("─".repeat(80));
+
+    let headBefore: string | null = null;
+    if (options.expectCommit) {
+      headBefore = this.tryGetHeadCommit(options.workDir);
+      console.log(`HEAD before: ${headBefore ?? "(no commit yet)"}`);
+      console.log("─".repeat(80));
+    }
 
     const timeout = (options.timeoutMinutes ?? 30) * 60 * 1000;
 
@@ -116,11 +138,35 @@ export class CodexRunner {
       throw new Error(`Codex failed with exit code ${result.exitCode}`);
     }
 
-    console.log("─".repeat(80));
-    console.log("✓ Codex completed successfully");
-    console.log("─".repeat(80));
+    let commitSha: string | null | undefined = undefined;
+    if (options.expectCommit) {
+      const headAfter = this.tryGetHeadCommit(options.workDir);
+      console.log("─".repeat(80));
+      console.log(`HEAD after: ${headAfter ?? "(no commit yet)"}`);
 
-    return { success: true, output: result.output };
+      if (!headAfter) {
+        console.log(
+          "⚠ Codex completed but could not read HEAD commit",
+        );
+        console.log("─".repeat(80));
+        commitSha = null;
+      } else if (headBefore === headAfter) {
+        console.log("✓ Codex completed (no commit created)");
+        console.log("─".repeat(80));
+        commitSha = null;
+      } else {
+        console.log("✓ Codex completed successfully and created a commit");
+        console.log(`Commit SHA: ${headAfter}`);
+        console.log("─".repeat(80));
+        commitSha = headAfter;
+      }
+    } else {
+      console.log("─".repeat(80));
+      console.log("✓ Codex completed successfully");
+      console.log("─".repeat(80));
+    }
+
+    return { success: true, output: result.output, commitSha };
   }
 
   parseCodexOutput(rawOutput: string): CodexReviewResult {

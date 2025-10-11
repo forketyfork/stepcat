@@ -25,6 +25,8 @@ program
   .option('--tui', 'Launch terminal UI (default: false)')
   .option('--port <number>', 'Web UI port (default: 3742)', parseInt)
   .option('--no-auto-open', 'Do not automatically open browser when using --ui')
+  .option('--implementation-agent <agent>', 'Agent to use for implementation (claude|codex)')
+  .option('--review-agent <agent>', 'Agent to use for code review (claude|codex)')
   .action(async (options) => {
     const startTime = Date.now();
     let uiAdapter: UIAdapter | null = null;
@@ -34,6 +36,23 @@ program
       let planFile: string;
       let workDir: string;
       const executionId: number | undefined = options.executionId;
+
+      const normalizeAgentOption = (value: string, flag: string): 'claude' | 'codex' => {
+        const normalized = value.toLowerCase();
+        if (normalized !== 'claude' && normalized !== 'codex') {
+          throw new Error(
+            `Invalid ${flag} value: ${value}. Expected 'claude' or 'codex'.`
+          );
+        }
+        return normalized as 'claude' | 'codex';
+      };
+
+      const implementationAgent = options.implementationAgent
+        ? normalizeAgentOption(options.implementationAgent, '--implementation-agent')
+        : undefined;
+      const reviewAgent = options.reviewAgent
+        ? normalizeAgentOption(options.reviewAgent, '--review-agent')
+        : undefined;
 
       if (executionId) {
         if (!Number.isInteger(executionId) || executionId <= 0) {
@@ -141,6 +160,8 @@ program
           console.log(`Plan file:      ${planFile}`);
           console.log(`Work directory: ${workDir}`);
           console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
+          console.log(`Implementation: ${implementationAgent ?? 'claude'}`);
+          console.log(`Review agent:   ${reviewAgent ?? 'codex'}`);
           console.log('═'.repeat(80));
         }
       } else {
@@ -165,6 +186,8 @@ program
           console.log(`Plan file:      ${planFile}`);
           console.log(`Work directory: ${workDir}`);
           console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
+          console.log(`Implementation: ${implementationAgent ?? 'claude'}`);
+          console.log(`Review agent:   ${reviewAgent ?? 'codex'}`);
           console.log('═'.repeat(80));
         }
       }
@@ -210,7 +233,9 @@ program
         uiAdapters,
         silent: options.ui || options.tui,
         executionId,
-        storage
+        storage,
+        implementationAgent,
+        reviewAgent,
       });
 
       eventEmitter.on('event', (event) => {

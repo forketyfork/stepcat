@@ -23,6 +23,8 @@ export interface OrchestratorConfig {
   maxIterationsPerStep?: number;
   databasePath?: string;
   storage?: Storage;
+  implementationAgent?: 'claude' | 'codex';
+  reviewAgent?: 'claude' | 'codex';
 }
 
 export class Orchestrator {
@@ -43,6 +45,8 @@ export class Orchestrator {
   private maxIterationsPerStep: number;
   private plan?: Plan;
   private planContent: string;
+  private implementationAgent: 'claude' | 'codex';
+  private reviewAgent: 'claude' | 'codex';
 
   constructor(config: OrchestratorConfig) {
     this.parser = new StepParser(config.planFile);
@@ -58,6 +62,8 @@ export class Orchestrator {
     this.silent = config.silent ?? false;
     this.executionId = config.executionId;
     this.maxIterationsPerStep = config.maxIterationsPerStep ?? 10;
+    this.implementationAgent = config.implementationAgent ?? 'claude';
+    this.reviewAgent = config.reviewAgent ?? 'codex';
 
     this.storage = config.storage ?? new Database(config.workDir, config.databasePath);
     this.storageOwned = !config.storage;
@@ -99,6 +105,72 @@ export class Orchestrator {
       message,
       stepNumber,
     });
+  }
+
+  private getAgentDisplayName(agent: 'claude' | 'codex'): string {
+    return agent === 'claude' ? 'Claude Code' : 'Codex';
+  }
+
+  private async runImplementationAgent(
+    prompt: string,
+  ): Promise<{ success: boolean; commitSha: string | null; output?: string }> {
+    if (this.implementationAgent === 'claude') {
+      return this.claudeRunner.run({
+        workDir: this.workDir,
+        prompt,
+        timeoutMinutes: this.agentTimeoutMinutes,
+      });
+    }
+
+    const result = await this.codexRunner.run({
+      workDir: this.workDir,
+      prompt,
+      timeoutMinutes: this.agentTimeoutMinutes,
+      expectCommit: true,
+    });
+
+    return {
+      success: result.success,
+      commitSha: result.commitSha ?? null,
+      output: result.output,
+    };
+  }
+
+  private async runReviewAgent(
+    prompt: string,
+  ): Promise<{ success: boolean; commitSha: string | null; output: string }> {
+    if (this.reviewAgent === 'codex') {
+      const result = await this.codexRunner.run({
+        workDir: this.workDir,
+        prompt,
+        timeoutMinutes: this.agentTimeoutMinutes,
+      });
+
+      return {
+        success: result.success,
+        commitSha: result.commitSha ?? null,
+        output: result.output,
+      };
+    }
+
+    const result = await this.claudeRunner.run({
+      workDir: this.workDir,
+      prompt,
+      timeoutMinutes: this.agentTimeoutMinutes,
+      captureOutput: true,
+    });
+
+    const output = result.output;
+
+    if (!output) {
+      throw new Error('Claude Code did not produce any review output');
+    }
+
+    return {
+      success: result.success,
+      commitSha: result.commitSha,
+      output,
+    };
   }
 
   private async initializeOrResumePlan(): Promise<void> {
@@ -285,21 +357,17 @@ export class Orchestrator {
         this.log("─".repeat(80));
 
         const prompt = PROMPTS.implementation(step.stepNumber, this.planFile);
-        const result = await this.claudeRunner.run({
-          workDir: this.workDir,
-          prompt,
-          timeoutMinutes: this.agentTimeoutMinutes,
-        });
+        const result = await this.runImplementationAgent(prompt);
 
         if (!result || !result.commitSha) {
           this.storage.updateIteration(iteration.id, { status: 'failed' });
           this.emitEvent({
             type: "error",
             timestamp: Date.now(),
-            error: "Claude Code completed but did not create a commit",
+            error: `${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit`,
             stepNumber: step.stepNumber,
           });
-          throw new Error("Claude Code completed but did not create a commit for implementation");
+          throw new Error(`${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit for implementation`);
         }
 
         this.storage.updateIteration(iteration.id, {
@@ -379,21 +447,17 @@ export class Orchestrator {
           this.log("─".repeat(80));
 
           const prompt = PROMPTS.buildFix(buildErrors);
-          const result = await this.claudeRunner.run({
-            workDir: this.workDir,
-            prompt,
-            timeoutMinutes: this.agentTimeoutMinutes,
-          });
+          const result = await this.runImplementationAgent(prompt);
 
           if (!result || !result.commitSha) {
             this.storage.updateIteration(iteration.id, { status: 'failed' });
             this.emitEvent({
               type: "error",
               timestamp: Date.now(),
-              error: "Claude Code completed but did not create a commit",
+              error: `${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit`,
               stepNumber: step.stepNumber,
             });
-            throw new Error("Claude Code completed but did not create a commit for build fix");
+            throw new Error(`${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit for build fix`);
           }
 
           this.storage.updateIteration(iteration.id, {
@@ -463,20 +527,17 @@ export class Orchestrator {
           timestamp: Date.now(),
           iterationId: previousIteration.id,
           promptType,
+          agent: this.reviewAgent,
         });
 
-        this.log(`\nRunning Codex code review (${promptType})...`);
+        this.log(`\nRunning ${this.getAgentDisplayName(this.reviewAgent)} code review (${promptType})...`);
 
-        const codexOutput = await this.codexRunner.run({
-          workDir: this.workDir,
-          prompt: codexPrompt,
-          timeoutMinutes: this.agentTimeoutMinutes,
-        });
+        const reviewRun = await this.runReviewAgent(codexPrompt);
 
-        const reviewResult = this.codexRunner.parseCodexOutput(codexOutput.output);
+        const reviewResult = this.codexRunner.parseCodexOutput(reviewRun.output);
 
         this.storage.updateIteration(previousIteration.id, {
-          codexLog: codexOutput.output,
+          codexLog: reviewRun.output,
           reviewStatus: reviewResult.result === 'PASS' ? 'passed' : 'failed',
         });
 
@@ -486,6 +547,7 @@ export class Orchestrator {
           iterationId: previousIteration.id,
           result: reviewResult.result,
           issueCount: reviewResult.issues.length,
+          agent: this.reviewAgent,
         });
 
         if (reviewResult.result === 'FAIL' && reviewResult.issues.length > 0) {
@@ -528,21 +590,17 @@ export class Orchestrator {
           this.log("─".repeat(80));
 
           const prompt = PROMPTS.reviewFix(JSON.stringify(reviewResult.issues, null, 2));
-          const result = await this.claudeRunner.run({
-            workDir: this.workDir,
-            prompt,
-            timeoutMinutes: this.agentTimeoutMinutes,
-          });
+          const result = await this.runImplementationAgent(prompt);
 
           if (!result || !result.commitSha) {
             this.storage.updateIteration(iteration.id, { status: 'failed' });
             this.emitEvent({
               type: "error",
               timestamp: Date.now(),
-              error: "Claude Code completed but did not create a commit",
+              error: `${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit`,
               stepNumber: step.stepNumber,
             });
-            throw new Error("Claude Code completed but did not create a commit for review fix");
+            throw new Error(`${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit for review fix`);
           }
 
           this.storage.updateIteration(iteration.id, {
