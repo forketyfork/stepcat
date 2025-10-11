@@ -9,6 +9,8 @@ export interface TUIState {
   isComplete: boolean;
   error: string | null;
   logs: Array<{ level: string; message: string; timestamp: number }>;
+  terminalWidth: number;
+  terminalHeight: number;
 }
 
 export const initialState: TUIState = {
@@ -19,5 +21,7 @@ export const initialState: TUIState = {
   currentPhase: 'Initializing...',
   isComplete: false,
   error: null,
-  logs: []
+  logs: [],
+  terminalWidth: process.stdout.columns || 80,
+  terminalHeight: process.stdout.rows || 24
 };

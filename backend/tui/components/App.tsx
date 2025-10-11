@@ -10,7 +10,7 @@ interface AppProps {
 
 export const App: React.FC<AppProps> = ({ state }) => {
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" width={state.terminalWidth} height={state.terminalHeight}>
       <Header state={state} />
 
       {state.currentPhase && !state.isComplete && !state.error && (

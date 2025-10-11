@@ -4,7 +4,7 @@ import { TUIState, initialState } from '../tui/types.js';
 import { Storage } from '../storage.js';
 import type * as ReactTypes from 'react';
 import { pathToFileURL, fileURLToPath } from 'url';
-import { resolve, join, dirname } from 'path';
+import { resolve, dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -21,6 +21,7 @@ export class TUIAdapter implements UIAdapter {
   private ink: InkModule | null = null;
   private React: ReactModule | null = null;
   private App: AppComponent | null = null;
+  private resizeHandler: (() => void) | null = null;
 
   constructor(config: UIAdapterConfig) {
     this.state = { ...initialState };
@@ -46,6 +47,9 @@ export class TUIAdapter implements UIAdapter {
     if (!this.App) {
       throw new Error('Failed to load TUI App component');
     }
+
+    this.resizeHandler = this.handleResize.bind(this);
+    process.stdout.on('resize', this.resizeHandler);
 
     this.inkInstance = this.ink.render(this.React.createElement(this.App, { state: this.state }));
   }
@@ -179,7 +183,18 @@ export class TUIAdapter implements UIAdapter {
     }
   }
 
+  private handleResize(): void {
+    this.state.terminalWidth = process.stdout.columns || 80;
+    this.state.terminalHeight = process.stdout.rows || 24;
+    this.rerender();
+  }
+
   async shutdown(): Promise<void> {
+    if (this.resizeHandler) {
+      process.stdout.off('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
+
     if (this.inkInstance) {
       this.inkInstance.unmount();
       this.inkInstance = null;
