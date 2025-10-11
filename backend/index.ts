@@ -5,4 +5,5 @@ export { CodexRunner, CodexRunOptions } from './codex-runner';
 export { GitHubChecker, GitHubConfig } from './github-checker';
 export { PROMPTS } from './prompts';
 export { Database } from './database';
+export { Storage, IterationUpdate } from './storage';
 export { Plan, DbStep, Iteration, Issue } from './models';

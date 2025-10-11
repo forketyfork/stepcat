@@ -2,7 +2,7 @@ import express, { Express } from 'express';
 import { createServer, Server as HTTPServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { OrchestratorEventEmitter, OrchestratorEvent } from './events';
-import { Database } from './database';
+import { Storage } from './storage';
 import { Iteration, Issue } from './models';
 import open from 'open';
 import path from 'path';
@@ -11,7 +11,7 @@ export interface WebServerConfig {
   port?: number;
   eventEmitter: OrchestratorEventEmitter;
   autoOpen?: boolean;
-  database?: Database;
+  storage?: Storage;
 }
 
 export class WebServer {
@@ -22,7 +22,7 @@ export class WebServer {
   private clients: Set<WebSocket>;
   private eventEmitter: OrchestratorEventEmitter;
   private autoOpen: boolean;
-  private database?: Database;
+  private storage?: Storage;
   private latestStateSyncEvent: OrchestratorEvent | null = null;
   private eventHistory: OrchestratorEvent[] = [];
   private readonly MAX_EVENT_HISTORY = 1000;
@@ -31,7 +31,7 @@ export class WebServer {
     this.port = config.port || 3742;
     this.eventEmitter = config.eventEmitter;
     this.autoOpen = config.autoOpen ?? true;
-    this.database = config.database;
+    this.storage = config.storage;
     this.clients = new Set();
 
     this.app = express();
@@ -61,18 +61,18 @@ export class WebServer {
       console.log('New client connected');
       this.clients.add(ws);
 
-      if (this.database && this.latestStateSyncEvent) {
+      if (this.storage && this.latestStateSyncEvent) {
         const syncEvent = this.latestStateSyncEvent as { plan?: { id: number } };
         if (syncEvent.plan && syncEvent.plan.id) {
-          const steps = this.database.getSteps(syncEvent.plan.id);
+          const steps = this.storage.getSteps(syncEvent.plan.id);
           const allIterations: Iteration[] = [];
           const allIssues: Issue[] = [];
 
           steps.forEach(step => {
-            const iterations = this.database!.getIterations(step.id);
+            const iterations = this.storage!.getIterations(step.id);
             allIterations.push(...iterations);
             iterations.forEach(iteration => {
-              const issues = this.database!.getIssues(iteration.id);
+              const issues = this.storage!.getIssues(iteration.id);
               allIssues.push(...issues);
             });
           });
