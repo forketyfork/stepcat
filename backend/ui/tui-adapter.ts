@@ -6,7 +6,7 @@ import type * as ReactTypes from 'react';
 
 type InkModule = typeof import('ink');
 type ReactModule = typeof import('react');
-type InkInstance = { rerender: (node: unknown) => void; unmount: () => void };
+type InkInstance = { rerender: (node: ReactTypes.ReactNode) => void; unmount: () => void };
 type AppComponent = ReactTypes.FC<{ state: TUIState }>;
 
 export class TUIAdapter implements UIAdapter {
