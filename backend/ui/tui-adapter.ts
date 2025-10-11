@@ -6,8 +6,14 @@ import type * as ReactTypes from 'react';
 import { pathToFileURL, fileURLToPath } from 'url';
 import { resolve, dirname } from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const moduleDir = (() => {
+  try {
+    const url = new Function('return import.meta.url')() as string;
+    return dirname(fileURLToPath(url));
+  } catch {
+    return typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+  }
+})();
 
 type InkModule = typeof import('ink');
 type ReactModule = typeof import('react');
@@ -36,9 +42,9 @@ export class TUIAdapter implements UIAdapter {
     this.ink = await import('ink');
     this.React = await import('react');
 
-    const isDev = process.env.NODE_ENV !== 'production' && !__dirname.includes('/dist/');
+    const isDev = process.env.NODE_ENV !== 'production' && !moduleDir.includes('/dist/');
     const fileName = isDev ? 'App.tsx' : 'App.js';
-    const componentPath = resolve(__dirname, '../tui/components', fileName);
+    const componentPath = resolve(moduleDir, '../tui/components', fileName);
     const componentUrl = pathToFileURL(componentPath).href;
 
     const componentsModule = await import(componentUrl);

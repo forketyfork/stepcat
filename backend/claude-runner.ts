@@ -4,8 +4,14 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { PROMPTS } from "./prompts.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const moduleDir = (() => {
+  try {
+    const url = new Function("return import.meta.url")() as string;
+    return dirname(fileURLToPath(url));
+  } catch {
+    return typeof __dirname !== "undefined" ? __dirname : process.cwd();
+  }
+})();
 
 export interface ClaudeRunOptions {
   workDir: string;
@@ -15,7 +21,7 @@ export interface ClaudeRunOptions {
 
 export class ClaudeRunner {
   private getClaudePath(): string {
-    const localBin = resolve(__dirname, "../node_modules/.bin/claude");
+    const localBin = resolve(moduleDir, "../node_modules/.bin/claude");
 
     console.log(`Looking for Claude Code binary at: ${localBin}`);
 

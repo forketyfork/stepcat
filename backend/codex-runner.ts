@@ -3,8 +3,14 @@ import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const moduleDir = (() => {
+  try {
+    const url = new Function("return import.meta.url")() as string;
+    return dirname(fileURLToPath(url));
+  } catch {
+    return typeof __dirname !== "undefined" ? __dirname : process.cwd();
+  }
+})();
 
 export interface CodexRunOptions {
   workDir: string;
@@ -24,7 +30,7 @@ export interface CodexReviewResult {
 
 export class CodexRunner {
   private getCodexPath(): string {
-    const localBin = resolve(__dirname, "../node_modules/.bin/codex");
+    const localBin = resolve(moduleDir, "../node_modules/.bin/codex");
 
     console.log(`Looking for Codex binary at: ${localBin}`);
 

@@ -7,6 +7,7 @@ export default {
     'backend/**/*.ts',
     '!backend/**/*.d.ts'
   ],
+  resolver: './jest.resolver.cjs',
   moduleNameMapper: {
     '^@octokit/(.*)$': '<rootDir>/backend/__mocks__/@octokit/$1.ts'
   }
