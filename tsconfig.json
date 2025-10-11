@@ -17,6 +17,10 @@
     "moduleResolution": "nodenext",
     "jsx": "react"
   },
+  "ts-node": {
+    "esm": false,
+    "experimentalSpecifierResolution": "node"
+  },
   "include": ["backend/**/*"],
   "exclude": ["node_modules", "dist", "frontend", "backend/**/*.test.ts", "backend/**/__tests__"]
 }

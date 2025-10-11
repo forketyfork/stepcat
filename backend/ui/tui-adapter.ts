@@ -32,6 +32,10 @@ export class TUIAdapter implements UIAdapter {
     const componentsModule = await import('../tui/components/index.js');
     this.App = componentsModule.App;
 
+    if (!this.App) {
+      throw new Error('Failed to load TUI App component');
+    }
+
     this.inkInstance = this.ink.render(this.React.createElement(this.App, { state: this.state }));
   }
 
