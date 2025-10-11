@@ -27,6 +27,7 @@ program
   .action(async (options) => {
     const startTime = Date.now();
     let webServer: WebServer | null = null;
+    let storage: Database | null = null;
 
     try {
       let planFile: string;
@@ -177,14 +178,14 @@ program
       }
 
       const eventEmitter = new OrchestratorEventEmitter();
-      const database = new Database(workDir);
+      storage = new Database(workDir);
 
       if (options.ui) {
         webServer = new WebServer({
           port: options.port,
           eventEmitter,
           autoOpen: options.autoOpen,
-          database
+          storage
         });
 
         await webServer.start();
@@ -198,7 +199,8 @@ program
         agentTimeoutMinutes: options.agentTimeout,
         eventEmitter,
         silent: options.ui,
-        executionId
+        executionId,
+        storage
       });
 
       eventEmitter.on('event', (event) => {
@@ -251,6 +253,8 @@ program
         console.log('═'.repeat(80));
 
         await new Promise(() => {});
+      } else if (storage) {
+        storage.close();
       }
 
       process.exit(0);
@@ -274,6 +278,10 @@ program
 
       if (webServer) {
         await webServer.stop();
+      }
+
+      if (storage) {
+        storage.close();
       }
 
       process.exit(1);

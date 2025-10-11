@@ -5,6 +5,7 @@ import { GitHubChecker } from "./github-checker";
 import { execSync } from "child_process";
 import { OrchestratorEventEmitter } from "./events";
 import { Database } from "./database";
+import { Storage } from "./storage";
 import { Plan, DbStep, Iteration } from "./models";
 import { PROMPTS } from "./prompts";
 
@@ -19,6 +20,7 @@ export interface OrchestratorConfig {
   executionId?: number;
   maxIterationsPerStep?: number;
   databasePath?: string;
+  storage?: Storage;
 }
 
 export class Orchestrator {
@@ -26,7 +28,8 @@ export class Orchestrator {
   private claudeRunner: ClaudeRunner;
   private codexRunner: CodexRunner;
   private githubChecker: GitHubChecker;
-  private database: Database;
+  private storage: Storage;
+  private storageOwned: boolean;
   private workDir: string;
   private planFile: string;
   private buildTimeoutMinutes: number;
@@ -52,7 +55,8 @@ export class Orchestrator {
     this.executionId = config.executionId;
     this.maxIterationsPerStep = config.maxIterationsPerStep ?? 10;
 
-    this.database = new Database(config.workDir, config.databasePath);
+    this.storage = config.storage ?? new Database(config.workDir, config.databasePath);
+    this.storageOwned = !config.storage;
 
     const repoInfo = GitHubChecker.parseRepoInfo(config.workDir);
 
@@ -89,7 +93,7 @@ export class Orchestrator {
   private async initializeOrResumePlan(): Promise<void> {
     if (this.executionId) {
       this.log(`Resuming execution ID: ${this.executionId}`, "info");
-      const plan = this.database.getPlan(this.executionId);
+      const plan = this.storage.getPlan(this.executionId);
       if (!plan) {
         throw new Error(`Execution ID ${this.executionId} not found in database`);
       }
@@ -97,7 +101,7 @@ export class Orchestrator {
       this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
     } else {
       this.log("Starting new execution", "info");
-      this.plan = this.database.createPlan(
+      this.plan = this.storage.createPlan(
         this.planFile,
         this.workDir,
         this.githubChecker.getOwner(),
@@ -107,7 +111,7 @@ export class Orchestrator {
 
       const parsedSteps = this.parser.parseSteps();
       for (const step of parsedSteps) {
-        this.database.createStep(this.plan.id, step.number, step.title);
+        this.storage.createStep(this.plan.id, step.number, step.title);
       }
       this.log(`Initialized ${parsedSteps.length} steps in database`, "info");
     }
@@ -118,7 +122,7 @@ export class Orchestrator {
       throw new Error("Plan not initialized");
     }
 
-    const steps = this.database.getSteps(this.plan.id);
+    const steps = this.storage.getSteps(this.plan.id);
     const currentStep = steps.find(
       (s) => s.status === 'pending' || s.status === 'in_progress'
     );
@@ -203,9 +207,9 @@ export class Orchestrator {
       isResume: !!this.executionId,
     });
 
-    const allSteps = this.database.getSteps(this.plan.id);
-    const allIterations = allSteps.flatMap((s) => this.database.getIterations(s.id));
-    const allIssues = allIterations.flatMap((i) => this.database.getIssues(i.id));
+    const allSteps = this.storage.getSteps(this.plan.id);
+    const allIterations = allSteps.flatMap((s) => this.storage.getIterations(s.id));
+    const allIssues = allIterations.flatMap((i) => this.storage.getIssues(i.id));
 
     this.eventEmitter.emit("event", {
       type: "state_sync",
@@ -231,7 +235,7 @@ export class Orchestrator {
 
     let step = this.getCurrentStep();
     while (step) {
-      const freshSteps = this.database.getSteps(this.plan.id);
+      const freshSteps = this.storage.getSteps(this.plan.id);
       const completedCount = freshSteps.filter(s => s.status === 'completed').length;
 
       this.eventEmitter.emit("event", {
@@ -250,12 +254,12 @@ export class Orchestrator {
       this.log(`STEP ${step.stepNumber}: ${step.title}`);
       this.log("═".repeat(80));
 
-      this.database.updateStepStatus(step.id, 'in_progress');
+      this.storage.updateStepStatus(step.id, 'in_progress');
 
-      let iterationNumber = this.database.getIterations(step.id).length + 1;
+      let iterationNumber = this.storage.getIterations(step.id).length + 1;
 
       if (iterationNumber === 1) {
-        const iteration = this.database.createIteration(step.id, 1, 'implementation');
+        const iteration = this.storage.createIteration(step.id, 1, 'implementation');
 
         this.eventEmitter.emit("event", {
           type: "iteration_start",
@@ -277,7 +281,7 @@ export class Orchestrator {
         });
 
         if (!result || !result.commitSha) {
-          this.database.updateIteration(iteration.id, { status: 'failed' });
+          this.storage.updateIteration(iteration.id, { status: 'failed' });
           this.eventEmitter.emit("event", {
             type: "error",
             timestamp: Date.now(),
@@ -287,7 +291,7 @@ export class Orchestrator {
           throw new Error("Claude Code completed but did not create a commit for implementation");
         }
 
-        this.database.updateIteration(iteration.id, {
+        this.storage.updateIteration(iteration.id, {
           commitSha: result.commitSha,
           status: 'completed',
         });
@@ -308,10 +312,10 @@ export class Orchestrator {
 
       while (iterationNumber <= this.maxIterationsPerStep) {
         const sha = this.githubChecker.getLatestCommitSha();
-        const previousIterationId = this.database.getIterations(step.id)[iterationNumber - 2]?.id;
+        const previousIterationId = this.storage.getIterations(step.id)[iterationNumber - 2]?.id;
 
         if (previousIterationId) {
-          this.database.updateIteration(previousIterationId, { buildStatus: 'pending' });
+          this.storage.updateIteration(previousIterationId, { buildStatus: 'pending' });
         }
 
         this.eventEmitter.emit("event", {
@@ -335,12 +339,12 @@ export class Orchestrator {
 
         if (!checksPass) {
           if (previousIterationId) {
-            this.database.updateIteration(previousIterationId, { buildStatus: 'failed' });
+          this.storage.updateIteration(previousIterationId, { buildStatus: 'failed' });
           }
           const buildErrors = await this.extractBuildErrors(sha);
-          const iteration = this.database.createIteration(step.id, iterationNumber, 'build_fix');
+          const iteration = this.storage.createIteration(step.id, iterationNumber, 'build_fix');
 
-          const issue = this.database.createIssue(previousIterationId!, 'ci_failure', buildErrors);
+          const issue = this.storage.createIssue(previousIterationId!, 'ci_failure', buildErrors);
 
           this.eventEmitter.emit("event", {
             type: "issue_found",
@@ -371,7 +375,7 @@ export class Orchestrator {
           });
 
           if (!result || !result.commitSha) {
-            this.database.updateIteration(iteration.id, { status: 'failed' });
+            this.storage.updateIteration(iteration.id, { status: 'failed' });
             this.eventEmitter.emit("event", {
               type: "error",
               timestamp: Date.now(),
@@ -381,7 +385,7 @@ export class Orchestrator {
             throw new Error("Claude Code completed but did not create a commit for build fix");
           }
 
-          this.database.updateIteration(iteration.id, {
+          this.storage.updateIteration(iteration.id, {
             commitSha: result.commitSha,
             status: 'completed',
           });
@@ -402,7 +406,7 @@ export class Orchestrator {
         }
 
         if (previousIterationId) {
-          this.database.updateIteration(previousIterationId, { buildStatus: 'passed' });
+          this.storage.updateIteration(previousIterationId, { buildStatus: 'passed' });
         }
 
         this.eventEmitter.emit("event", {
@@ -417,20 +421,20 @@ export class Orchestrator {
 
         this.log("✓ All GitHub Actions checks passed", "success");
 
-        const previousIteration = this.database.getIterations(step.id)[iterationNumber - 2];
+        const previousIteration = this.storage.getIterations(step.id)[iterationNumber - 2];
         const promptType = this.determineCodexPromptType(previousIteration);
 
         let codexPrompt: string;
         if (promptType === 'implementation') {
           codexPrompt = PROMPTS.codexReviewImplementation(step.stepNumber, step.title, this.planContent);
         } else if (promptType === 'build_fix') {
-          const buildErrors = this.database.getIssues(previousIteration.id)
+          const buildErrors = this.storage.getIssues(previousIteration.id)
             .filter(i => i.type === 'ci_failure')
             .map(i => i.description)
             .join('\n');
           codexPrompt = PROMPTS.codexReviewBuildFix(buildErrors);
         } else {
-          const openIssues = this.database.getOpenIssues(step.id)
+          const openIssues = this.storage.getOpenIssues(step.id)
             .filter(i => i.type === 'codex_review')
             .map(i => ({
               file: i.filePath || 'unknown',
@@ -441,7 +445,7 @@ export class Orchestrator {
           codexPrompt = PROMPTS.codexReviewCodeFixes(openIssues);
         }
 
-        this.database.updateIteration(previousIteration.id, { reviewStatus: 'in_progress' });
+        this.storage.updateIteration(previousIteration.id, { reviewStatus: 'in_progress' });
 
         this.eventEmitter.emit("event", {
           type: "codex_review_start",
@@ -460,7 +464,7 @@ export class Orchestrator {
 
         const reviewResult = this.codexRunner.parseCodexOutput(codexOutput.output);
 
-        this.database.updateIteration(previousIteration.id, {
+        this.storage.updateIteration(previousIteration.id, {
           codexLog: codexOutput.output,
           reviewStatus: reviewResult.result === 'PASS' ? 'passed' : 'failed',
         });
@@ -474,10 +478,10 @@ export class Orchestrator {
         });
 
         if (reviewResult.result === 'FAIL' && reviewResult.issues.length > 0) {
-          const iteration = this.database.createIteration(step.id, iterationNumber, 'review_fix');
+          const iteration = this.storage.createIteration(step.id, iterationNumber, 'review_fix');
 
           for (const issue of reviewResult.issues) {
-            const dbIssue = this.database.createIssue(
+            const dbIssue = this.storage.createIssue(
               previousIteration.id,
               'codex_review',
               issue.description,
@@ -520,7 +524,7 @@ export class Orchestrator {
           });
 
           if (!result || !result.commitSha) {
-            this.database.updateIteration(iteration.id, { status: 'failed' });
+            this.storage.updateIteration(iteration.id, { status: 'failed' });
             this.eventEmitter.emit("event", {
               type: "error",
               timestamp: Date.now(),
@@ -530,7 +534,7 @@ export class Orchestrator {
             throw new Error("Claude Code completed but did not create a commit for review fix");
           }
 
-          this.database.updateIteration(iteration.id, {
+          this.storage.updateIteration(iteration.id, {
             commitSha: result.commitSha,
             status: 'completed',
           });
@@ -546,9 +550,9 @@ export class Orchestrator {
             status: 'completed',
           });
 
-          const openIssues = this.database.getOpenIssues(step.id);
+          const openIssues = this.storage.getOpenIssues(step.id);
           for (const issue of openIssues) {
-            this.database.updateIssueStatus(issue.id, 'fixed', new Date().toISOString());
+            this.storage.updateIssueStatus(issue.id, 'fixed', new Date().toISOString());
             this.eventEmitter.emit("event", {
               type: "issue_resolved",
               timestamp: Date.now(),
@@ -560,7 +564,7 @@ export class Orchestrator {
           continue;
         } else {
           this.log("✓ Code review passed with no issues", "success");
-          this.database.updateStepStatus(step.id, 'completed');
+          this.storage.updateStepStatus(step.id, 'completed');
 
           this.eventEmitter.emit("event", {
             type: "step_complete",
@@ -574,7 +578,7 @@ export class Orchestrator {
       }
 
       if (iterationNumber > this.maxIterationsPerStep) {
-        this.database.updateStepStatus(step.id, 'failed');
+        this.storage.updateStepStatus(step.id, 'failed');
         this.eventEmitter.emit("event", {
           type: "error",
           timestamp: Date.now(),
@@ -599,7 +603,9 @@ export class Orchestrator {
     this.log("✓✓✓ ALL STEPS COMPLETED SUCCESSFULLY ✓✓✓", "success");
     this.log("═".repeat(80));
 
-    this.database.close();
+    if (this.storageOwned) {
+      this.storage.close();
+    }
 
     return this.plan.id;
   }
