@@ -1,19 +1,19 @@
 # Stepcat
 
-Step-by-step agent orchestration solution that automates implementation of multi-step development plans using Claude Code and Codex.
+Step-by-step agent orchestration solution that automates implementation of multi-step development plans using Claude Code and Codex, with configurable agents for each stage.
 
 ## Overview
 
 Stepcat orchestrates the implementation of complex development tasks by:
 1. Parsing a markdown file containing numbered steps
-2. Using Claude Code to implement each step
+2. Using a configurable implementation agent (Claude Code by default) to implement each step
 3. Pushing changes and waiting for GitHub Actions to pass
-4. Using Codex to review the implementation with structured JSON output
-5. Using Claude Code to fix any build failures or review issues
+4. Using a configurable review agent (Codex by default) to review the implementation with structured JSON output
+5. Using the selected implementation agent to fix any build failures or review issues
 6. Creating separate commits for each iteration (implementation, build fixes, review fixes)
 7. Moving to the next step when all checks pass
 
-All execution state is stored in a SQLite database (`.stepcat/executions.db`), enabling resume functionality and complete audit trails. Each Claude Code execution creates a separate git commit, providing full transparency and traceability.
+All execution state is stored in a SQLite database (`.stepcat/executions.db`), enabling resume functionality and complete audit trails. Each implementation iteration creates a separate git commit, providing full transparency and traceability.
 
 ## Installation
 
@@ -65,6 +65,8 @@ The UI automatically opens in your default browser at `http://localhost:3742` (c
 - `-t, --token <token>` - GitHub token (optional, defaults to `GITHUB_TOKEN` env var)
 - `--build-timeout <minutes>` - GitHub Actions check timeout in minutes (default: 30)
 - `--agent-timeout <minutes>` - Agent execution timeout in minutes (default: 30)
+- `--implementation-agent <agent>` - Agent to use for implementation iterations (`claude` or `codex`, default: `claude`)
+- `--review-agent <agent>` - Agent to use for code review (`claude` or `codex`, default: `codex`)
 - `--ui` - Launch web UI (default: false)
 - `--port <number>` - Web UI port (default: 3742)
 - `--no-auto-open` - Don't automatically open browser when using --ui
@@ -207,11 +209,11 @@ Claude Code will execute these commands after implementing each step to ensure c
 
 ## Git Commit Strategy
 
-**One Commit Per Iteration**: Stepcat creates a separate git commit for each Claude Code execution, providing complete transparency and audit trails.
+**One Commit Per Iteration**: Stepcat creates a separate git commit for each implementation agent execution, providing complete transparency and audit trails.
 
-- **Initial implementation**: Claude Code creates Commit 1
-- **Build fix**: If CI fails, Claude Code creates Commit 2
-- **Review fix iteration 1**: If Codex finds issues, Claude Code creates Commit 3
+- **Initial implementation**: The implementation agent creates Commit 1
+- **Build fix**: If CI fails, the implementation agent creates Commit 2
+- **Review fix iteration 1**: If the review agent finds issues, the implementation agent creates Commit 3
 - **Review fix iteration 2**: Additional fixes create Commit 4, and so on
 - **Maximum iterations**: 10 per step (configurable)
 - **Pushing**: The orchestrator handles all pushes; agents never push themselves
@@ -224,20 +226,20 @@ Claude Code will execute these commands after implementing each step to ensure c
 For each pending step in the plan:
 
 1. **Initial Implementation Iteration**:
-   - Claude Code implements the step (creates Commit 1)
+   - The implementation agent implements the step (creates Commit 1)
    - Orchestrator pushes and waits for GitHub Actions
 
 2. **Build Verification Loop**:
-   - If CI fails: Create build_fix iteration → Claude creates new commit → push → repeat until CI passes
+   - If CI fails: Create build_fix iteration → the implementation agent creates a new commit → push → repeat until CI passes
 
 3. **Code Review**:
-   - Run Codex with context-specific prompt (implementation/build_fix/review_fix)
-   - Codex returns structured JSON: `{"result": "PASS"|"FAIL", "issues": [...]}`
+   - Run the selected review agent with context-specific prompt (implementation/build_fix/review_fix)
+   - The review agent returns structured JSON: `{"result": "PASS"|"FAIL", "issues": [...]}`
    - Parse issues and save to database
 
 4. **Review Fix Loop**:
-   - If issues found: Create review_fix iteration → Claude creates new commit → push → back to build verification
-   - Repeat until Codex returns `"result": "PASS"`
+   - If issues found: Create review_fix iteration → the implementation agent creates a new commit → push → back to build verification
+   - Repeat until the review agent returns `"result": "PASS"`
 
 5. **Step Complete**:
    - Mark step as completed in database
@@ -249,7 +251,7 @@ For each pending step in the plan:
 **Key Points**:
 - All state stored in SQLite database (`.stepcat/executions.db`)
 - Plan file is never modified during execution
-- Each Claude execution creates a separate commit (full audit trail)
+ - Each implementation agent execution creates a separate commit (full audit trail)
 - Issues are tracked with file paths, line numbers, and resolution status
 - Iteration types: 'implementation', 'build_fix', 'review_fix'
 - Full traceability: Issue → Iteration → Commit SHA

@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Stepcat is a step-by-step agent orchestration solution that automates multi-step development plans using Claude Code (for implementation) and Codex (for code review). It uses a SQLite database to track execution state, iterations, and issues. For each step, it implements code via Claude Code, waits for GitHub Actions to pass, uses Codex to review the code with structured JSON output, and iterates until the step is complete.
+Stepcat is a step-by-step agent orchestration solution that automates multi-step development plans using Claude Code and Codex. Each stage can be configured to use either agent (Claude Code by default for implementation, Codex by default for review). It uses a SQLite database to track execution state, iterations, and issues. For each step, it implements code via the selected implementation agent, waits for GitHub Actions to pass, uses the configured review agent to analyze the changes with structured JSON output, and iterates until the step is complete.
 
-**Key Principle**: One commit per iteration (not per step) for complete audit trail. Each Claude Code execution creates a separate git commit, providing full transparency and traceability throughout the development process.
+**Key Principle**: One commit per iteration (not per step) for complete audit trail. Each implementation agent execution creates a separate git commit, providing full transparency and traceability throughout the development process.
 
 ## Common Commands
 
