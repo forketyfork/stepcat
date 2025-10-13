@@ -212,7 +212,7 @@ Some text here.
         expect(result.issues).toHaveLength(1);
         expect(result.issues[0].file).toBe('unknown');
         expect(result.issues[0].severity).toBe('error');
-        expect(result.issues[0].description).toContain('Failed to parse Codex output');
+        expect(result.issues[0].description).toContain('Failed to parse review output');
       });
 
       it('should include raw output snippet in diagnostic', () => {

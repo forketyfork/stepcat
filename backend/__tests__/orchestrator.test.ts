@@ -75,8 +75,10 @@ Implement the feature
       mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({ success: true, output: 'OK' });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
+      mockCodexRunner.run = jest.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
 
       const eventEmitter = new OrchestratorEventEmitter();
       const orchestrator = new Orchestrator({
@@ -117,8 +119,10 @@ Implement the feature
       mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'def456' });
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('def456');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({ success: true, output: 'OK' });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
+      mockCodexRunner.run = jest.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -169,8 +173,10 @@ Implement the feature
         .mockResolvedValueOnce(true)
         .mockResolvedValue(true);
 
-      mockCodexRunner.run = jest.fn().mockResolvedValue({ success: true, output: 'OK' });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
+      mockCodexRunner.run = jest.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -217,18 +223,21 @@ Implement the feature
 
       mockCodexRunner.run = jest
         .fn()
-        .mockResolvedValueOnce({ success: true, output: 'FAIL' })
-        .mockResolvedValueOnce({ success: true, output: 'PASS' })
-        .mockResolvedValue({ success: true, output: 'PASS' });
-
-      mockCodexRunner.parseCodexOutput = jest
-        .fn()
-        .mockReturnValueOnce({
-          result: 'FAIL',
-          issues: [{ file: 'src/app.ts', line: 42, severity: 'error', description: 'Missing error handling' }],
+        .mockResolvedValueOnce({
+          success: true,
+          output: JSON.stringify({
+            result: 'FAIL',
+            issues: [{ file: 'src/app.ts', line: 42, severity: 'error', description: 'Missing error handling' }]
+          })
         })
-        .mockReturnValueOnce({ result: 'PASS', issues: [] })
-        .mockReturnValue({ result: 'PASS', issues: [] });
+        .mockResolvedValueOnce({
+          success: true,
+          output: JSON.stringify({ result: 'PASS', issues: [] })
+        })
+        .mockResolvedValue({
+          success: true,
+          output: JSON.stringify({ result: 'PASS', issues: [] })
+        });
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -263,10 +272,12 @@ Implement the feature
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
 
-      mockCodexRunner.run = jest.fn().mockResolvedValue({ success: true, output: 'FAIL' });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({
-        result: 'FAIL',
-        issues: [{ file: 'test.ts', severity: 'error', description: 'Always fails' }],
+      mockCodexRunner.run = jest.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({
+          result: 'FAIL',
+          issues: [{ file: 'test.ts', severity: 'error', description: 'Always fails' }]
+        })
       });
 
       const orchestrator = new Orchestrator({
@@ -290,8 +301,10 @@ Implement the feature
       mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({ success: true, output: 'OK' });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
+      mockCodexRunner.run = jest.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
 
       const eventEmitter = new OrchestratorEventEmitter();
       const events: any[] = [];
@@ -318,8 +331,10 @@ Implement the feature
       mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({ success: true, output: 'OK' });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
+      mockCodexRunner.run = jest.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
 
       const eventEmitter = new OrchestratorEventEmitter();
       const events: any[] = [];
@@ -348,10 +363,12 @@ Implement the feature
       mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({ success: true, output: 'FAIL' });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({
-        result: 'FAIL',
-        issues: [{ file: 'test.ts', severity: 'error', description: 'Fails' }],
+      mockCodexRunner.run = jest.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({
+          result: 'FAIL',
+          issues: [{ file: 'test.ts', severity: 'error', description: 'Fails' }]
+        })
       });
 
       const orchestrator = new Orchestrator({
@@ -367,10 +384,12 @@ Implement the feature
       mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({ success: true, output: 'FAIL' });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({
-        result: 'FAIL',
-        issues: [{ file: 'test.ts', severity: 'error', description: 'Fails' }],
+      mockCodexRunner.run = jest.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({
+          result: 'FAIL',
+          issues: [{ file: 'test.ts', severity: 'error', description: 'Fails' }]
+        })
       });
 
       const orchestrator = new Orchestrator({
@@ -395,7 +414,6 @@ Implement the feature
           output: JSON.stringify({ result: 'PASS', issues: [] }),
         };
       });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
 
       mockClaudeRunner.run = jest.fn();
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
@@ -428,7 +446,6 @@ Implement the feature
       });
 
       mockCodexRunner.run = jest.fn();
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
 
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
@@ -444,7 +461,6 @@ Implement the feature
 
       expect(mockClaudeRunner.run).toHaveBeenCalled();
       expect(mockCodexRunner.run).not.toHaveBeenCalled();
-      expect(mockCodexRunner.parseCodexOutput).toHaveBeenCalled();
     });
   });
 });

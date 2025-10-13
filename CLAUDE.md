@@ -162,15 +162,22 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - No longer enforces commit amending (creates new commits instead)
 - Three prompt types: implementation, buildFix, reviewFix (see `backend/prompts.ts`)
 
-**CodexRunner** (`backend/codex-runner.ts`): Executes Codex for code review with JSON parsing
+**CodexRunner** (`backend/codex-runner.ts`): Executes Codex with commit tracking support
 - Locates binary at `../node_modules/.bin/codex`
 - Runs with `exec` subcommand
-- Captures stdout for review output
-- `parseCodexOutput()` method extracts structured JSON from review output
+- Captures stdout for output
+- Supports `expectCommit` flag for implementation iterations (tracks commit SHA)
+- `parseCodexOutput()` method delegates to ReviewParser for parsing review output
+- Returns `{ success: boolean; output: string; commitSha?: string | null }`
+
+**ReviewParser** (`backend/review-parser.ts`): Agent-agnostic review output parser
+- Parses JSON output from any review agent (Claude Code or Codex)
 - Handles JSON wrapped in markdown code blocks
-- Returns `CodexReviewResult` with `result` ('PASS' | 'FAIL') and `issues` array
+- Extracts JSON from mixed text/JSON output
+- Returns `ReviewResult` with `result` ('PASS' | 'FAIL') and `issues` array
 - Falls back gracefully if JSON parsing fails
-- Three context-specific prompts for different iteration types (see `backend/prompts.ts`)
+- Used by both ClaudeRunner and CodexRunner for consistent review parsing
+- Expected JSON schema: `{"result": "PASS"|"FAIL", "issues": [{file, line?, severity, description}]}`
 
 **GitHubChecker** (`backend/github-checker.ts`): Monitors GitHub Actions
 - Uses Octokit to poll check runs via GitHub API
@@ -263,12 +270,12 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - If max iterations exceeded, step marked as 'failed' and execution halts
 
 **Review Process**:
-- Codex reviews use three context-specific prompts:
+- Review agent (Codex by default, configurable to Claude Code) uses three context-specific prompts:
   1. `codexReviewImplementation`: Reviews initial implementation commit
   2. `codexReviewBuildFix`: Verifies build fixes address the CI failures
   3. `codexReviewCodeFixes`: Verifies code fixes address previous review issues
-- All Codex prompts request structured JSON output: `{"result": "PASS"|"FAIL", "issues": [...]}`
-- JSON parsing with graceful fallback for malformed output
+- All review prompts request structured JSON output: `{"result": "PASS"|"FAIL", "issues": [...]}`
+- JSON parsing handled by agent-agnostic ReviewParser with graceful fallback for malformed output
 - Issues are parsed and stored in database with full context
 - No text pattern matching - all detection based on JSON structure
 
@@ -306,7 +313,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 2. **Database First**: All state is in the database. Plan file is never modified during execution. Use Database methods for all state operations. Database location: `.stepcat/executions.db` in work directory.
 
-3. **Review Detection**: Use `parseCodexOutput()` method in `backend/codex-runner.ts` to parse JSON from Codex reviews. Handles markdown-wrapped JSON and malformed output gracefully. Returns structured `CodexReviewResult` with `result` and `issues` fields.
+3. **Review Detection**: Use `ReviewParser` class in `backend/review-parser.ts` to parse JSON from review agent output (Claude Code or Codex). The parser is agent-agnostic and handles markdown-wrapped JSON and malformed output gracefully. Returns structured `ReviewResult` with `result` and `issues` fields. Both ClaudeRunner and CodexRunner use this parser for consistency.
 
 4. **Prompt customization**: All agent prompts are in `backend/prompts.ts` - modify there to change agent behavior. Claude prompts explicitly instruct to create new commits and NOT to push. Codex prompts request JSON output with consistent schema.
 
