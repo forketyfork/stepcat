@@ -103,7 +103,7 @@ This document provides a comprehensive checklist for manual integration testing 
 
 ### Max Iterations Test
 - [ ] Create a test plan with a step that will repeatedly fail Codex review
-- [ ] Configure or note the max iterations limit (default: 10)
+- [ ] Configure or note the max iterations limit (default: 3)
 - [ ] Start execution
 - [ ] Verify iteration loop runs multiple times
 - [ ] Verify execution stops after max iterations exceeded

@@ -359,7 +359,7 @@ Implement the feature
   });
 
   describe('configuration', () => {
-    it('should use default max iterations of 10', async () => {
+    it('should use default max iterations of 3', async () => {
       mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
@@ -377,7 +377,7 @@ Implement the feature
         githubToken: 'test-token',
       });
 
-      await expect(orchestrator.run()).rejects.toThrow(/exceeded maximum iterations \(10\)/);
+      await expect(orchestrator.run()).rejects.toThrow(/exceeded maximum iterations \(3\)/);
     });
 
     it('should use custom max iterations when provided', async () => {

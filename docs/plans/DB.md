@@ -268,7 +268,7 @@ Complete refactor to use database for state tracking and implement an iteration 
 
 **Add to OrchestratorConfig**:
 - `executionId?: number` (for resume functionality)
-- `maxIterationsPerStep?: number` (default 10)
+- `maxIterationsPerStep?: number` (default 3)
 - `databasePath?: string` (optional, defaults to `.stepcat/executions.db` in workDir)
 
 **Remove**:
@@ -299,7 +299,7 @@ async run() {
     updateStepStatus(step.id, 'in_progress');
 
     let iterationNumber = getIterations(step.id).length + 1;
-    const maxIterations = this.config.maxIterationsPerStep || 10;
+    const maxIterations = this.config.maxIterationsPerStep || 3;
 
     // Initial implementation
     if (iterationNumber === 1) {
@@ -663,7 +663,7 @@ Completely rewrite documentation to reflect the new database-driven architecture
 - Issues are extracted from CI failures and Codex reviews
 - Issues stored with: file, line, severity, description, status
 - Full traceability: Issue → Iteration that fixed it → Commit SHA
-- Max iterations per step: 10 (configurable)
+- Max iterations per step: 3 (configurable)
 ```
 
 **Review Process** (update existing):

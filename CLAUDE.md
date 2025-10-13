@@ -133,7 +133,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
   3. **Code Review**: Run Codex with context-specific prompt (implementation/build_fix/review_fix), parse JSON output
   4. **Review Fixes**: If issues found, create review_fix iteration, Claude fixes and creates new commit, push, repeat from build verification
   5. **Completion**: When Codex passes and CI passes, mark step complete
-- Configuration: `OrchestratorConfig` includes executionId (for resume), maxIterationsPerStep (default 10), database path, timeouts, event emitter, silent mode
+- Configuration: `OrchestratorConfig` includes executionId (for resume), maxIterationsPerStep (default 3), database path, timeouts, event emitter, silent mode
 - Emits granular events for iterations and issues via `OrchestratorEventEmitter` for real-time UI updates
 - Supports `silent` mode for web UI (suppresses console.log, only emits events)
 - All pushes handled by orchestrator; agents never push
@@ -266,7 +266,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Issues are extracted from CI failures and Codex JSON reviews
 - Issues stored with: file path, line number, severity ('error' | 'warning'), description, status ('open' | 'fixed')
 - Full traceability: Issue → Iteration that found it → Iteration that fixed it → Commit SHA
-- Max iterations per step: 10 (configurable via `maxIterationsPerStep` in OrchestratorConfig)
+- Max iterations per step: 3 (configurable via `maxIterationsPerStep` in OrchestratorConfig)
 - If max iterations exceeded, step marked as 'failed' and execution halts
 
 **Review Process**:

@@ -215,7 +215,7 @@ Claude Code will execute these commands after implementing each step to ensure c
 - **Build fix**: If CI fails, the implementation agent creates Commit 2
 - **Review fix iteration 1**: If the review agent finds issues, the implementation agent creates Commit 3
 - **Review fix iteration 2**: Additional fixes create Commit 4, and so on
-- **Maximum iterations**: 10 per step (configurable)
+- **Maximum iterations**: 3 per step (configurable)
 - **Pushing**: The orchestrator handles all pushes; agents never push themselves
 - **No amending**: All commits are separate (never use `git commit --amend`)
 
@@ -246,7 +246,7 @@ For each pending step in the plan:
    - Move to next step
 
 6. **Maximum Iterations**:
-   - If a step exceeds 10 iterations, mark as failed and halt execution
+   - If a step exceeds 3 iterations, mark as failed and halt execution
 
 **Key Points**:
 - All state stored in SQLite database (`.stepcat/executions.db`)

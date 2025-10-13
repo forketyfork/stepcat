@@ -62,7 +62,7 @@ export class Orchestrator {
     this.uiAdapters = config.uiAdapters ?? [];
     this.silent = config.silent ?? false;
     this.executionId = config.executionId;
-    this.maxIterationsPerStep = config.maxIterationsPerStep ?? 10;
+    this.maxIterationsPerStep = config.maxIterationsPerStep ?? 3;
     this.implementationAgent = config.implementationAgent ?? 'claude';
     this.reviewAgent = config.reviewAgent ?? 'codex';
 
