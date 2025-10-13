@@ -79,7 +79,6 @@ Implement the feature
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
 
       const eventEmitter = new OrchestratorEventEmitter();
       const orchestrator = new Orchestrator({
@@ -124,7 +123,6 @@ Implement the feature
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -179,7 +177,6 @@ Implement the feature
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -242,15 +239,6 @@ Implement the feature
           output: JSON.stringify({ result: 'PASS', issues: [] })
         });
 
-      mockCodexRunner.parseCodexOutput = jest
-        .fn()
-        .mockReturnValueOnce({
-          result: 'FAIL',
-          issues: [{ file: 'src/app.ts', line: 42, severity: 'error', description: 'Missing error handling' }],
-        })
-        .mockReturnValueOnce({ result: 'PASS', issues: [] })
-        .mockReturnValue({ result: 'PASS', issues: [] });
-
       const orchestrator = new Orchestrator({
         planFile,
         workDir: tempDir,
@@ -291,10 +279,6 @@ Implement the feature
           issues: [{ file: 'test.ts', severity: 'error', description: 'Always fails' }]
         })
       });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({
-        result: 'FAIL',
-        issues: [{ file: 'test.ts', severity: 'error', description: 'Always fails' }],
-      });
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -321,7 +305,6 @@ Implement the feature
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
 
       const eventEmitter = new OrchestratorEventEmitter();
       const events: any[] = [];
@@ -352,7 +335,6 @@ Implement the feature
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
 
       const eventEmitter = new OrchestratorEventEmitter();
       const events: any[] = [];
@@ -388,10 +370,6 @@ Implement the feature
           issues: [{ file: 'test.ts', severity: 'error', description: 'Fails' }]
         })
       });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({
-        result: 'FAIL',
-        issues: [{ file: 'test.ts', severity: 'error', description: 'Fails' }],
-      });
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -412,10 +390,6 @@ Implement the feature
           result: 'FAIL',
           issues: [{ file: 'test.ts', severity: 'error', description: 'Fails' }]
         })
-      });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({
-        result: 'FAIL',
-        issues: [{ file: 'test.ts', severity: 'error', description: 'Fails' }],
       });
 
       const orchestrator = new Orchestrator({
@@ -440,7 +414,6 @@ Implement the feature
           output: JSON.stringify({ result: 'PASS', issues: [] }),
         };
       });
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
 
       mockClaudeRunner.run = jest.fn();
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
