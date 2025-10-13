@@ -428,7 +428,6 @@ Implement the feature
       });
 
       mockCodexRunner.run = jest.fn();
-      mockCodexRunner.parseCodexOutput = jest.fn().mockReturnValue({ result: 'PASS', issues: [] });
 
       mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
@@ -444,7 +443,6 @@ Implement the feature
 
       expect(mockClaudeRunner.run).toHaveBeenCalled();
       expect(mockCodexRunner.run).not.toHaveBeenCalled();
-      expect(mockCodexRunner.parseCodexOutput).toHaveBeenCalled();
     });
   });
 });

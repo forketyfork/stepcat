@@ -9,6 +9,7 @@ import { Storage } from "./storage.js";
 import { Plan, DbStep, Iteration } from "./models.js";
 import { PROMPTS } from "./prompts.js";
 import { UIAdapter } from "./ui/ui-adapter.js";
+import { ReviewParser } from "./review-parser.js";
 
 export interface OrchestratorConfig {
   planFile: string;
@@ -138,7 +139,7 @@ export class Orchestrator {
 
   private async runReviewAgent(
     prompt: string,
-  ): Promise<{ success: boolean; commitSha: string | null; output: string }> {
+  ): Promise<{ success: boolean; output: string }> {
     if (this.reviewAgent === 'codex') {
       const result = await this.codexRunner.run({
         workDir: this.workDir,
@@ -148,7 +149,6 @@ export class Orchestrator {
 
       return {
         success: result.success,
-        commitSha: result.commitSha ?? null,
         output: result.output,
       };
     }
@@ -168,7 +168,6 @@ export class Orchestrator {
 
     return {
       success: result.success,
-      commitSha: result.commitSha,
       output,
     };
   }
@@ -534,7 +533,8 @@ export class Orchestrator {
 
         const reviewRun = await this.runReviewAgent(codexPrompt);
 
-        const reviewResult = this.codexRunner.parseCodexOutput(reviewRun.output);
+        const reviewParser = new ReviewParser();
+        const reviewResult = reviewParser.parseReviewOutput(reviewRun.output);
 
         this.storage.updateIteration(previousIteration.id, {
           codexLog: reviewRun.output,
