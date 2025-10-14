@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Iteration, Issue } from '../../models.js';
 
+export const ITERATION_DISPLAY_HEIGHT = 6;
+
 interface IterationItemProps {
   iteration: Iteration;
   issues: Issue[];
@@ -55,43 +57,55 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
         )}
       </Box>
 
-      {iteration.buildStatus && (
-        <Box marginLeft={2}>
-          <Text dimColor>- Build: </Text>
-          <Text color={iteration.buildStatus === 'passed' ? 'green' : iteration.buildStatus === 'failed' ? 'red' : 'yellow'}>
-            {iteration.buildStatus}
-          </Text>
-        </Box>
-      )}
+      <Box marginLeft={2}>
+        {iteration.buildStatus ? (
+          <>
+            <Text dimColor>- Build: </Text>
+            <Text color={iteration.buildStatus === 'passed' ? 'green' : iteration.buildStatus === 'failed' ? 'red' : 'yellow'}>
+              {iteration.buildStatus}
+            </Text>
+          </>
+        ) : (
+          <Text> </Text>
+        )}
+      </Box>
 
-      {iteration.reviewStatus && (
-        <Box marginLeft={2}>
-          <Text dimColor>- Review</Text>
-          {iteration.reviewAgent && (
-            <>
-              <Text dimColor> [</Text>
-              <Text dimColor>{getAgentDisplayName(iteration.reviewAgent)}</Text>
-              <Text dimColor>]</Text>
-            </>
-          )}
-          <Text dimColor>: </Text>
-          <Text color={iteration.reviewStatus === 'passed' ? 'green' : iteration.reviewStatus === 'failed' ? 'red' : 'yellow'}>
-            {iteration.reviewStatus}
-          </Text>
-        </Box>
-      )}
+      <Box marginLeft={2}>
+        {iteration.reviewStatus ? (
+          <>
+            <Text dimColor>- Review</Text>
+            {iteration.reviewAgent && (
+              <>
+                <Text dimColor> [</Text>
+                <Text dimColor>{getAgentDisplayName(iteration.reviewAgent)}</Text>
+                <Text dimColor>]</Text>
+              </>
+            )}
+            <Text dimColor>: </Text>
+            <Text color={iteration.reviewStatus === 'passed' ? 'green' : iteration.reviewStatus === 'failed' ? 'red' : 'yellow'}>
+              {iteration.reviewStatus}
+            </Text>
+          </>
+        ) : (
+          <Text> </Text>
+        )}
+      </Box>
 
-      {openIssues.length > 0 && (
-        <Box marginLeft={2}>
+      <Box marginLeft={2}>
+        {openIssues.length > 0 ? (
           <Text color="red">✗ {openIssues.length} open issue{openIssues.length > 1 ? 's' : ''}</Text>
-        </Box>
-      )}
+        ) : (
+          <Text> </Text>
+        )}
+      </Box>
 
-      {fixedIssues.length > 0 && (
-        <Box marginLeft={2}>
+      <Box marginLeft={2}>
+        {fixedIssues.length > 0 ? (
           <Text color="green">✓ {fixedIssues.length} fixed issue{fixedIssues.length > 1 ? 's' : ''}</Text>
-        </Box>
-      )}
+        ) : (
+          <Text> </Text>
+        )}
+      </Box>
     </Box>
   );
 };

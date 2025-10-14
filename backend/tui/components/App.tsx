@@ -3,27 +3,19 @@ import { Box, Text } from 'ink';
 import { TUIState } from '../types.js';
 import { Header } from './Header.js';
 import { StepItem } from './StepItem.js';
-import { DbStep, Iteration, Issue } from '../../models.js';
+import { ITERATION_DISPLAY_HEIGHT } from './IterationItem.js';
+import { DbStep, Iteration } from '../../models.js';
 
 interface AppProps {
   state: TUIState;
 }
 
-const calculateStepHeight = (step: DbStep, iterations: Iteration[], issues: Map<number, Issue[]>): number => {
+const calculateStepHeight = (_step: DbStep, iterations: Iteration[]): number => {
   let height = 1;
 
   const stepIterations = iterations || [];
-  stepIterations.forEach(iteration => {
-    height += 1;
-    height += 1;
-    if (iteration.buildStatus) height += 1;
-    if (iteration.reviewStatus) height += 1;
-
-    const iterationIssues = issues.get(iteration.id) || [];
-    const openIssues = iterationIssues.filter(i => i.status === 'open');
-    const fixedIssues = iterationIssues.filter(i => i.status === 'fixed');
-    if (openIssues.length > 0) height += 1;
-    if (fixedIssues.length > 0) height += 1;
+  stepIterations.forEach(() => {
+    height += ITERATION_DISPLAY_HEIGHT;
   });
 
   return height;
@@ -48,7 +40,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
     for (let i = state.steps.length - 1; i >= 0; i--) {
       const step = state.steps[i];
       const iterations = state.iterations.get(step.id) || [];
-      const stepHeight = calculateStepHeight(step, iterations, state.issues);
+      const stepHeight = calculateStepHeight(step, iterations);
 
       if (totalHeight + stepHeight <= availableHeight) {
         stepsToShow.unshift(step);
@@ -59,7 +51,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
     }
 
     return stepsToShow;
-  }, [state.steps, state.iterations, state.issues, availableHeight, state.stateVersion]);
+  }, [state.steps, state.iterations, availableHeight, state.stateVersion]);
 
   return (
     <Box flexDirection="column" width={state.terminalWidth} height={state.terminalHeight}>
