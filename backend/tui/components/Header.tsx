@@ -27,7 +27,7 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
   const statsContent = `Execution ID: ${executionId}  │  Steps: ${completedSteps}/${totalSteps}  │  Plan: ${planFileName}`;
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column">
       <Box>
         <Text bold color="magenta">{topLine}</Text>
       </Box>
@@ -54,18 +54,6 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
       <Box>
         <Text bold color="magenta">{bottomLine}</Text>
       </Box>
-
-      {state.error && (
-        <Box marginTop={1}>
-          <Text bold color="red">✗ Error: {state.error}</Text>
-        </Box>
-      )}
-
-      {state.isComplete && (
-        <Box marginTop={1}>
-          <Text bold color="green">✓ All steps completed successfully!</Text>
-        </Box>
-      )}
     </Box>
   );
 };

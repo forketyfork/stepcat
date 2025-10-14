@@ -4,11 +4,12 @@ import { TUIState, initialState } from '../tui/types.js';
 import { Storage } from '../storage.js';
 import type * as ReactTypes from 'react';
 import { pathToFileURL, fileURLToPath } from 'url';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, sep } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const moduleDir = __dirname;
+const isBuiltArtifact = moduleDir.split(sep).includes('dist');
 
 type InkModule = typeof import('ink');
 type ReactModule = typeof import('react');
@@ -37,7 +38,7 @@ export class TUIAdapter implements UIAdapter {
     this.ink = await import('ink');
     this.React = await import('react');
 
-    const isDev = process.env.NODE_ENV !== 'production' && !moduleDir.includes('/dist/');
+    const isDev = process.env.NODE_ENV !== 'production' && !isBuiltArtifact;
     const fileName = isDev ? 'App.tsx' : 'App.js';
     const componentPath = resolve(moduleDir, '../tui/components', fileName);
     const componentUrl = pathToFileURL(componentPath).href;
