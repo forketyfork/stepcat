@@ -25,6 +25,18 @@ export class TUIAdapter implements UIAdapter {
   private App: AppComponent | null = null;
   private resizeHandler: (() => void) | null = null;
 
+  private refreshIteration(iterationId: number): void {
+    if (!this.storage) return;
+
+    for (const step of this.state.steps) {
+      const iterations = this.storage.getIterations(step.id);
+      if (iterations.some(iteration => iteration.id === iterationId)) {
+        this.state.iterations.set(step.id, iterations);
+        return;
+      }
+    }
+  }
+
   constructor(config: UIAdapterConfig) {
     this.state = { ...initialState };
     this.storage = config.storage;
@@ -131,6 +143,17 @@ export class TUIAdapter implements UIAdapter {
             this.state.iterations.set(step.id, iterations);
           }
         }
+        break;
+
+      case 'github_check':
+        if (event.iterationId !== undefined && event.iterationId !== null) {
+          this.refreshIteration(event.iterationId);
+        }
+        break;
+
+      case 'codex_review_start':
+      case 'codex_review_complete':
+        this.refreshIteration(event.iterationId);
         break;
 
       case 'issue_found':
