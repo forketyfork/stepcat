@@ -10,14 +10,9 @@ import open from 'open';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const moduleDir = (() => {
-  try {
-    const url = new Function('return import.meta.url')() as string;
-    return dirname(fileURLToPath(url));
-  } catch {
-    return typeof __dirname !== 'undefined' ? __dirname : process.cwd();
-  }
-})();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const moduleDir = __dirname;
 
 export interface WebSocketUIAdapterConfig extends UIAdapterConfig {
   port?: number;

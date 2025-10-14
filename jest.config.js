@@ -2,7 +2,11 @@ export default {
   preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/backend'],
-  testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+  testMatch: ['**/__tests__/**/*.test.ts', '**/?(*.)+(spec|test).ts'],
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '\\.vitest\\.ts$'
+  ],
   collectCoverageFrom: [
     'backend/**/*.ts',
     '!backend/**/*.d.ts'
@@ -14,8 +18,12 @@ export default {
   transform: {
     '^.+\\.ts$': ['ts-jest', {
       tsconfig: {
-        module: 'ESNext',
-        target: 'ES2022'
+        module: 'commonjs',
+        target: 'ES2022',
+        esModuleInterop: true
+      },
+      diagnostics: {
+        ignoreCodes: [1343]
       }
     }]
   }

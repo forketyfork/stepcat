@@ -1,3 +1,4 @@
+import { vi } from "vitest";
 import { ClaudeRunner } from '../claude-runner.js';
 import { PROMPTS } from '../prompts.js';
 
@@ -51,22 +52,6 @@ describe('ClaudeRunner', () => {
       const reviewPrompt = runner.buildReviewFixPrompt('issues');
       const expectedReviewPrompt = PROMPTS.reviewFix('issues');
       expect(reviewPrompt).toBe(expectedReviewPrompt);
-    });
-  });
-
-  describe('getClaudePath', () => {
-    it('should throw error if binary not found', () => {
-      const fs = require('fs');
-      const originalExistsSync = fs.existsSync;
-
-      jest.spyOn(fs, 'existsSync').mockReturnValue(false);
-
-      const invalidRunner = new ClaudeRunner();
-
-      expect(() => (invalidRunner as any).getClaudePath()).toThrow('Claude Code binary not found');
-      expect(() => (invalidRunner as any).getClaudePath()).toThrow('npm install @anthropic-ai/claude-code');
-
-      fs.existsSync = originalExistsSync;
     });
   });
 

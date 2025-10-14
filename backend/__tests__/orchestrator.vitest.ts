@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import { Orchestrator } from '../orchestrator.js';
 import { Database } from '../database.js';
 import { ClaudeRunner } from '../claude-runner.js';
@@ -9,17 +10,17 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 
-jest.mock('../claude-runner');
-jest.mock('../codex-runner');
-jest.mock('../github-checker');
-jest.mock('child_process');
+vi.mock('../claude-runner');
+vi.mock('../codex-runner');
+vi.mock('../github-checker');
+vi.mock('child_process');
 
 describe('Orchestrator', () => {
   let tempDir: string;
   let planFile: string;
-  let mockClaudeRunner: jest.Mocked<ClaudeRunner>;
-  let mockCodexRunner: jest.Mocked<CodexRunner>;
-  let mockGitHubChecker: jest.Mocked<GitHubChecker>;
+  let mockClaudeRunner: vi.Mocked<ClaudeRunner>;
+  let mockCodexRunner: vi.Mocked<CodexRunner>;
+  let mockGitHubChecker: vi.Mocked<GitHubChecker>;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'orchestrator-test-'));
@@ -37,33 +38,31 @@ Implement the feature
     planFile = join(tempDir, 'plan.md');
     writeFileSync(planFile, planContent, 'utf-8');
 
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 
-    mockClaudeRunner = new ClaudeRunner() as jest.Mocked<ClaudeRunner>;
-    mockCodexRunner = new CodexRunner() as jest.Mocked<CodexRunner>;
+    mockClaudeRunner = new ClaudeRunner() as vi.Mocked<ClaudeRunner>;
+    mockCodexRunner = new CodexRunner() as vi.Mocked<CodexRunner>;
 
-    jest.spyOn(GitHubChecker, 'parseRepoInfo').mockReturnValue({
+    vi.spyOn(GitHubChecker, 'parseRepoInfo').mockReturnValue({
       owner: 'test-owner',
       repo: 'test-repo',
     });
 
     mockGitHubChecker = {
-      waitForChecksToPass: jest.fn(),
-      getLatestCommitSha: jest.fn(),
-      getOwner: jest.fn().mockReturnValue('test-owner'),
-      getRepo: jest.fn().mockReturnValue('test-repo'),
-      getOctokit: jest.fn().mockReturnValue({
+      waitForChecksToPass: vi.fn(),
+      getLatestCommitSha: vi.fn(),
+      getOwner: vi.fn().mockReturnValue('test-owner'),
+      getRepo: vi.fn().mockReturnValue('test-repo'),
+      getOctokit: vi.fn().mockReturnValue({
         checks: {
-          listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } }),
+          listForRef: vi.fn().mockResolvedValue({ data: { check_runs: [] } }),
         },
       }),
     } as any;
 
-    (ClaudeRunner as jest.MockedClass<typeof ClaudeRunner>).mockImplementation(() => mockClaudeRunner);
-    (CodexRunner as jest.MockedClass<typeof CodexRunner>).mockImplementation(() => mockCodexRunner);
-    (GitHubChecker as jest.MockedClass<typeof GitHubChecker>).mockImplementation(() => mockGitHubChecker);
-
-    (execSync as jest.Mock) = jest.fn();
+    (ClaudeRunner as vi.MockedClass<typeof ClaudeRunner>).mockImplementation(() => mockClaudeRunner);
+    (CodexRunner as vi.MockedClass<typeof CodexRunner>).mockImplementation(() => mockCodexRunner);
+    (GitHubChecker as vi.MockedClass<typeof GitHubChecker>).mockImplementation(() => mockGitHubChecker);
   });
 
   afterEach(() => {
@@ -72,10 +71,10 @@ Implement the feature
 
   describe('new execution', () => {
     it('should initialize plan and steps in database', async () => {
-      mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -116,10 +115,10 @@ Implement the feature
       db.updateStepStatus(step1.id, 'completed');
       db.close();
 
-      mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'def456' });
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('def456');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'def456' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('def456');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -173,7 +172,7 @@ Implement the feature
         .mockResolvedValueOnce(true)
         .mockResolvedValue(true);
 
-      mockCodexRunner.run = jest.fn().mockResolvedValue({
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -219,7 +218,7 @@ Implement the feature
         .mockReturnValueOnce('fix789')
         .mockReturnValue('step2');
 
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
 
       mockCodexRunner.run = jest
         .fn()
@@ -268,11 +267,11 @@ Implement the feature
 
   describe('max iterations enforcement', () => {
     it('should fail step when max iterations exceeded', async () => {
-      mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
 
-      mockCodexRunner.run = jest.fn().mockResolvedValue({
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({
           result: 'FAIL',
@@ -298,10 +297,10 @@ Implement the feature
 
   describe('event emission', () => {
     it('should emit step_start and step_complete events', async () => {
-      mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -328,10 +327,10 @@ Implement the feature
     });
 
     it('should emit iteration_start and iteration_complete events', async () => {
-      mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -360,10 +359,10 @@ Implement the feature
 
   describe('configuration', () => {
     it('should use default max iterations of 3', async () => {
-      mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({
           result: 'FAIL',
@@ -381,10 +380,10 @@ Implement the feature
     });
 
     it('should use custom max iterations when provided', async () => {
-      mockClaudeRunner.run = jest.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = jest.fn().mockResolvedValue({
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({
           result: 'FAIL',
@@ -405,7 +404,7 @@ Implement the feature
 
   describe('agent configuration', () => {
     it('allows using Codex for implementation iterations', async () => {
-      mockCodexRunner.run = jest.fn().mockImplementation(async (options: any) => {
+      mockCodexRunner.run = vi.fn().mockImplementation(async (options: any) => {
         if (options.expectCommit) {
           return { success: true, output: 'Implementation complete', commitSha: 'abc123' };
         }
@@ -415,9 +414,9 @@ Implement the feature
         };
       });
 
-      mockClaudeRunner.run = jest.fn();
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
+      mockClaudeRunner.run = vi.fn();
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -434,7 +433,7 @@ Implement the feature
     });
 
     it('allows using Claude Code for code review', async () => {
-      mockClaudeRunner.run = jest.fn().mockImplementation(async (options: any) => {
+      mockClaudeRunner.run = vi.fn().mockImplementation(async (options: any) => {
         if (options.captureOutput) {
           return {
             success: true,
@@ -445,10 +444,10 @@ Implement the feature
         return { success: true, commitSha: 'abc123' };
       });
 
-      mockCodexRunner.run = jest.fn();
+      mockCodexRunner.run = vi.fn();
 
-      mockGitHubChecker.waitForChecksToPass = jest.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = jest.fn().mockReturnValue('abc123');
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
 
       const orchestrator = new Orchestrator({
         planFile,
