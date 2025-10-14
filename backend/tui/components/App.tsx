@@ -2,37 +2,117 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { TUIState } from '../types.js';
 import { Header } from './Header.js';
-import { StepItem } from './StepItem.js';
-import { ITERATION_DISPLAY_HEIGHT } from './IterationItem.js';
 import { DbStep, Iteration } from '../../models.js';
 
 interface AppProps {
   state: TUIState;
 }
 
-const STEP_SPACING = 1;
 const LOG_LINES_TO_DISPLAY = 5;
-const LOG_PANEL_HEIGHT = LOG_LINES_TO_DISPLAY + 2; // title + log rows
+const LOG_PANEL_HEIGHT = LOG_LINES_TO_DISPLAY + 2;
 const HEADER_BASE_HEIGHT = 5;
+const STEP_PANEL_LABEL = 'Steps';
+const LOG_PANEL_LABEL = 'Recent logs';
 
-const calculateStepHeight = (_step: DbStep, iterations: Iteration[]): number => {
-  const stepIterations = iterations ?? [];
-  return 1 + (stepIterations.length * ITERATION_DISPLAY_HEIGHT) + STEP_SPACING;
+type StepLine = {
+  key: string;
+  text: string;
+  color?: string;
+  dim?: boolean;
+};
+
+type LogRow = {
+  key: string;
+  message: string;
+  level: 'info' | 'warn' | 'error' | 'success';
+  timestamp?: number;
+  showPrefix: boolean;
+  dim?: boolean;
+};
+
+const getStepStatusIcon = (status: DbStep['status']): string => {
+  switch (status) {
+    case 'pending':
+      return '○';
+    case 'in_progress':
+      return '◉';
+    case 'completed':
+      return '✓';
+    case 'failed':
+      return '✗';
+    default:
+      return '·';
+  }
+};
+
+const getStepStatusColor = (status: DbStep['status']): string => {
+  switch (status) {
+    case 'pending':
+      return 'gray';
+    case 'in_progress':
+      return 'cyan';
+    case 'completed':
+      return 'green';
+    case 'failed':
+      return 'red';
+    default:
+      return 'white';
+  }
+};
+
+const getIterationStatusIcon = (status: Iteration['status']): string => {
+  switch (status) {
+    case 'in_progress':
+      return '⟳';
+    case 'completed':
+      return '✓';
+    case 'failed':
+      return '✗';
+    default:
+      return '·';
+  }
+};
+
+const getIterationStatusColor = (status: Iteration['status']): string => {
+  switch (status) {
+    case 'in_progress':
+      return 'cyan';
+    case 'completed':
+      return 'green';
+    case 'failed':
+      return 'red';
+    default:
+      return 'gray';
+  }
+};
+
+const getAgentDisplayName = (agent: 'claude' | 'codex'): string => {
+  return agent === 'claude' ? 'Claude Code' : 'Codex';
+};
+
+const getOutcomeColor = (status: string | null | undefined): string | undefined => {
+  switch (status) {
+    case 'passed':
+      return 'green';
+    case 'failed':
+      return 'red';
+    case 'in_progress':
+    case 'pending':
+      return 'yellow';
+    default:
+      return undefined;
+  }
 };
 
 export const App: React.FC<AppProps> = ({ state }) => {
   const headerHeight = HEADER_BASE_HEIGHT + 1; // +1 for spacing after header
   const showCurrentPhase = Boolean(state.currentPhase && !state.isComplete && !state.error);
   const currentPhaseHeight = showCurrentPhase ? 1 : 0;
-  const showLoading = state.steps.length === 0 && !state.error;
-  const loadingHeight = showLoading ? 1 : 0;
   const showCompletion = state.isComplete && !state.error;
   const completionHeight = showCompletion ? 1 : 0;
   const errorHeight = state.error ? 3 : 0; // double border box
   const errorSpacing = state.error && showCurrentPhase ? 1 : 0;
   const completionSpacing = showCompletion && (showCurrentPhase || state.error) ? 1 : 0;
-  const loadingSpacing =
-    showLoading && (showCurrentPhase || state.error || showCompletion) ? 1 : 0;
   const reservedHeight =
     headerHeight +
     currentPhaseHeight +
@@ -40,53 +120,259 @@ export const App: React.FC<AppProps> = ({ state }) => {
     errorSpacing +
     completionHeight +
     completionSpacing +
-    loadingHeight +
-    loadingSpacing +
     LOG_PANEL_HEIGHT;
 
-  const stepsAreaHeight = Math.max(1, state.terminalHeight - reservedHeight);
+  const stepsAreaHeight = Math.max(3, state.terminalHeight - reservedHeight);
 
-  const { visibleSteps, reserveMessageLine } = React.useMemo(() => {
-    const computeVisible = (heightLimit: number): DbStep[] => {
-      if (state.steps.length === 0) return [];
+  const stepsPanelWidth = Math.max(4, state.terminalWidth);
+  const stepsInnerWidth = Math.max(0, stepsPanelWidth - 2);
+  const stepsLabelCapacity = Math.max(0, stepsInnerWidth - 1);
+  let stepsLabel = STEP_PANEL_LABEL;
+  if (stepsLabel.length > stepsLabelCapacity) {
+    stepsLabel = stepsLabel.slice(0, stepsLabelCapacity);
+  }
+  const stepsLabelPad = Math.max(0, stepsInnerWidth - 1 - stepsLabel.length);
+  const stepsTopLine =
+    stepsInnerWidth > 0
+      ? `┌─${stepsLabel}${stepsLabelPad > 0 ? '─'.repeat(stepsLabelPad) : ''}┐`
+      : '┌┐';
+  const stepsBottomLine =
+    stepsInnerWidth > 0
+      ? `└${'─'.repeat(stepsInnerWidth)}┘`
+      : '└┘';
 
-      let totalHeight = 0;
-      const stepsToShow: DbStep[] = [];
-
-      for (let i = state.steps.length - 1; i >= 0; i--) {
-        const step = state.steps[i];
-        const iterations = state.iterations.get(step.id) || [];
-        const stepHeight = calculateStepHeight(step, iterations);
-        const willFit = totalHeight + stepHeight <= heightLimit;
-
-        if (willFit || stepsToShow.length === 0) {
-          stepsToShow.unshift(step);
-          totalHeight += stepHeight;
-        } else {
-          break;
-        }
-      }
-
-      return stepsToShow;
-    };
-
-    const initialSteps = computeVisible(stepsAreaHeight);
-
-    if (initialSteps.length === state.steps.length) {
-      return { visibleSteps: initialSteps, reserveMessageLine: false };
+  const allStepLines = React.useMemo<StepLine[]>(() => {
+    if (state.steps.length === 0) {
+      return [
+        {
+          key: 'steps-empty',
+          text: ' Loading steps...',
+          dim: true,
+        },
+      ];
     }
 
-    const adjustedSteps = computeVisible(Math.max(1, stepsAreaHeight - 1));
-    return { visibleSteps: adjustedSteps, reserveMessageLine: true };
-  }, [state.steps, state.iterations, stepsAreaHeight, state.stateVersion]);
+    const lines: StepLine[] = [];
 
-  const hiddenStepsCount = Math.max(0, state.steps.length - visibleSteps.length);
-  const showHiddenStepsMessage = reserveMessageLine && hiddenStepsCount > 0;
+    state.steps.forEach((step, stepIndex) => {
+      lines.push({
+        key: `step-${step.id}`,
+        text: ` ${getStepStatusIcon(step.status)} Step ${step.stepNumber}: ${step.title}`,
+        color: getStepStatusColor(step.status),
+      });
 
-  const logEntries = state.logs.slice(-LOG_LINES_TO_DISPLAY);
-  const hasLogs = logEntries.length > 0;
-  const logMessageRows = hasLogs ? 0 : 1;
-  const emptyLogRows = Math.max(0, LOG_LINES_TO_DISPLAY - logEntries.length - logMessageRows);
+      const iterations = state.iterations.get(step.id) || [];
+      iterations.forEach(iteration => {
+        lines.push({
+          key: `iteration-${iteration.id}-header`,
+          text: `   ${getIterationStatusIcon(iteration.status)} Iteration #${iteration.iterationNumber}`,
+          color: getIterationStatusColor(iteration.status),
+        });
+
+        const agentName = getAgentDisplayName(iteration.implementationAgent);
+        const commitSuffix = iteration.commitSha ? ` (${iteration.commitSha.substring(0, 7)})` : '';
+        lines.push({
+          key: `iteration-${iteration.id}-implementation`,
+          text: `      - Implementation [${agentName}]${commitSuffix}`,
+          dim: true,
+        });
+
+        if (iteration.buildStatus) {
+          lines.push({
+            key: `iteration-${iteration.id}-build`,
+            text: `      - Build: ${iteration.buildStatus}`,
+            color: getOutcomeColor(iteration.buildStatus) ?? undefined,
+          });
+        }
+
+        if (iteration.reviewStatus) {
+          const reviewAgentName = iteration.reviewAgent ? getAgentDisplayName(iteration.reviewAgent) : null;
+          const reviewLabel = reviewAgentName
+            ? `      - Review [${reviewAgentName}]: ${iteration.reviewStatus}`
+            : `      - Review: ${iteration.reviewStatus}`;
+
+          lines.push({
+            key: `iteration-${iteration.id}-review`,
+            text: reviewLabel,
+            color: getOutcomeColor(iteration.reviewStatus) ?? undefined,
+          });
+        }
+
+        const issues = state.issues.get(iteration.id) || [];
+        const openIssues = issues.filter(issue => issue.status === 'open');
+        const fixedIssues = issues.filter(issue => issue.status === 'fixed');
+
+        if (openIssues.length > 0) {
+          lines.push({
+            key: `iteration-${iteration.id}-open`,
+            text: `      ✗ ${openIssues.length} open issue${openIssues.length > 1 ? 's' : ''}`,
+            color: 'red',
+          });
+        }
+
+        if (fixedIssues.length > 0) {
+          lines.push({
+            key: `iteration-${iteration.id}-fixed`,
+            text: `      ✓ ${fixedIssues.length} fixed issue${fixedIssues.length > 1 ? 's' : ''}`,
+            color: 'green',
+          });
+        }
+      });
+
+      if (stepIndex !== state.steps.length - 1) {
+        lines.push({
+          key: `step-${step.id}-separator`,
+          text: '',
+          dim: true,
+        });
+      }
+    });
+
+    return lines;
+  }, [state.steps, state.iterations, state.issues, state.stateVersion]);
+
+  const stepsInnerHeight = Math.max(0, stepsAreaHeight - 2);
+  let stepLinesToRender =
+    stepsInnerHeight > 0 ? allStepLines.slice(-stepsInnerHeight) : ([] as StepLine[]);
+
+  if (stepLinesToRender.length < stepsInnerHeight) {
+    const padCount = stepsInnerHeight - stepLinesToRender.length;
+    const padding: StepLine[] = Array.from({ length: padCount }, (_, idx) => ({
+      key: `step-padding-${idx}`,
+      text: '',
+      dim: true,
+    }));
+    stepLinesToRender = [...padding, ...stepLinesToRender];
+  }
+
+  const stepsRows = stepLinesToRender.map((line, idx) => {
+    const key = `${line.key}-${idx}`;
+
+    let content = line.text ?? '';
+    if (content.length > stepsInnerWidth) {
+      if (stepsInnerWidth <= 0) {
+        content = '';
+      } else if (stepsInnerWidth === 1) {
+        content = '…';
+      } else {
+        content = `${content.slice(0, stepsInnerWidth - 1)}…`;
+      }
+    }
+
+    const paddedContent = content.padEnd(stepsInnerWidth, ' ');
+
+    return (
+      <Box key={key} width={stepsPanelWidth}>
+        <Text>│</Text>
+        <Text color={line.color} dimColor={line.dim}>{paddedContent}</Text>
+        <Text>│</Text>
+      </Box>
+    );
+  });
+
+  const logPanelWidth = Math.max(4, state.terminalWidth);
+  const logInnerWidth = Math.max(0, logPanelWidth - 2);
+  const logLabelCapacity = Math.max(0, logInnerWidth - 1);
+
+  let logLabel = LOG_PANEL_LABEL;
+  if (logLabel.length > logLabelCapacity) {
+    logLabel = logLabel.slice(0, logLabelCapacity);
+  }
+  const logLabelPad = Math.max(0, logInnerWidth - 1 - logLabel.length);
+
+  const logTopLine =
+    logInnerWidth > 0
+      ? `┌─${logLabel}${logLabelPad > 0 ? '─'.repeat(logLabelPad) : ''}┐`
+      : '┌┐';
+  const logBottomLine =
+    logInnerWidth > 0
+      ? `└${'─'.repeat(logInnerWidth)}┘`
+      : '└┘';
+
+  const recentLogs = state.logs.slice(-LOG_LINES_TO_DISPLAY);
+
+  const rows: LogRow[] =
+    recentLogs.length > 0
+      ? recentLogs.map((log, idx) => ({
+          key: `${log.timestamp}-${idx}`,
+          message: log.message,
+          level: (log.level as LogRow['level']) ?? 'info',
+          timestamp: log.timestamp,
+          showPrefix: true,
+        }))
+      : [
+          {
+            key: 'log-empty',
+            message: 'No logs yet',
+            level: 'info',
+            showPrefix: false,
+            dim: true,
+          },
+        ];
+
+  while (rows.length < LOG_LINES_TO_DISPLAY) {
+    rows.push({
+      key: `log-placeholder-${rows.length}`,
+      message: '',
+      level: 'info',
+      showPrefix: false,
+      dim: true,
+    });
+  }
+
+  const maxPrefixLength = Math.max(0, logInnerWidth - 1);
+  const prefixTemplate = '[00:00:00] ';
+
+  const logRows = rows.slice(0, LOG_LINES_TO_DISPLAY).map(row => {
+    let prefix = row.showPrefix && row.timestamp
+      ? `[${new Date(row.timestamp).toLocaleTimeString()}] `
+      : ''.padEnd(prefixTemplate.length, ' ');
+
+    if (prefix.length > maxPrefixLength) {
+      prefix = prefix.slice(prefix.length - maxPrefixLength);
+    } else if (prefix.length < maxPrefixLength) {
+      prefix = prefix.padEnd(maxPrefixLength, ' ');
+    }
+
+    const availableForMessage = Math.max(0, logInnerWidth - 1 - prefix.length);
+
+    let messageText = row.message ?? '';
+    if (messageText.length > availableForMessage) {
+      if (availableForMessage <= 0) {
+        messageText = '';
+      } else if (availableForMessage === 1) {
+        messageText = '…';
+      } else {
+        messageText = `${messageText.slice(0, availableForMessage - 1)}…`;
+      }
+    }
+
+    const padding = ' '.repeat(Math.max(0, availableForMessage - messageText.length));
+
+    const messageColor =
+      row.dim || (!row.showPrefix && row.message === '')
+        ? undefined
+        : row.level === 'error'
+        ? 'red'
+        : row.level === 'warn'
+        ? 'yellow'
+        : row.level === 'success'
+        ? 'green'
+        : 'white';
+
+    return (
+      <Box key={row.key} width={logPanelWidth}>
+        <Text>│</Text>
+        <Text> </Text>
+        <Text dimColor>{prefix}</Text>
+        <Text color={messageColor} dimColor={row.dim && row.message.length > 0}>
+          {messageText}
+        </Text>
+        <Text>{padding}</Text>
+        <Text>│</Text>
+      </Box>
+    );
+  });
 
   return (
     <Box flexDirection="column" width={state.terminalWidth} height={state.terminalHeight}>
@@ -119,69 +405,24 @@ export const App: React.FC<AppProps> = ({ state }) => {
             <Text color="green">✓ All steps completed successfully!</Text>
           </Box>
         )}
-
-        {showLoading && (
-          <Box marginTop={loadingSpacing ? 1 : 0}>
-            <Text dimColor>Loading steps...</Text>
-          </Box>
-        )}
-      </Box>
-
-      <Box flexDirection="column" flexGrow={1} height={stepsAreaHeight} minHeight={1}>
-        {showHiddenStepsMessage && (
-          <Box>
-            <Text dimColor>... ({hiddenStepsCount} earlier steps hidden)</Text>
-          </Box>
-        )}
-
-        {visibleSteps.map(step => (
-          <StepItem
-            key={step.id}
-            step={step}
-            iterations={state.iterations.get(step.id) || []}
-            issues={state.issues}
-          />
-        ))}
       </Box>
 
       <Box
         flexDirection="column"
-        borderStyle="single"
-        borderColor="gray"
-        paddingX={1}
-        height={LOG_PANEL_HEIGHT}
-        flexShrink={0}
+        flexGrow={1}
+        height={stepsAreaHeight}
+        minHeight={stepsAreaHeight}
+        width={stepsPanelWidth}
       >
-        <Text bold>Recent Logs:</Text>
-        {hasLogs
-          ? logEntries.map((log, idx) => (
-              <Box key={`${log.timestamp}-${idx}`}>
-                <Text dimColor>[{new Date(log.timestamp).toLocaleTimeString()}] </Text>
-                <Text
-                  color={
-                    log.level === 'error'
-                      ? 'red'
-                      : log.level === 'warn'
-                      ? 'yellow'
-                      : log.level === 'success'
-                      ? 'green'
-                      : 'white'
-                  }
-                >
-                  {log.message}
-                </Text>
-              </Box>
-            ))
-          : (
-            <Box>
-              <Text dimColor>No logs yet</Text>
-            </Box>
-          )}
-        {Array.from({ length: emptyLogRows }).map((_, idx) => (
-          <Box key={`log-placeholder-${idx}`}>
-            <Text dimColor> </Text>
-          </Box>
-        ))}
+        <Text>{stepsTopLine}</Text>
+        {stepsRows}
+        <Text>{stepsBottomLine}</Text>
+      </Box>
+
+      <Box flexDirection="column" flexShrink={0} width={logPanelWidth}>
+        <Text>{logTopLine}</Text>
+        {logRows}
+        <Text>{logBottomLine}</Text>
       </Box>
     </Box>
   );
