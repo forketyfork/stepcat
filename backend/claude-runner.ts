@@ -79,6 +79,7 @@ export class ClaudeRunner {
     const timeout = (options.timeoutMinutes ?? 30) * 60 * 1000;
 
     const captureOutput = options.captureOutput ?? false;
+    const shouldPipeStdout = captureOutput || !!options.eventEmitter;
 
     const result = await new Promise<{
       exitCode: number | null;
@@ -99,7 +100,7 @@ export class ClaudeRunner {
           cwd: options.workDir,
           stdio: [
             "pipe",
-            captureOutput ? "pipe" : "inherit",
+            shouldPipeStdout ? "pipe" : "inherit",
             "inherit",
           ],
         },
@@ -125,10 +126,12 @@ export class ClaudeRunner {
       child.stdin.write(options.prompt);
       child.stdin.end();
 
-      if (captureOutput && child.stdout) {
+      if (shouldPipeStdout && child.stdout) {
         child.stdout.on("data", (chunk) => {
           const text = chunk.toString();
-          stdoutData += text;
+          if (captureOutput) {
+            stdoutData += text;
+          }
           if (options.eventEmitter) {
             const lines = text.split('\n');
             for (const line of lines) {
