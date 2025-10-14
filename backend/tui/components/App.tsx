@@ -59,7 +59,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
     }
 
     return stepsToShow;
-  }, [state.steps, state.iterations, state.issues, availableHeight]);
+  }, [state.steps, state.iterations, state.issues, availableHeight, state.stateVersion]);
 
   return (
     <Box flexDirection="column" width={state.terminalWidth} height={state.terminalHeight}>

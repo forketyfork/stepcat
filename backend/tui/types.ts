@@ -11,6 +11,7 @@ export interface TUIState {
   logs: Array<{ level: string; message: string; timestamp: number }>;
   terminalWidth: number;
   terminalHeight: number;
+  stateVersion: number;
 }
 
 export const initialState: TUIState = {
@@ -23,5 +24,6 @@ export const initialState: TUIState = {
   error: null,
   logs: [],
   terminalWidth: process.stdout.columns || 80,
-  terminalHeight: process.stdout.rows || 24
+  terminalHeight: process.stdout.rows || 24,
+  stateVersion: 0
 };

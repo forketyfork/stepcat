@@ -179,6 +179,7 @@ export class TUIAdapter implements UIAdapter {
   }
 
   private rerender(): void {
+    this.state.stateVersion++;
     if (this.inkInstance && this.React && this.App) {
       this.inkInstance.rerender(this.React.createElement(this.App, { state: this.state }));
     }
