@@ -3,6 +3,7 @@ import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { PROMPTS } from "./prompts.js";
+import { OrchestratorEventEmitter } from "./events.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,9 +14,23 @@ export interface ClaudeRunOptions {
   prompt: string;
   timeoutMinutes?: number;
   captureOutput?: boolean;
+  eventEmitter?: OrchestratorEventEmitter;
 }
 
 export class ClaudeRunner {
+  private emitLog(message: string, eventEmitter?: OrchestratorEventEmitter): void {
+    if (eventEmitter) {
+      eventEmitter.emit("event", {
+        type: "log",
+        timestamp: Date.now(),
+        level: "info",
+        message,
+      });
+    } else {
+      console.log(message);
+    }
+  }
+
   private getClaudePath(): string {
     const localBin = resolve(moduleDir, "../node_modules/.bin/claude");
 
@@ -51,19 +66,20 @@ export class ClaudeRunner {
   ): Promise<{ success: boolean; commitSha: string | null; output?: string }> {
     const claudePath = this.getClaudePath();
 
-    console.log("─".repeat(80));
-    console.log(`Running Claude Code in ${options.workDir}`);
-    console.log(`Binary: ${claudePath}`);
-    console.log(`Timeout: ${options.timeoutMinutes || 30} minutes`);
-    console.log("─".repeat(80));
+    this.emitLog("─".repeat(80), options.eventEmitter);
+    this.emitLog(`Running Claude Code in ${options.workDir}`, options.eventEmitter);
+    this.emitLog(`Binary: ${claudePath}`, options.eventEmitter);
+    this.emitLog(`Timeout: ${options.timeoutMinutes || 30} minutes`, options.eventEmitter);
+    this.emitLog("─".repeat(80), options.eventEmitter);
 
     const headBefore = this.tryGetHeadCommit(options.workDir);
-    console.log(`HEAD before: ${headBefore ?? "(no commit yet)"}`);
-    console.log("─".repeat(80));
+    this.emitLog(`HEAD before: ${headBefore ?? "(no commit yet)"}`, options.eventEmitter);
+    this.emitLog("─".repeat(80), options.eventEmitter);
 
     const timeout = (options.timeoutMinutes ?? 30) * 60 * 1000;
 
     const captureOutput = options.captureOutput ?? false;
+    const shouldPipeStdout = captureOutput || !!options.eventEmitter;
 
     const result = await new Promise<{
       exitCode: number | null;
@@ -84,7 +100,7 @@ export class ClaudeRunner {
           cwd: options.workDir,
           stdio: [
             "pipe",
-            captureOutput ? "pipe" : "inherit",
+            shouldPipeStdout ? "pipe" : "inherit",
             "inherit",
           ],
         },
@@ -110,11 +126,22 @@ export class ClaudeRunner {
       child.stdin.write(options.prompt);
       child.stdin.end();
 
-      if (captureOutput && child.stdout) {
+      if (shouldPipeStdout && child.stdout) {
         child.stdout.on("data", (chunk) => {
           const text = chunk.toString();
-          stdoutData += text;
-          process.stdout.write(text);
+          if (captureOutput) {
+            stdoutData += text;
+          }
+          if (options.eventEmitter) {
+            const lines = text.split('\n');
+            for (const line of lines) {
+              if (line.trim()) {
+                this.emitLog(line, options.eventEmitter);
+              }
+            }
+          } else {
+            process.stdout.write(text);
+          }
         });
       }
 
@@ -130,16 +157,16 @@ export class ClaudeRunner {
     });
 
     if (result.error) {
-      console.error("─".repeat(80));
-      console.error("✗ Error running Claude Code");
-      console.error("─".repeat(80));
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      this.emitLog("✗ Error running Claude Code", options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
       throw result.error;
     }
 
     if (result.exitCode !== 0) {
-      console.error("─".repeat(80));
-      console.error(`✗ Claude Code exited with status ${result.exitCode}`);
-      console.error("─".repeat(80));
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      this.emitLog(`✗ Claude Code exited with status ${result.exitCode}`, options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
       throw new Error(`Claude Code failed with exit code ${result.exitCode}`);
     }
 
@@ -148,26 +175,27 @@ export class ClaudeRunner {
       : undefined;
 
     const headAfter = this.tryGetHeadCommit(options.workDir);
-    console.log("─".repeat(80));
-    console.log(`HEAD after: ${headAfter ?? "(no commit yet)"}`);
+    this.emitLog("─".repeat(80), options.eventEmitter);
+    this.emitLog(`HEAD after: ${headAfter ?? "(no commit yet)"}`, options.eventEmitter);
 
     if (!headAfter) {
-      console.log(
+      this.emitLog(
         "⚠ Claude Code completed but could not read HEAD commit",
+        options.eventEmitter
       );
-      console.log("─".repeat(80));
+      this.emitLog("─".repeat(80), options.eventEmitter);
       return { success: true, commitSha: null, output: capturedOutput };
     }
 
     if (headBefore === headAfter) {
-      console.log("✓ Claude Code completed (no commit created)");
-      console.log("─".repeat(80));
+      this.emitLog("✓ Claude Code completed (no commit created)", options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
       return { success: true, commitSha: null, output: capturedOutput };
     }
 
-    console.log("✓ Claude Code completed successfully and created a commit");
-    console.log(`Commit SHA: ${headAfter}`);
-    console.log("─".repeat(80));
+    this.emitLog("✓ Claude Code completed successfully and created a commit", options.eventEmitter);
+    this.emitLog(`Commit SHA: ${headAfter}`, options.eventEmitter);
+    this.emitLog("─".repeat(80), options.eventEmitter);
 
     const response: { success: boolean; commitSha: string | null; output?: string } = {
       success: true,
