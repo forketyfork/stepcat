@@ -180,12 +180,17 @@ export class GitHubChecker {
 
   private log(message: string, level: 'info' | 'warn' | 'error' | 'success' = 'info'): void {
     if (this.eventEmitter) {
-      this.eventEmitter.emit('event', {
-        type: 'log',
-        timestamp: Date.now(),
-        level,
-        message
-      });
+      const lines = message.split('\n');
+      for (const line of lines) {
+        if (line.trim()) {
+          this.eventEmitter.emit('event', {
+            type: 'log',
+            timestamp: Date.now(),
+            level,
+            message: line
+          });
+        }
+      }
     } else {
       console.log(message);
     }

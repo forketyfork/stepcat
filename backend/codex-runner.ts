@@ -22,12 +22,17 @@ export type CodexReviewResult = ReviewResult;
 export class CodexRunner {
   private emitLog(message: string, eventEmitter?: OrchestratorEventEmitter): void {
     if (eventEmitter) {
-      eventEmitter.emit("event", {
-        type: "log",
-        timestamp: Date.now(),
-        level: "info",
-        message,
-      });
+      const lines = message.split('\n');
+      for (const line of lines) {
+        if (line.trim()) {
+          eventEmitter.emit("event", {
+            type: "log",
+            timestamp: Date.now(),
+            level: "info",
+            message: line,
+          });
+        }
+      }
     } else {
       console.log(message);
     }
