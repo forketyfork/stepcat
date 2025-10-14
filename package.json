@@ -15,7 +15,10 @@
     "start": "node dist/cli.js",
     "dev": "npm run build:backend && node dist/cli.js",
     "dev:frontend": "cd frontend && npm run dev",
-    "test": "jest",
+    "test": "jest && vitest run",
+    "test:jest": "jest",
+    "test:vitest": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint backend && cd frontend && npm run lint",
     "lint:backend": "eslint backend",
     "lint:frontend": "cd frontend && npm run lint"
@@ -50,12 +53,14 @@
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.46.0",
     "@typescript-eslint/parser": "^8.46.0",
+    "@vitest/ui": "^3.2.4",
     "eslint": "^9.37.0",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.5",
     "ts-node": "^10.9.1",
     "tsx": "^4.20.6",
     "typescript": "^5.3.2",
-    "typescript-eslint": "^8.46.0"
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^3.2.4"
   }
 }

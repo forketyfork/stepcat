@@ -6,14 +6,9 @@ import type * as ReactTypes from 'react';
 import { pathToFileURL, fileURLToPath } from 'url';
 import { resolve, dirname } from 'path';
 
-const moduleDir = (() => {
-  try {
-    const url = new Function('return import.meta.url')() as string;
-    return dirname(fileURLToPath(url));
-  } catch {
-    return typeof __dirname !== 'undefined' ? __dirname : process.cwd();
-  }
-})();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const moduleDir = __dirname;
 
 type InkModule = typeof import('ink');
 type ReactModule = typeof import('react');

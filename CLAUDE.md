@@ -307,6 +307,175 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - **Integration testing**: See `docs/INTEGRATION_TEST_CHECKLIST.md` for comprehensive manual integration testing procedures and acceptance criteria
 - Frontend testing: Tests can be added to `frontend/src/` (not yet implemented)
 
+## Development Best Practices
+
+### Test Coverage Requirements
+
+**Always write tests for infrastructure and adapter code**, not just business logic. Critical areas that MUST have test coverage:
+
+1. **Adapters and UI Components**: TUI adapter, WebSocket adapter, Web Server
+   - Test initialization and shutdown
+   - Test path resolution with mocked `process.cwd()`
+   - Test component loading in both dev and production modes
+   - Example: `backend/__tests__/tui-adapter.test.ts`
+
+2. **Module Path Resolution**: Any code that resolves file paths relative to module location
+   - Test from different working directories
+   - Verify paths exist in both source (`backend/`) and build (`dist/`) directories
+   - Never fall back to `process.cwd()` for module-relative paths
+
+3. **Runner Components**: ClaudeRunner, CodexRunner
+   - Test binary path resolution
+   - Test with missing binaries
+   - Test timeout behavior
+
+4. **Database Operations**: Test with actual SQLite database
+   - Use temp directories for test databases
+   - Test schema migrations
+   - Test foreign key constraints
+
+### ESM Module Resolution Guidelines
+
+**IMPORTANT**: This project uses ECMAScript Modules (ESM) with `"type": "module"` in package.json.
+
+#### Module Path Resolution
+
+**DO:**
+```typescript
+// ✅ Direct import.meta.url usage (CORRECT)
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const componentPath = resolve(__dirname, '../components/App.js');
+```
+
+**DON'T:**
+```typescript
+// ❌ Runtime detection with Function constructor (BROKEN)
+const moduleDir = (() => {
+  try {
+    const url = new Function('return import.meta.url')() as string;
+    return dirname(fileURLToPath(url));
+  } catch {
+    return process.cwd(); // NEVER fall back to process.cwd()!
+  }
+})();
+```
+
+**Why the Function trick fails:**
+- `new Function('return import.meta.url')()` throws `SyntaxError` at runtime
+- `import.meta` cannot be accessed dynamically via Function constructor
+- Falls back to `process.cwd()` which returns the **working directory**, not the **module directory**
+- Breaks when running from different directories
+
+#### Path Resolution Principles
+
+1. **Module-relative paths**: Always resolve relative to the module's location using `import.meta.url`
+2. **Working directory paths**: Only use `process.cwd()` for user-provided paths (plan files, work directories)
+3. **Resource paths**: UI components, static files, binaries → use module-relative resolution
+4. **Never mix concerns**: Don't use `process.cwd()` as fallback for module-relative path resolution
+
+#### Testing Path Resolution
+
+When adding new path resolution code:
+
+```typescript
+// Test that path resolution works from arbitrary directories
+it('should resolve paths correctly regardless of cwd', async () => {
+  const wrongDir = '/tmp/random';
+  jest.spyOn(process, 'cwd').mockReturnValue(wrongDir);
+
+  try {
+    // Your initialization code here
+    await adapter.initialize();
+    // If it works, path resolution is using import.meta.url correctly
+  } catch (error) {
+    if (error.message.includes('Cannot find module')) {
+      fail('Path resolution is using process.cwd() instead of import.meta.url');
+    }
+  } finally {
+    jest.restoreAllMocks();
+  }
+});
+```
+
+### Jest and ESM Compatibility
+
+**Challenge**: Jest runs in CommonJS mode by default, which doesn't support `import.meta.url`.
+
+**Solution**: Use direct `import.meta.url` in source code and configure Jest properly:
+
+1. **In source code**: Use `import.meta.url` directly (works in real ESM runtime)
+2. **In tests**: Use `__dirname` (available in Jest's CommonJS environment)
+3. **Jest resolver**: Configure `jest.resolver.cjs` to map `.js` imports to `.ts` sources
+4. **Mock external ESM modules**: Use `jest.mock()` for packages like `ink` and `react`
+
+**Example Jest configuration for ESM:**
+```javascript
+// jest.config.js
+export default {
+  preset: 'ts-jest/presets/default-esm',
+  extensionsToTreatAsEsm: ['.ts'],
+  resolver: './jest.resolver.cjs',
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1', // Map .js imports to .ts
+  }
+};
+
+// jest.resolver.cjs
+module.exports = (request, options) => {
+  if (request.endsWith('.js')) {
+    try {
+      return options.defaultResolver(request.replace(/\.js$/, '.ts'), options);
+    } catch (err) {
+      // Fall back to default resolution
+    }
+  }
+  return options.defaultResolver(request, options);
+};
+```
+
+### Integration Testing
+
+**Before considering a feature complete**, verify it works in production-like conditions:
+
+```bash
+# 1. Build the project
+npm run build
+
+# 2. Test from a DIFFERENT directory
+cd /some/other/directory
+node /path/to/stepcat/dist/cli.js --file plan.md --dir . --tui
+
+# 3. Verify all features work
+# - TUI displays correctly
+# - Web UI serves correctly
+# - Paths resolve correctly
+# - All tests pass
+```
+
+### Common Pitfalls to Avoid
+
+1. **❌ Using runtime detection tricks**: `new Function('return import.meta.url')`
+2. **❌ Falling back to process.cwd()**: For module-relative paths
+3. **❌ Skipping infrastructure tests**: UI adapters, path resolution, initialization
+4. **❌ Testing only from project root**: Always test from different directories
+5. **❌ Ignoring Jest/ESM compatibility**: Don't break tests to make runtime work
+6. **❌ Mixing path resolution concerns**: Keep module paths and user paths separate
+
+### Debugging Path Issues
+
+If you see errors like `Cannot find module '/wrong/path/to/file'`:
+
+1. **Check the path in error**: Does it include project directory? Or is it missing intermediate dirs?
+2. **Verify moduleDir/dirname source**: Is it using `import.meta.url` or `process.cwd()`?
+3. **Test from different directory**: `cd /tmp && node /path/to/dist/cli.js`
+4. **Check if path exists**: Add logging: `console.log('Resolved path:', path, 'exists:', existsSync(path))`
+5. **Review recent changes**: Did someone change path resolution for "Jest compatibility"?
+
 ## Important Notes for Development
 
 1. **Git Commit Policy**: Maintain "one commit per iteration" - each Claude execution creates a NEW commit (never use `git commit --amend`). All commits are separate for full audit trail. Orchestrator handles all pushes; agents are instructed NOT to push.
