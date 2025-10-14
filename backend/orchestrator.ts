@@ -341,7 +341,13 @@ export class Orchestrator {
       let iterationNumber = this.storage.getIterations(step.id).length + 1;
 
       if (iterationNumber === 1) {
-        const iteration = this.storage.createIteration(step.id, 1, 'implementation');
+        const iteration = this.storage.createIteration(
+          step.id,
+          1,
+          'implementation',
+          this.implementationAgent,
+          this.reviewAgent
+        );
 
         this.emitEvent({
           type: "iteration_start",
@@ -350,6 +356,8 @@ export class Orchestrator {
           stepId: step.id,
           iterationNumber: 1,
           iterationType: 'implementation',
+          implementationAgent: this.implementationAgent,
+          reviewAgent: this.reviewAgent,
         });
 
         this.log(`\nIteration 1: Implementation`);
@@ -420,7 +428,13 @@ export class Orchestrator {
           this.storage.updateIteration(previousIterationId, { buildStatus: 'failed' });
           }
           const buildErrors = await this.extractBuildErrors(sha);
-          const iteration = this.storage.createIteration(step.id, iterationNumber, 'build_fix');
+          const iteration = this.storage.createIteration(
+            step.id,
+            iterationNumber,
+            'build_fix',
+            this.implementationAgent,
+            this.reviewAgent
+          );
 
           const issue = this.storage.createIssue(previousIterationId!, 'ci_failure', buildErrors);
 
@@ -440,6 +454,8 @@ export class Orchestrator {
             stepId: step.id,
             iterationNumber,
             iterationType: 'build_fix',
+            implementationAgent: this.implementationAgent,
+            reviewAgent: this.reviewAgent,
           });
 
           this.log(`\nIteration ${iterationNumber}: Build Fix`);
@@ -551,7 +567,13 @@ export class Orchestrator {
         });
 
         if (reviewResult.result === 'FAIL' && reviewResult.issues.length > 0) {
-          const iteration = this.storage.createIteration(step.id, iterationNumber, 'review_fix');
+          const iteration = this.storage.createIteration(
+            step.id,
+            iterationNumber,
+            'review_fix',
+            this.implementationAgent,
+            this.reviewAgent
+          );
 
           for (const issue of reviewResult.issues) {
             const dbIssue = this.storage.createIssue(
@@ -584,6 +606,8 @@ export class Orchestrator {
             stepId: step.id,
             iterationNumber,
             iterationType: 'review_fix',
+            implementationAgent: this.implementationAgent,
+            reviewAgent: this.reviewAgent,
           });
 
           this.log(`\nIteration ${iterationNumber}: Review Fix`);

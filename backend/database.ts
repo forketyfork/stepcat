@@ -62,6 +62,8 @@ export class Database implements Storage {
         buildStatus TEXT CHECK(buildStatus IN ('pending', 'in_progress', 'passed', 'failed')),
         reviewStatus TEXT CHECK(reviewStatus IN ('pending', 'in_progress', 'passed', 'failed')),
         status TEXT NOT NULL CHECK(status IN ('in_progress', 'completed', 'failed')),
+        implementationAgent TEXT NOT NULL CHECK(implementationAgent IN ('claude', 'codex')),
+        reviewAgent TEXT CHECK(reviewAgent IN ('claude', 'codex')),
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
         FOREIGN KEY (stepId) REFERENCES steps(id) ON DELETE CASCADE
@@ -134,12 +136,18 @@ export class Database implements Storage {
     stmt.run(status, updatedAt, stepId);
   }
 
-  createIteration(stepId: number, iterationNumber: number, type: Iteration['type']): Iteration {
+  createIteration(
+    stepId: number,
+    iterationNumber: number,
+    type: Iteration['type'],
+    implementationAgent: 'claude' | 'codex',
+    reviewAgent: 'claude' | 'codex' | null
+  ): Iteration {
     const now = new Date().toISOString();
     const stmt = this.db.prepare(
-      'INSERT INTO iterations (stepId, iterationNumber, type, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO iterations (stepId, iterationNumber, type, status, implementationAgent, reviewAgent, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    const result = stmt.run(stepId, iterationNumber, type, 'in_progress', now, now);
+    const result = stmt.run(stepId, iterationNumber, type, 'in_progress', implementationAgent, reviewAgent, now, now);
     return {
       id: result.lastInsertRowid as number,
       stepId,
@@ -151,6 +159,8 @@ export class Database implements Storage {
       buildStatus: null,
       reviewStatus: null,
       status: 'in_progress',
+      implementationAgent,
+      reviewAgent,
       createdAt: now,
       updatedAt: now,
     };
@@ -189,6 +199,10 @@ export class Database implements Storage {
     if (updates.status !== undefined) {
       fields.push('status = ?');
       values.push(updates.status);
+    }
+    if (updates.reviewAgent !== undefined) {
+      fields.push('reviewAgent = ?');
+      values.push(updates.reviewAgent);
     }
 
     fields.push('updatedAt = ?');

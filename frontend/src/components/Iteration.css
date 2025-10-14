@@ -80,6 +80,15 @@
   text-transform: uppercase;
 }
 
+.iteration-agents {
+  font-size: 0.7rem;
+  color: var(--gray-600);
+  font-weight: 500;
+  padding: 0.25rem 0.5rem;
+  background: var(--gray-100);
+  border-radius: 0.25rem;
+}
+
 .iteration-meta {
   display: flex;
   align-items: center;

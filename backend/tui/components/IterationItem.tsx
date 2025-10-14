@@ -17,6 +17,10 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
     }
   };
 
+  const getAgentDisplayName = (agent: 'claude' | 'codex'): string => {
+    return agent === 'claude' ? 'Claude Code' : 'Codex';
+  };
+
   const getStatusIcon = (status: string): string => {
     switch (status) {
       case 'in_progress': return '⟳';
@@ -46,6 +50,11 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
         </Text>
         <Text> Iteration #{iteration.iterationNumber} - </Text>
         <Text bold>{getTypeLabel(iteration.type)}</Text>
+        <Text dimColor> [impl: {getAgentDisplayName(iteration.implementationAgent)}</Text>
+        {iteration.reviewAgent && (
+          <Text dimColor>, review: {getAgentDisplayName(iteration.reviewAgent)}</Text>
+        )}
+        <Text dimColor>]</Text>
         {iteration.commitSha && (
           <>
             <Text dimColor> (</Text>
