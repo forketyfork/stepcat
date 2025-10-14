@@ -48,9 +48,9 @@ export class GitHubChecker {
     const startTime = Date.now();
     const maxWaitMs = maxWaitMinutes * 60 * 1000;
 
-    console.log(`\nWaiting for GitHub Actions checks (max ${maxWaitMinutes} minutes)...`);
-    console.log(`Repository: ${this.owner}/${this.repo}`);
-    console.log(`Commit: ${sha}`);
+    this.log(`\nWaiting for GitHub Actions checks (max ${maxWaitMinutes} minutes)...`);
+    this.log(`Repository: ${this.owner}/${this.repo}`);
+    this.log(`Commit: ${sha}`);
 
     while (Date.now() - startTime < maxWaitMs) {
       try {
@@ -62,7 +62,7 @@ export class GitHubChecker {
 
         if (checkRuns.total_count === 0) {
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
-          console.log(`[${elapsed}s] No checks found yet, waiting...`);
+          this.log(`[${elapsed}s] No checks found yet, waiting...`);
           await this.sleep(30000);
           continue;
         }
@@ -72,7 +72,7 @@ export class GitHubChecker {
 
         if (completed < total) {
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
-          console.log(`[${elapsed}s] Checks in progress: ${completed}/${total} completed`);
+          this.log(`[${elapsed}s] Checks in progress: ${completed}/${total} completed`);
 
           if (this.eventEmitter) {
             this.eventEmitter.emit('event', {
@@ -90,7 +90,7 @@ export class GitHubChecker {
             const status = run.status === 'completed'
               ? `✓ ${run.conclusion}`
               : `⏳ ${run.status}`;
-            console.log(`  - ${run.name}: ${status}`);
+            this.log(`  - ${run.name}: ${status}`);
           });
 
           await this.sleep(30000);
@@ -102,23 +102,23 @@ export class GitHubChecker {
         );
 
         if (allPassed) {
-          console.log('\n✓ All checks passed:');
+          this.log('\n✓ All checks passed:');
           checkRuns.check_runs.forEach(run => {
-            console.log(`  ✓ ${run.name}: ${run.conclusion}`);
+            this.log(`  ✓ ${run.name}: ${run.conclusion}`);
           });
           return true;
         } else {
-          console.log('\n✗ Some checks failed:');
+          this.log('\n✗ Some checks failed:');
           checkRuns.check_runs.forEach(run => {
             const icon = (run.conclusion === 'success' || run.conclusion === 'skipped') ? '✓' : '✗';
-            console.log(`  ${icon} ${run.name}: ${run.conclusion}`);
+            this.log(`  ${icon} ${run.name}: ${run.conclusion}`);
           });
           return false;
         }
       } catch (error) {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        console.error(`[${elapsed}s] Error checking GitHub status:`, error instanceof Error ? error.message : String(error));
-        console.log('Retrying in 30 seconds...');
+        this.log(`[${elapsed}s] Error checking GitHub status: ${error instanceof Error ? error.message : String(error)}`);
+        this.log('Retrying in 30 seconds...');
         await this.sleep(30000);
       }
     }
@@ -131,7 +131,7 @@ export class GitHubChecker {
       cwd: this.workDir,
       encoding: 'utf-8'
     }).trim();
-    console.log(`Latest commit: ${sha}`);
+    this.log(`Latest commit: ${sha}`);
     return sha;
   }
 
@@ -157,13 +157,10 @@ export class GitHubChecker {
         encoding: 'utf-8'
       }).trim();
 
-      console.log(`Git remote URL: ${remoteUrl}`);
-
       const match = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
       if (match) {
         const owner = match[1];
         const repo = match[2];
-        console.log(`Parsed repository: ${owner}/${repo}`);
         return { owner, repo };
       }
 
@@ -178,5 +175,17 @@ export class GitHubChecker {
 
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private log(message: string): void {
+    if (this.eventEmitter) {
+      this.eventEmitter.emit('event', {
+        type: 'log',
+        timestamp: Date.now(),
+        message
+      });
+    } else {
+      console.log(message);
+    }
   }
 }
