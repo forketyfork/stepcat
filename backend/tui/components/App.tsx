@@ -14,11 +14,18 @@ const HEADER_BASE_HEIGHT = 5;
 const STEP_PANEL_LABEL = 'Steps';
 const LOG_PANEL_LABEL = 'Recent logs';
 
+type GradientHighlight = {
+  word: string;
+  startColor: string;
+  endColor: string;
+};
+
 type StepLine = {
   key: string;
   text: string;
   color?: string;
   dim?: boolean;
+  highlight?: GradientHighlight;
 };
 
 type LogRow = {
@@ -104,6 +111,51 @@ const getOutcomeColor = (status: string | null | undefined): string | undefined 
   }
 };
 
+type RGB = { r: number; g: number; b: number };
+
+const hexToRgb = (hex: string): RGB => {
+  const normalized = hex.startsWith('#') ? hex.slice(1) : hex;
+  const value = normalized.length === 3
+    ? normalized.split('').map(char => char + char).join('')
+    : normalized;
+
+  const intVal = parseInt(value, 16);
+  return {
+    r: (intVal >> 16) & 255,
+    g: (intVal >> 8) & 255,
+    b: intVal & 255,
+  };
+};
+
+const interpolateColor = (start: RGB, end: RGB, factor: number): string => {
+  const clamp = (input: number) => Math.max(0, Math.min(255, Math.round(input)));
+  const r = clamp(start.r + (end.r - start.r) * factor);
+  const g = clamp(start.g + (end.g - start.g) * factor);
+  const b = clamp(start.b + (end.b - start.b) * factor);
+  return `#${[r, g, b].map(component => component.toString(16).padStart(2, '0')).join('')}`;
+};
+
+const createGradientSegments = (
+  text: string,
+  startColor: string,
+  endColor: string
+): Array<{ char: string; color: string }> => {
+  if (text.length === 0) {
+    return [];
+  }
+
+  const start = hexToRgb(startColor);
+  const end = hexToRgb(endColor);
+
+  return text.split('').map((char, index) => {
+    const factor = text.length === 1 ? 0 : index / (text.length - 1);
+    return {
+      char,
+      color: interpolateColor(start, end, factor),
+    };
+  });
+};
+
 export const App: React.FC<AppProps> = ({ state }) => {
   const headerHeight = HEADER_BASE_HEIGHT + 1; // +1 for spacing after header
   const showCurrentPhase = Boolean(state.currentPhase && !state.isComplete && !state.error);
@@ -175,6 +227,13 @@ export const App: React.FC<AppProps> = ({ state }) => {
           key: `iteration-${iteration.id}-implementation`,
           text: `      - Implementation [${agentName}]${commitSuffix}`,
           dim: true,
+          highlight: iteration.status === 'in_progress'
+            ? {
+                word: 'Implementation',
+                startColor: '#72f1b8',
+                endColor: '#2d9ff8',
+              }
+            : undefined,
         });
 
         if (iteration.buildStatus) {
@@ -182,6 +241,13 @@ export const App: React.FC<AppProps> = ({ state }) => {
             key: `iteration-${iteration.id}-build`,
             text: `      - Build: ${iteration.buildStatus}`,
             color: getOutcomeColor(iteration.buildStatus) ?? undefined,
+            highlight: iteration.buildStatus === 'in_progress'
+              ? {
+                  word: 'Build',
+                  startColor: '#fdd070',
+                  endColor: '#f78fb3',
+                }
+              : undefined,
           });
         }
 
@@ -195,6 +261,13 @@ export const App: React.FC<AppProps> = ({ state }) => {
             key: `iteration-${iteration.id}-review`,
             text: reviewLabel,
             color: getOutcomeColor(iteration.reviewStatus) ?? undefined,
+            highlight: iteration.reviewStatus === 'in_progress'
+              ? {
+                  word: 'Review',
+                  startColor: '#ad7cff',
+                  endColor: '#5bd2ff',
+                }
+              : undefined,
           });
         }
 
@@ -247,6 +320,8 @@ export const App: React.FC<AppProps> = ({ state }) => {
 
   const stepsRows = stepLinesToRender.map((line, idx) => {
     const key = `${line.key}-${idx}`;
+    const baseColor = line.color;
+    const dim = Boolean(line.dim);
 
     let content = line.text ?? '';
     if (content.length > stepsInnerWidth) {
@@ -259,12 +334,61 @@ export const App: React.FC<AppProps> = ({ state }) => {
       }
     }
 
-    const paddedContent = content.padEnd(stepsInnerWidth, ' ');
+    const highlight = line.highlight;
+    const highlightIndex =
+      highlight && content.includes(highlight.word)
+        ? content.indexOf(highlight.word)
+        : -1;
+
+    const segments: React.ReactNode[] = [];
+    let segmentCounter = 0;
+
+    const pushSegment = (
+      text: string,
+      color: string | undefined,
+      dimmed: boolean
+    ): void => {
+      if (!text) {
+        return;
+      }
+      segments.push(
+        <Text key={`seg-${key}-${segmentCounter++}`} color={color} dimColor={dimmed}>
+          {text}
+        </Text>
+      );
+    };
+
+    if (highlight && highlightIndex >= 0) {
+      const before = content.slice(0, highlightIndex);
+      const highlightText = content.slice(highlightIndex, highlightIndex + highlight.word.length);
+      const after = content.slice(highlightIndex + highlight.word.length);
+
+      pushSegment(before, baseColor, dim);
+
+      const gradientSegments = createGradientSegments(highlightText, highlight.startColor, highlight.endColor);
+      gradientSegments.forEach(({ char, color }) => {
+        segments.push(
+          <Text key={`grad-${key}-${segmentCounter++}`} color={color}>
+            {char}
+          </Text>
+        );
+      });
+
+      pushSegment(after, baseColor, dim);
+    } else {
+      pushSegment(content, baseColor, dim);
+    }
+
+    const displayedLength = content.length;
+    const paddingLength = Math.max(0, stepsInnerWidth - displayedLength);
+    if (paddingLength > 0) {
+      pushSegment(' '.repeat(paddingLength), baseColor, dim);
+    }
 
     return (
       <Box key={key} width={stepsPanelWidth}>
         <Text>│</Text>
-        <Text color={line.color} dimColor={line.dim}>{paddedContent}</Text>
+        <Box flexDirection="row">{segments}</Box>
         <Text>│</Text>
       </Box>
     );
