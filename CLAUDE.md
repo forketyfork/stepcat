@@ -509,6 +509,39 @@ node /path/to/stepcat/dist/cli.js --file plan.md --dir . --tui
 6. **❌ Mixing test file extensions**: Use `.vitest.ts` for Vitest, `.test.ts` for Jest
 7. **❌ Mixing path resolution concerns**: Keep module paths and user paths separate
 
+### TypeScript Coding Guidelines
+
+**NEVER use the `any` type**. Always use concrete types from the models or define specific types.
+
+**DO:**
+```typescript
+import { DbStep, Iteration, Issue } from '../../models.js';
+
+const calculateStepHeight = (step: DbStep, iterations: Iteration[], issues: Map<number, Issue[]>): number => {
+  // Implementation
+};
+```
+
+**DON'T:**
+```typescript
+// ❌ Using any type (FORBIDDEN)
+const calculateStepHeight = (step: any, iterations: any[], issues: Map<number, any[]>): number => {
+  // Implementation
+};
+```
+
+**Why avoid `any`:**
+- Defeats the purpose of TypeScript's type safety
+- Prevents IDE autocomplete and type checking
+- Makes code harder to understand and maintain
+- Hides bugs that TypeScript would otherwise catch
+- ESLint will warn about `any` usage
+
+**When you need a type:**
+1. **First choice**: Use existing types from `models.ts` or other type definition files
+2. **Second choice**: Define a specific interface or type for your use case
+3. **Last resort**: Use `unknown` (not `any`) if the type is truly dynamic, then narrow it with type guards
+
 ### Debugging Path Issues
 
 If you see errors like `Cannot find module '/wrong/path/to/file'`:

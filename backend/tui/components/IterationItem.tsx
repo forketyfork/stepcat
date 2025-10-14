@@ -8,15 +8,6 @@ interface IterationItemProps {
 }
 
 export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues }) => {
-  const getTypeLabel = (type: string): string => {
-    switch (type) {
-      case 'implementation': return 'Implementation';
-      case 'build_fix': return 'Build Fix';
-      case 'review_fix': return 'Review Fix';
-      default: return type;
-    }
-  };
-
   const getAgentDisplayName = (agent: 'claude' | 'codex'): string => {
     return agent === 'claude' ? 'Claude Code' : 'Codex';
   };
@@ -48,12 +39,12 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
         <Text color={getStatusColor(iteration.status)}>
           {getStatusIcon(iteration.status)}
         </Text>
-        <Text> Iteration #{iteration.iterationNumber} - </Text>
-        <Text bold>{getTypeLabel(iteration.type)}</Text>
-        <Text dimColor> [impl: {getAgentDisplayName(iteration.implementationAgent)}</Text>
-        {iteration.reviewAgent && (
-          <Text dimColor>, review: {getAgentDisplayName(iteration.reviewAgent)}</Text>
-        )}
+        <Text> Iteration #{iteration.iterationNumber}</Text>
+      </Box>
+
+      <Box marginLeft={2}>
+        <Text dimColor>- Implementation [</Text>
+        <Text dimColor>{getAgentDisplayName(iteration.implementationAgent)}</Text>
         <Text dimColor>]</Text>
         {iteration.commitSha && (
           <>
@@ -66,7 +57,7 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
 
       {iteration.buildStatus && (
         <Box marginLeft={2}>
-          <Text dimColor>Build: </Text>
+          <Text dimColor>- Build: </Text>
           <Text color={iteration.buildStatus === 'passed' ? 'green' : iteration.buildStatus === 'failed' ? 'red' : 'yellow'}>
             {iteration.buildStatus}
           </Text>
@@ -75,7 +66,15 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
 
       {iteration.reviewStatus && (
         <Box marginLeft={2}>
-          <Text dimColor>Review: </Text>
+          <Text dimColor>- Review</Text>
+          {iteration.reviewAgent && (
+            <>
+              <Text dimColor> [</Text>
+              <Text dimColor>{getAgentDisplayName(iteration.reviewAgent)}</Text>
+              <Text dimColor>]</Text>
+            </>
+          )}
+          <Text dimColor>: </Text>
           <Text color={iteration.reviewStatus === 'passed' ? 'green' : iteration.reviewStatus === 'failed' ? 'red' : 'yellow'}>
             {iteration.reviewStatus}
           </Text>
