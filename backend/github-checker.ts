@@ -102,23 +102,24 @@ export class GitHubChecker {
         );
 
         if (allPassed) {
-          this.log('\n✓ All checks passed:');
+          this.log('\n✓ All checks passed:', 'success');
           checkRuns.check_runs.forEach(run => {
-            this.log(`  ✓ ${run.name}: ${run.conclusion}`);
+            this.log(`  ✓ ${run.name}: ${run.conclusion}`, 'success');
           });
           return true;
         } else {
-          this.log('\n✗ Some checks failed:');
+          this.log('\n✗ Some checks failed:', 'error');
           checkRuns.check_runs.forEach(run => {
             const icon = (run.conclusion === 'success' || run.conclusion === 'skipped') ? '✓' : '✗';
-            this.log(`  ${icon} ${run.name}: ${run.conclusion}`);
+            const level = (run.conclusion === 'success' || run.conclusion === 'skipped') ? 'success' : 'error';
+            this.log(`  ${icon} ${run.name}: ${run.conclusion}`, level);
           });
           return false;
         }
       } catch (error) {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        this.log(`[${elapsed}s] Error checking GitHub status: ${error instanceof Error ? error.message : String(error)}`);
-        this.log('Retrying in 30 seconds...');
+        this.log(`[${elapsed}s] Error checking GitHub status: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        this.log('Retrying in 30 seconds...', 'warn');
         await this.sleep(30000);
       }
     }
@@ -177,11 +178,12 @@ export class GitHubChecker {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  private log(message: string): void {
+  private log(message: string, level: 'info' | 'warn' | 'error' | 'success' = 'info'): void {
     if (this.eventEmitter) {
       this.eventEmitter.emit('event', {
         type: 'log',
         timestamp: Date.now(),
+        level,
         message
       });
     } else {
