@@ -10,5 +10,13 @@ export default {
   resolver: './jest.resolver.cjs',
   moduleNameMapper: {
     '^@octokit/(.*)$': '<rootDir>/backend/__mocks__/@octokit/$1.ts'
+  },
+  transform: {
+    '^.+\\.ts$': ['ts-jest', {
+      tsconfig: {
+        module: 'ESNext',
+        target: 'ES2022'
+      }
+    }]
   }
 };

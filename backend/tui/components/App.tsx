@@ -14,6 +14,13 @@ export const App: React.FC<AppProps> = ({ state }) => {
       <Box flexDirection="column" flexGrow={1}>
         <Header state={state} />
 
+        {state.error && (
+          <Box marginBottom={1} borderStyle="double" borderColor="red" paddingX={1}>
+            <Text bold color="red">ERROR: </Text>
+            <Text color="red">{state.error}</Text>
+          </Box>
+        )}
+
         {state.currentPhase && !state.isComplete && !state.error && (
           <Box marginBottom={1}>
             <Text dimColor>Current: </Text>

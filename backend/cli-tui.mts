@@ -28,6 +28,7 @@ program
   .action(async (options) => {
     const startTime = Date.now();
     let uiAdapter: UIAdapter | null = null;
+    const uiAdapters: UIAdapter[] = [];
     let storage: Database | null = null;
 
     try {
@@ -181,8 +182,6 @@ program
       const eventEmitter = new OrchestratorEventEmitter();
       storage = new Database(workDir);
 
-      const uiAdapters: UIAdapter[] = [];
-
       if (options.ui) {
         uiAdapter = new WebSocketUIAdapter({
           port: options.port,
@@ -230,6 +229,7 @@ program
           timestamp: Date.now(),
           error: error instanceof Error ? error.message : String(error)
         });
+        await new Promise(resolve => setTimeout(resolve, 100));
         throw error;
       }
 
@@ -269,6 +269,10 @@ program
 
       process.exit(0);
     } catch (error) {
+      for (const adapter of uiAdapters) {
+        await adapter.shutdown();
+      }
+
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
@@ -284,10 +288,6 @@ program
       if (error instanceof Error && error.stack && process.env.DEBUG) {
         console.error('\nStack trace (DEBUG mode):');
         console.error(error.stack);
-      }
-
-      if (uiAdapter) {
-        await uiAdapter.shutdown();
       }
 
       if (storage) {
