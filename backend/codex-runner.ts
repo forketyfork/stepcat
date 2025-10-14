@@ -3,6 +3,7 @@ import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { ReviewParser, ReviewResult } from "./review-parser.js";
+import { OrchestratorEventEmitter } from "./events.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,11 +14,25 @@ export interface CodexRunOptions {
   prompt: string;
   timeoutMinutes?: number;
   expectCommit?: boolean;
+  eventEmitter?: OrchestratorEventEmitter;
 }
 
 export type CodexReviewResult = ReviewResult;
 
 export class CodexRunner {
+  private emitLog(message: string, eventEmitter?: OrchestratorEventEmitter): void {
+    if (eventEmitter) {
+      eventEmitter.emit("event", {
+        type: "log",
+        timestamp: Date.now(),
+        level: "info",
+        message,
+      });
+    } else {
+      console.log(message);
+    }
+  }
+
   private getCodexPath(): string {
     const localBin = resolve(moduleDir, "../node_modules/.bin/codex");
 
@@ -53,17 +68,17 @@ export class CodexRunner {
   ): Promise<{ success: boolean; output: string; commitSha?: string | null }> {
     const codexPath = this.getCodexPath();
 
-    console.log("─".repeat(80));
-    console.log(`Running Codex in ${options.workDir}`);
-    console.log(`Binary: ${codexPath}`);
-    console.log(`Timeout: ${options.timeoutMinutes || 30} minutes`);
-    console.log("─".repeat(80));
+    this.emitLog("─".repeat(80), options.eventEmitter);
+    this.emitLog(`Running Codex in ${options.workDir}`, options.eventEmitter);
+    this.emitLog(`Binary: ${codexPath}`, options.eventEmitter);
+    this.emitLog(`Timeout: ${options.timeoutMinutes || 30} minutes`, options.eventEmitter);
+    this.emitLog("─".repeat(80), options.eventEmitter);
 
     let headBefore: string | null = null;
     if (options.expectCommit) {
       headBefore = this.tryGetHeadCommit(options.workDir);
-      console.log(`HEAD before: ${headBefore ?? "(no commit yet)"}`);
-      console.log("─".repeat(80));
+      this.emitLog(`HEAD before: ${headBefore ?? "(no commit yet)"}`, options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
     }
 
     const timeout = (options.timeoutMinutes ?? 30) * 60 * 1000;
@@ -102,7 +117,16 @@ export class CodexRunner {
       child.stdout.on("data", (chunk) => {
         const text = chunk.toString();
         stdoutData += text;
-        process.stdout.write(text);
+        if (options.eventEmitter) {
+          const lines = text.split('\n');
+          for (const line of lines) {
+            if (line.trim()) {
+              this.emitLog(line, options.eventEmitter);
+            }
+          }
+        } else {
+          process.stdout.write(text);
+        }
       });
 
       child.on("error", (error) => {
@@ -117,45 +141,46 @@ export class CodexRunner {
     });
 
     if (result.error) {
-      console.error("─".repeat(80));
-      console.error("✗ Error running Codex");
-      console.error("─".repeat(80));
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      this.emitLog("✗ Error running Codex", options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
       throw result.error;
     }
 
     if (result.exitCode !== 0) {
-      console.error("─".repeat(80));
-      console.error(`✗ Codex exited with status ${result.exitCode}`);
-      console.error("─".repeat(80));
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      this.emitLog(`✗ Codex exited with status ${result.exitCode}`, options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
       throw new Error(`Codex failed with exit code ${result.exitCode}`);
     }
 
     let commitSha: string | null | undefined = undefined;
     if (options.expectCommit) {
       const headAfter = this.tryGetHeadCommit(options.workDir);
-      console.log("─".repeat(80));
-      console.log(`HEAD after: ${headAfter ?? "(no commit yet)"}`);
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      this.emitLog(`HEAD after: ${headAfter ?? "(no commit yet)"}`, options.eventEmitter);
 
       if (!headAfter) {
-        console.log(
+        this.emitLog(
           "⚠ Codex completed but could not read HEAD commit",
+          options.eventEmitter
         );
-        console.log("─".repeat(80));
+        this.emitLog("─".repeat(80), options.eventEmitter);
         commitSha = null;
       } else if (headBefore === headAfter) {
-        console.log("✓ Codex completed (no commit created)");
-        console.log("─".repeat(80));
+        this.emitLog("✓ Codex completed (no commit created)", options.eventEmitter);
+        this.emitLog("─".repeat(80), options.eventEmitter);
         commitSha = null;
       } else {
-        console.log("✓ Codex completed successfully and created a commit");
-        console.log(`Commit SHA: ${headAfter}`);
-        console.log("─".repeat(80));
+        this.emitLog("✓ Codex completed successfully and created a commit", options.eventEmitter);
+        this.emitLog(`Commit SHA: ${headAfter}`, options.eventEmitter);
+        this.emitLog("─".repeat(80), options.eventEmitter);
         commitSha = headAfter;
       }
     } else {
-      console.log("─".repeat(80));
-      console.log("✓ Codex completed successfully");
-      console.log("─".repeat(80));
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      this.emitLog("✓ Codex completed successfully", options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
     }
 
     return { success: true, output: result.output, commitSha };

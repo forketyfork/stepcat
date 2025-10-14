@@ -120,6 +120,7 @@ export class Orchestrator {
         workDir: this.workDir,
         prompt,
         timeoutMinutes: this.agentTimeoutMinutes,
+        eventEmitter: this.eventEmitter,
       });
     }
 
@@ -128,6 +129,7 @@ export class Orchestrator {
       prompt,
       timeoutMinutes: this.agentTimeoutMinutes,
       expectCommit: true,
+      eventEmitter: this.eventEmitter,
     });
 
     return {
@@ -145,6 +147,7 @@ export class Orchestrator {
         workDir: this.workDir,
         prompt,
         timeoutMinutes: this.agentTimeoutMinutes,
+        eventEmitter: this.eventEmitter,
       });
 
       return {
@@ -158,6 +161,7 @@ export class Orchestrator {
       prompt,
       timeoutMinutes: this.agentTimeoutMinutes,
       captureOutput: true,
+      eventEmitter: this.eventEmitter,
     });
 
     const output = result.output;
