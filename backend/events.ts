@@ -101,6 +101,8 @@ export interface IterationStartEvent extends StepCatEvent {
   stepId: number;
   iterationNumber: number;
   iterationType: 'implementation' | 'build_fix' | 'review_fix';
+  implementationAgent: 'claude' | 'codex';
+  reviewAgent: 'claude' | 'codex' | null;
 }
 
 export interface IterationCompleteEvent extends StepCatEvent {
@@ -131,7 +133,7 @@ export interface CodexReviewStartEvent extends StepCatEvent {
   type: 'codex_review_start';
   iterationId: number;
   promptType: 'implementation' | 'build_fix' | 'review_fix';
-  agent?: 'claude' | 'codex';
+  agent: 'claude' | 'codex';
 }
 
 export interface CodexReviewCompleteEvent extends StepCatEvent {
@@ -139,7 +141,7 @@ export interface CodexReviewCompleteEvent extends StepCatEvent {
   iterationId: number;
   result: 'PASS' | 'FAIL';
   issueCount: number;
-  agent?: 'claude' | 'codex';
+  agent: 'claude' | 'codex';
 }
 
 export interface StateSyncEvent extends StepCatEvent {

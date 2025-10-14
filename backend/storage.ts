@@ -12,7 +12,13 @@ export interface Storage {
   getSteps(planId: number): DbStep[];
   updateStepStatus(stepId: number, status: DbStep['status']): void;
 
-  createIteration(stepId: number, iterationNumber: number, type: Iteration['type']): Iteration;
+  createIteration(
+    stepId: number,
+    iterationNumber: number,
+    type: Iteration['type'],
+    implementationAgent: 'claude' | 'codex',
+    reviewAgent: 'claude' | 'codex' | null
+  ): Iteration;
   getIterations(stepId: number): Iteration[];
   updateIteration(iterationId: number, updates: IterationUpdate): void;
 

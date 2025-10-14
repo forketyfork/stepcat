@@ -18,6 +18,10 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
 
   const iconContent = iteration.status === 'in_progress' ? '⟳' : iteration.status === 'completed' ? '✓' : '✗';
 
+  const getAgentDisplayName = (agent: 'claude' | 'codex'): string => {
+    return agent === 'claude' ? 'Claude Code' : 'Codex';
+  };
+
   const buildStatusIcons = {
     pending: '🔨',
     in_progress: '🔨',
@@ -52,6 +56,10 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
           <div className="iteration-icon">{iconContent}</div>
           <span>Iteration {iteration.iterationNumber}</span>
           <span className="iteration-type">{typeLabel}</span>
+          <span className="iteration-agents">
+            [impl: {getAgentDisplayName(iteration.implementationAgent)}
+            {iteration.reviewAgent && `, review: ${getAgentDisplayName(iteration.reviewAgent)}`}]
+          </span>
         </div>
         <div className="iteration-meta">
           {iteration.commitSha && <span className="commit-sha">{iteration.commitSha.substring(0, 7)}</span>}

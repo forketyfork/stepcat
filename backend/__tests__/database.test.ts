@@ -143,7 +143,7 @@ describe('Database', () => {
     });
 
     it('should create an iteration', () => {
-      const iteration = db.createIteration(stepId, 1, 'implementation');
+      const iteration = db.createIteration(stepId, 1, 'implementation', 'claude', 'codex');
 
       expect(iteration.id).toBeGreaterThan(0);
       expect(iteration.stepId).toBe(stepId);
@@ -153,14 +153,16 @@ describe('Database', () => {
       expect(iteration.claudeLog).toBeNull();
       expect(iteration.codexLog).toBeNull();
       expect(iteration.status).toBe('in_progress');
+      expect(iteration.implementationAgent).toBe('claude');
+      expect(iteration.reviewAgent).toBe('codex');
       expect(iteration.createdAt).toBeTruthy();
       expect(iteration.updatedAt).toBeTruthy();
     });
 
     it('should create multiple iterations for a step', () => {
-      db.createIteration(stepId, 1, 'implementation');
-      db.createIteration(stepId, 2, 'build_fix');
-      db.createIteration(stepId, 3, 'review_fix');
+      db.createIteration(stepId, 1, 'implementation', 'claude', 'codex');
+      db.createIteration(stepId, 2, 'build_fix', 'claude', 'codex');
+      db.createIteration(stepId, 3, 'review_fix', 'claude', 'codex');
 
       const iterations = db.getIterations(stepId);
 
@@ -171,7 +173,7 @@ describe('Database', () => {
     });
 
     it('should update iteration with commit SHA', () => {
-      const iteration = db.createIteration(stepId, 1, 'implementation');
+      const iteration = db.createIteration(stepId, 1, 'implementation', 'claude', 'codex');
 
       db.updateIteration(iteration.id, { commitSha: 'abc123' });
 
@@ -180,7 +182,7 @@ describe('Database', () => {
     });
 
     it('should update iteration with logs', () => {
-      const iteration = db.createIteration(stepId, 1, 'implementation');
+      const iteration = db.createIteration(stepId, 1, 'implementation', 'claude', 'codex');
 
       db.updateIteration(iteration.id, {
         claudeLog: 'Claude output...',
@@ -193,7 +195,7 @@ describe('Database', () => {
     });
 
     it('should update iteration status', () => {
-      const iteration = db.createIteration(stepId, 1, 'implementation');
+      const iteration = db.createIteration(stepId, 1, 'implementation', 'claude', 'codex');
 
       db.updateIteration(iteration.id, { status: 'completed' });
 
@@ -202,7 +204,7 @@ describe('Database', () => {
     });
 
     it('should update multiple iteration fields at once', () => {
-      const iteration = db.createIteration(stepId, 1, 'implementation');
+      const iteration = db.createIteration(stepId, 1, 'implementation', 'claude', 'codex');
 
       db.updateIteration(iteration.id, {
         commitSha: 'xyz789',
@@ -230,7 +232,7 @@ describe('Database', () => {
       const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
       stepId = step.id;
-      const iteration = db.createIteration(step.id, 1, 'implementation');
+      const iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
       iterationId = iteration.id;
     });
 
@@ -294,8 +296,8 @@ describe('Database', () => {
     });
 
     it('should get open issues for a step', () => {
-      const iteration1 = db.createIteration(stepId, 1, 'implementation');
-      const iteration2 = db.createIteration(stepId, 2, 'build_fix');
+      const iteration1 = db.createIteration(stepId, 1, 'implementation', 'claude', 'codex');
+      const iteration2 = db.createIteration(stepId, 2, 'build_fix', 'claude', 'codex');
 
       db.createIssue(iteration1.id, 'codex_review', 'Open issue 1');
       db.createIssue(iteration1.id, 'codex_review', 'Fixed issue', null, null, null, 'fixed');
@@ -334,7 +336,7 @@ describe('Database', () => {
     it('should cascade delete iterations when step is deleted', () => {
       const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
-      const iteration = db.createIteration(step.id, 1, 'implementation');
+      const iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
 
       (db as any).db.prepare('DELETE FROM steps WHERE id = ?').run(step.id);
 
@@ -345,7 +347,7 @@ describe('Database', () => {
     it('should cascade delete issues when iteration is deleted', () => {
       const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
-      const iteration = db.createIteration(step.id, 1, 'implementation');
+      const iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
       db.createIssue(iteration.id, 'codex_review', 'Test issue');
 
       (db as any).db.prepare('DELETE FROM iterations WHERE id = ?').run(iteration.id);
@@ -388,7 +390,7 @@ describe('Database', () => {
       const step = db.createStep(plan.id, 1, 'Setup');
 
       for (let i = 1; i <= 5; i++) {
-        db.createIteration(step.id, i, 'review_fix');
+        db.createIteration(step.id, i, 'review_fix', 'claude', 'codex');
       }
 
       const iterations = db.getIterations(step.id);
@@ -398,7 +400,7 @@ describe('Database', () => {
     it('should handle multiple issues with same iteration', () => {
       const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
-      const iteration = db.createIteration(step.id, 1, 'implementation');
+      const iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
 
       for (let i = 1; i <= 20; i++) {
         db.createIssue(iteration.id, 'codex_review', `Issue ${i}`);

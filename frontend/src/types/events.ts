@@ -21,6 +21,8 @@ export interface Iteration {
   claudeLog: string | null;
   codexLog: string | null;
   status: 'in_progress' | 'completed' | 'failed';
+  implementationAgent: 'claude' | 'codex';
+  reviewAgent: 'claude' | 'codex' | null;
   createdAt: string;
   updatedAt: string;
   issues: number[];
@@ -85,6 +87,8 @@ export interface IterationStartEvent extends BaseEvent {
   iterationId: number;
   iterationNumber: number;
   iterationType: 'implementation' | 'build_fix' | 'review_fix';
+  implementationAgent: 'claude' | 'codex';
+  reviewAgent: 'claude' | 'codex' | null;
 }
 
 export interface IterationCompleteEvent extends BaseEvent {

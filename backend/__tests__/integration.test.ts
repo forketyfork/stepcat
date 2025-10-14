@@ -65,7 +65,7 @@ Implement new features with proper error handling.
       const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, steps[0].number, steps[0].title);
 
-      const iteration = db.createIteration(step.id, 1, 'implementation');
+      const iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
       expect(iteration.status).toBe('in_progress');
       expect(iteration.commitSha).toBeNull();
 
@@ -87,10 +87,10 @@ Implement new features with proper error handling.
       const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
 
-      const iteration1 = db.createIteration(step.id, 1, 'implementation');
+      const iteration1 = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
       db.updateIteration(iteration1.id, { commitSha: 'abc123', status: 'completed' });
 
-      const iteration2 = db.createIteration(step.id, 2, 'review_fix');
+      const iteration2 = db.createIteration(step.id, 2, 'review_fix', 'claude', 'codex');
 
       const issue1 = db.createIssue(
         iteration2.id,
@@ -158,10 +158,10 @@ Implement new features with proper error handling.
       const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Complex Step');
 
-      db.createIteration(step.id, 1, 'implementation');
-      db.createIteration(step.id, 2, 'build_fix');
-      db.createIteration(step.id, 3, 'review_fix');
-      db.createIteration(step.id, 4, 'review_fix');
+      db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
+      db.createIteration(step.id, 2, 'build_fix', 'claude', 'codex');
+      db.createIteration(step.id, 3, 'review_fix', 'claude', 'codex');
+      db.createIteration(step.id, 4, 'review_fix', 'claude', 'codex');
 
       const iterations = db.getIterations(step.id);
       expect(iterations).toHaveLength(4);
@@ -177,7 +177,7 @@ Implement new features with proper error handling.
       const db = new Database(tempDir);
       const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
-      const iteration = db.createIteration(step.id, 1, 'implementation');
+      const iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
       const issue = db.createIssue(iteration.id, 'codex_review', 'Test issue');
 
       expect(issue.iterationId).toBe(iteration.id);
@@ -228,7 +228,7 @@ Implement new features with proper error handling.
       const db = new Database(tempDir);
       const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
-      const iteration = db.createIteration(step.id, 1, 'implementation');
+      const iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
       db.updateIteration(iteration.id, { commitSha: 'xyz789', status: 'completed' });
       db.close();
 
@@ -271,7 +271,7 @@ Implement new features with proper error handling.
       const db = new Database(tempDir);
       const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Test Step');
-      const iteration = db.createIteration(step.id, 1, 'implementation');
+      const iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
 
       db.createIssue(iteration.id, 'ci_failure', 'Build failed');
       db.createIssue(iteration.id, 'codex_review', 'Code quality issue');

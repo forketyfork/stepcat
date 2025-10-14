@@ -168,6 +168,8 @@ function App() {
           claudeLog: null,
           codexLog: null,
           status: 'in_progress',
+          implementationAgent: event.implementationAgent,
+          reviewAgent: event.reviewAgent,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           issues: [],
