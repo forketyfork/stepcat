@@ -330,7 +330,7 @@ just lint
 # Run frontend linting
 just lint-frontend
 
-# Run tests (backend only)
+# Run tests (Jest + Vitest)
 just test
 
 # Clean build artifacts
@@ -354,7 +354,37 @@ npm run build:frontend
 
 # Run backend linting
 npm run lint
+
+# Run all tests (Jest + Vitest)
+npm test
+
+# Run only Jest tests
+npm run test:jest
+
+# Run only Vitest tests
+npm run test:vitest
+
+# Run Vitest in watch mode
+npm run test:watch
 ```
+
+### Testing
+
+Stepcat uses a **hybrid testing approach** with two test frameworks:
+
+- **Jest** (69 tests): Tests for CommonJS-compatible code
+- **Vitest** (50 tests): Tests for ESM-specific code that uses `import.meta.url`
+
+**Why two frameworks?**
+
+The project uses native ECMAScript Modules (ESM) with `import.meta.url` for path resolution. Jest runs in CommonJS mode and cannot handle `import.meta.url` at runtime. Vitest provides native ESM support for these tests.
+
+**Test files:**
+- `*.test.ts` - Jest tests (run with `npm run test:jest`)
+- `*.vitest.ts` - Vitest tests (run with `npm run test:vitest`)
+- `npm test` - Runs both frameworks (119 total tests)
+
+All tests are located in `backend/__tests__/` directory.
 
 ### Frontend Development
 

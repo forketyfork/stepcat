@@ -17,7 +17,7 @@ just build-frontend     # Build only frontend
 just build-backend      # Build only backend
 just lint               # Run backend ESLint
 just lint-frontend      # Run frontend ESLint
-just test               # Run Jest tests
+just test               # Run all tests (Jest + Vitest)
 just dev --file plan.md --dir /path/to/project  # Run in dev mode with ts-node
 just dev --file plan.md --dir /path/to/project --ui  # Run with web UI
 just ci                 # Run full CI check (lint + test + build)
@@ -31,7 +31,10 @@ npm run build:backend   # Compile backend TypeScript to dist/
 npm run dev             # Run backend with ts-node
 npm run dev:frontend    # Run frontend dev server with hot reload
 npm run start           # Run from built dist/
-npm test                # Run Jest
+npm test                # Run all tests (Jest + Vitest)
+npm run test:jest       # Run only Jest tests
+npm run test:vitest     # Run only Vitest tests
+npm run test:watch      # Run Vitest in watch mode
 npm run lint            # Run backend ESLint
 ```
 
@@ -297,15 +300,34 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Target: ES2020, CommonJS modules
 - Strict mode enabled
 - Output: `dist/` directory
-- Excludes: test files (`*.test.ts`, `__tests__`)
+- Excludes: test files (`*.test.ts`, `*.vitest.ts`, `__tests__`)
 
 ## Testing
 
-- Jest with ts-jest preset for backend tests
-- Tests in `backend/__tests__/` or `*.test.ts` files
-- Run: `just test` or `npm test`
-- **Integration testing**: See `docs/INTEGRATION_TEST_CHECKLIST.md` for comprehensive manual integration testing procedures and acceptance criteria
-- Frontend testing: Tests can be added to `frontend/src/` (not yet implemented)
+Stepcat uses a **hybrid testing approach** with two frameworks:
+
+- **Jest** (69 tests): CommonJS-compatible tests using ts-jest preset
+  - Test files: `*.test.ts` in `backend/__tests__/`
+  - Run: `npm run test:jest` or `just test` (runs both)
+
+- **Vitest** (50 tests): ESM-specific tests with native `import.meta.url` support
+  - Test files: `*.vitest.ts` in `backend/__tests__/`
+  - Run: `npm run test:vitest`
+  - Watch mode: `npm run test:watch`
+
+**Why two frameworks?**
+
+The project uses native ECMAScript Modules (ESM) with `import.meta.url` for path resolution. Jest runs in CommonJS mode and cannot handle `import.meta.url` at runtime. Tests that import modules using `import.meta.url` (like `claude-runner.ts`, `codex-runner.ts`, `tui-adapter.ts`, `orchestrator.ts`) must run in Vitest.
+
+**Running tests:**
+- `npm test` or `just test` - Runs both Jest and Vitest (119 total tests)
+- `npm run test:jest` - Runs only Jest tests
+- `npm run test:vitest` - Runs only Vitest tests
+- `npm run test:watch` - Runs Vitest in watch mode for development
+
+**Integration testing**: See `docs/INTEGRATION_TEST_CHECKLIST.md` for comprehensive manual integration testing procedures and acceptance criteria.
+
+**Frontend testing**: Tests can be added to `frontend/src/` (not yet implemented).
 
 ## Development Best Practices
 
@@ -380,13 +402,16 @@ const moduleDir = (() => {
 
 #### Testing Path Resolution
 
-When adding new path resolution code:
+When adding new path resolution code, use **Vitest** for modules that use `import.meta.url`:
 
 ```typescript
+// backend/__tests__/my-module.vitest.ts
+import { vi } from 'vitest';
+
 // Test that path resolution works from arbitrary directories
 it('should resolve paths correctly regardless of cwd', async () => {
   const wrongDir = '/tmp/random';
-  jest.spyOn(process, 'cwd').mockReturnValue(wrongDir);
+  vi.spyOn(process, 'cwd').mockReturnValue(wrongDir);
 
   try {
     // Your initialization code here
@@ -397,46 +422,63 @@ it('should resolve paths correctly regardless of cwd', async () => {
       fail('Path resolution is using process.cwd() instead of import.meta.url');
     }
   } finally {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   }
 });
 ```
 
-### Jest and ESM Compatibility
+**Important**: Tests for modules using `import.meta.url` MUST use Vitest (`.vitest.ts` extension), not Jest.
 
-**Challenge**: Jest runs in CommonJS mode by default, which doesn't support `import.meta.url`.
+### Test Framework Selection (Jest vs Vitest)
 
-**Solution**: Use direct `import.meta.url` in source code and configure Jest properly:
+**Challenge**: Jest runs in CommonJS mode by default, which doesn't support `import.meta.url` at runtime.
 
-1. **In source code**: Use `import.meta.url` directly (works in real ESM runtime)
-2. **In tests**: Use `__dirname` (available in Jest's CommonJS environment)
-3. **Jest resolver**: Configure `jest.resolver.cjs` to map `.js` imports to `.ts` sources
-4. **Mock external ESM modules**: Use `jest.mock()` for packages like `ink` and `react`
+**Solution**: Stepcat uses a **hybrid testing approach**:
 
-**Example Jest configuration for ESM:**
-```javascript
-// jest.config.js
-export default {
-  preset: 'ts-jest/presets/default-esm',
-  extensionsToTreatAsEsm: ['.ts'],
-  resolver: './jest.resolver.cjs',
-  moduleNameMapper: {
-    '^(\\.{1,2}/.*)\\.js$': '$1', // Map .js imports to .ts
+1. **Jest** for CommonJS-compatible tests (`*.test.ts`)
+   - Most tests that don't import modules using `import.meta.url`
+   - Uses ts-jest preset with standard configuration
+   - 69 tests in 4 suites
+
+2. **Vitest** for ESM-specific tests (`*.vitest.ts`)
+   - Tests for modules that use `import.meta.url` (claude-runner, codex-runner, tui-adapter, orchestrator)
+   - Native ESM support with no workarounds needed
+   - 50 tests in 4 suites
+
+**When to use Vitest:**
+- Testing modules that use `import.meta.url` for path resolution
+- Testing ESM-only modules or features
+- When you need watch mode with fast HMR (`npm run test:watch`)
+
+**When to use Jest:**
+- Testing modules that don't use ESM-specific features
+- When Jest compatibility is important for CI/tooling
+- For the majority of backend tests
+
+**Vitest configuration:**
+```typescript
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    include: ['backend/__tests__/**/*.vitest.ts'],
+    globals: true,
+    environment: 'node',
+    setupFiles: ['./vitest.setup.ts'],
   }
-};
+});
 
-// jest.resolver.cjs
-module.exports = (request, options) => {
-  if (request.endsWith('.js')) {
-    try {
-      return options.defaultResolver(request.replace(/\.js$/, '.ts'), options);
-    } catch (err) {
-      // Fall back to default resolution
-    }
-  }
-  return options.defaultResolver(request, options);
-};
+// vitest.setup.ts - provides Jest API compatibility
+import { vi } from 'vitest';
+globalThis.jest = vi;
 ```
+
+**Key differences:**
+- **Mocking**: Jest uses `jest.fn()`, `jest.mock()`; Vitest uses `vi.fn()`, `vi.mock()`
+- **API**: Mostly compatible, but Vitest has better ESM support
+- **Performance**: Vitest is faster with native ESM and built-in watch mode
+- **Files**: Jest ignores `*.vitest.ts`, Vitest ignores `*.test.ts`
 
 ### Integration Testing
 
@@ -463,8 +505,9 @@ node /path/to/stepcat/dist/cli.js --file plan.md --dir . --tui
 2. **❌ Falling back to process.cwd()**: For module-relative paths
 3. **❌ Skipping infrastructure tests**: UI adapters, path resolution, initialization
 4. **❌ Testing only from project root**: Always test from different directories
-5. **❌ Ignoring Jest/ESM compatibility**: Don't break tests to make runtime work
-6. **❌ Mixing path resolution concerns**: Keep module paths and user paths separate
+5. **❌ Using wrong test framework**: Use Vitest for modules with `import.meta.url`, Jest for others
+6. **❌ Mixing test file extensions**: Use `.vitest.ts` for Vitest, `.test.ts` for Jest
+7. **❌ Mixing path resolution concerns**: Keep module paths and user paths separate
 
 ### Debugging Path Issues
 
