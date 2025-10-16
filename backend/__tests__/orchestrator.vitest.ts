@@ -293,6 +293,30 @@ Implement the feature
       expect(steps[0].status).toBe('failed');
       db.close();
     });
+
+    it('should perform review on final allowed iteration before failing', async () => {
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({
+          result: 'FAIL',
+          issues: [{ file: 'test.ts', severity: 'error', description: 'Always fails' }]
+        })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        maxIterationsPerStep: 3,
+      });
+
+      await expect(orchestrator.run()).rejects.toThrow(/exceeded maximum iterations/);
+      expect(mockCodexRunner.run).toHaveBeenCalledTimes(3);
+    });
   });
 
   describe('event emission', () => {

@@ -112,6 +112,17 @@ export class Orchestrator {
     return agent === 'claude' ? 'Claude Code' : 'Codex';
   }
 
+  private handleMaxIterationsExceeded(step: DbStep): never {
+    this.storage.updateStepStatus(step.id, 'failed');
+    this.emitEvent({
+      type: "error",
+      timestamp: Date.now(),
+      error: `Step ${step.stepNumber} exceeded maximum iterations`,
+      stepNumber: step.stepNumber,
+    });
+    throw new Error(`Step ${step.stepNumber} exceeded maximum iterations (${this.maxIterationsPerStep})`);
+  }
+
   private async runImplementationAgent(
     prompt: string,
   ): Promise<{ success: boolean; commitSha: string | null; output?: string }> {
@@ -400,7 +411,7 @@ export class Orchestrator {
         iterationNumber++;
       }
 
-      while (iterationNumber <= this.maxIterationsPerStep) {
+      while (iterationNumber <= this.maxIterationsPerStep + 1) {
         const sha = this.githubChecker.getLatestCommitSha();
         const previousIterationId = this.storage.getIterations(step.id)[iterationNumber - 2]?.id;
 
@@ -432,14 +443,6 @@ export class Orchestrator {
           this.storage.updateIteration(previousIterationId, { buildStatus: 'failed' });
           }
           const buildErrors = await this.extractBuildErrors(sha);
-          const iteration = this.storage.createIteration(
-            step.id,
-            iterationNumber,
-            'build_fix',
-            this.implementationAgent,
-            this.reviewAgent
-          );
-
           const issue = this.storage.createIssue(previousIterationId!, 'ci_failure', buildErrors);
 
           this.emitEvent({
@@ -450,6 +453,18 @@ export class Orchestrator {
             issueType: 'ci_failure',
             description: buildErrors,
           });
+
+          if (iterationNumber > this.maxIterationsPerStep) {
+            this.handleMaxIterationsExceeded(step);
+          }
+
+          const iteration = this.storage.createIteration(
+            step.id,
+            iterationNumber,
+            'build_fix',
+            this.implementationAgent,
+            this.reviewAgent
+          );
 
           this.emitEvent({
             type: "iteration_start",
@@ -571,14 +586,6 @@ export class Orchestrator {
         });
 
         if (reviewResult.result === 'FAIL' && reviewResult.issues.length > 0) {
-          const iteration = this.storage.createIteration(
-            step.id,
-            iterationNumber,
-            'review_fix',
-            this.implementationAgent,
-            this.reviewAgent
-          );
-
           for (const issue of reviewResult.issues) {
             const dbIssue = this.storage.createIssue(
               previousIteration.id,
@@ -602,6 +609,18 @@ export class Orchestrator {
               severity: issue.severity,
             });
           }
+
+          if (iterationNumber > this.maxIterationsPerStep) {
+            this.handleMaxIterationsExceeded(step);
+          }
+
+          const iteration = this.storage.createIteration(
+            step.id,
+            iterationNumber,
+            'review_fix',
+            this.implementationAgent,
+            this.reviewAgent
+          );
 
           this.emitEvent({
             type: "iteration_start",
@@ -674,15 +693,8 @@ export class Orchestrator {
         }
       }
 
-      if (iterationNumber > this.maxIterationsPerStep) {
-        this.storage.updateStepStatus(step.id, 'failed');
-        this.emitEvent({
-          type: "error",
-          timestamp: Date.now(),
-          error: `Step ${step.stepNumber} exceeded maximum iterations`,
-          stepNumber: step.stepNumber,
-        });
-        throw new Error(`Step ${step.stepNumber} exceeded maximum iterations (${this.maxIterationsPerStep})`);
+      if (iterationNumber > this.maxIterationsPerStep + 1) {
+        this.handleMaxIterationsExceeded(step);
       }
 
       step = this.getCurrentStep();
