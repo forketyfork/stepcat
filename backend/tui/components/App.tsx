@@ -138,7 +138,8 @@ const interpolateColor = (start: RGB, end: RGB, factor: number): string => {
 const createGradientSegments = (
   text: string,
   startColor: string,
-  endColor: string
+  endColor: string,
+  offset: number = 0
 ): Array<{ char: string; color: string }> => {
   if (text.length === 0) {
     return [];
@@ -148,15 +149,30 @@ const createGradientSegments = (
   const end = hexToRgb(endColor);
 
   return text.split('').map((char, index) => {
-    const factor = text.length === 1 ? 0 : index / (text.length - 1);
+    const baseFactor = text.length === 1 ? 0 : index / (text.length - 1);
+    const shiftedFactor = (baseFactor + offset) % 1;
+    const cycleFactor = shiftedFactor < 0.5
+      ? shiftedFactor * 2
+      : 2 - shiftedFactor * 2;
+
     return {
       char,
-      color: interpolateColor(start, end, factor),
+      color: interpolateColor(start, end, cycleFactor),
     };
   });
 };
 
 export const App: React.FC<AppProps> = ({ state }) => {
+  const [gradientOffset, setGradientOffset] = React.useState(0);
+
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setGradientOffset(prev => (prev + 0.05) % 1);
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const headerHeight = HEADER_BASE_HEIGHT + 1; // +1 for spacing after header
   const showCurrentPhase = Boolean(state.currentPhase && !state.isComplete && !state.error);
   const currentPhaseHeight = showCurrentPhase ? 1 : 0;
@@ -365,7 +381,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
 
       pushSegment(before, baseColor, dim);
 
-      const gradientSegments = createGradientSegments(highlightText, highlight.startColor, highlight.endColor);
+      const gradientSegments = createGradientSegments(highlightText, highlight.startColor, highlight.endColor, gradientOffset);
       gradientSegments.forEach(({ char, color }) => {
         segments.push(
           <Text key={`grad-${key}-${segmentCounter++}`} color={color}>
