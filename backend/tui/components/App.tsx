@@ -26,6 +26,7 @@ type StepLine = {
   color?: string;
   dim?: boolean;
   highlight?: GradientHighlight;
+  commitHash?: string;
 };
 
 type LogRow = {
@@ -238,11 +239,11 @@ export const App: React.FC<AppProps> = ({ state }) => {
         });
 
         const agentName = getAgentDisplayName(iteration.implementationAgent);
-        const commitSuffix = iteration.commitSha ? ` (${iteration.commitSha.substring(0, 7)})` : '';
         lines.push({
           key: `iteration-${iteration.id}-implementation`,
-          text: `      - Implementation [${agentName}]${commitSuffix}`,
+          text: `      - Implementation [${agentName}]`,
           dim: true,
+          commitHash: iteration.commitSha ? iteration.commitSha.substring(0, 7) : undefined,
           highlight: iteration.status === 'in_progress'
             ? {
                 word: 'Implementation',
@@ -395,7 +396,16 @@ export const App: React.FC<AppProps> = ({ state }) => {
       pushSegment(content, baseColor, dim);
     }
 
-    const displayedLength = content.length;
+    let displayedLength = content.length;
+
+    if (line.commitHash) {
+      const commitText = ` [${line.commitHash}]`;
+      if (displayedLength + commitText.length <= stepsInnerWidth) {
+        pushSegment(commitText, '#ccaa00', false);
+        displayedLength += commitText.length;
+      }
+    }
+
     const paddingLength = Math.max(0, stepsInnerWidth - displayedLength);
     if (paddingLength > 0) {
       pushSegment(' '.repeat(paddingLength), baseColor, dim);
