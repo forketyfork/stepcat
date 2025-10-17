@@ -377,10 +377,6 @@ export class Orchestrator {
         totalTime: 0,
       });
 
-      if (this.storageOwned) {
-        this.storage.close();
-      }
-
       return this.plan.id;
     }
 

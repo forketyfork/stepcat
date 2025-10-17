@@ -295,11 +295,13 @@ program
         console.log('═'.repeat(80));
       }
 
-      if (uiAdapter) {
-        console.log('\n' + '═'.repeat(80));
-        console.log('All steps completed! Web UI will remain open for viewing.');
-        console.log('Press Ctrl+C to exit.');
-        console.log('═'.repeat(80));
+      if (options.ui || options.tui) {
+        if (options.ui) {
+          console.log('\n' + '═'.repeat(80));
+          console.log('All steps completed! Web UI will remain open for viewing.');
+          console.log('Press Ctrl+C to exit.');
+          console.log('═'.repeat(80));
+        }
 
         await new Promise(() => {});
       } else if (storage) {
