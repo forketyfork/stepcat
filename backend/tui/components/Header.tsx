@@ -14,7 +14,10 @@ const createLine = (width: number, start: string, end: string, fill: string): st
 
 export const Header: React.FC<HeaderProps> = ({ state }) => {
   const totalSteps = state.steps.length;
-  const completedSteps = state.steps.filter(s => s.status === 'completed').length;
+  const completedByStatus = state.steps.filter(s => s.status === 'completed').length;
+  const firstIncompleteStep = state.steps.find(s => s.status !== 'completed');
+  const inferredCompleted = firstIncompleteStep ? Math.max(0, firstIncompleteStep.stepNumber - 1) : totalSteps;
+  const completedSteps = Math.max(completedByStatus, inferredCompleted);
   const width = state.terminalWidth;
   const planFileName = state.plan?.planFilePath ? basename(state.plan.planFilePath) : 'N/A';
 

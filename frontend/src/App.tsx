@@ -276,15 +276,17 @@ function App() {
         const newIterations = new Map(prev.iterations);
         const iteration = newIterations.get(event.iterationId!);
         if (iteration) {
-          const buildStatusMap: Record<string, 'pending' | 'in_progress' | 'passed' | 'failed'> = {
+          const buildStatusMap: Record<string, Iteration['buildStatus']> = {
             waiting: 'pending',
             running: 'in_progress',
             success: 'passed',
             failure: 'failed',
+            blocked: 'merge_conflict',
           };
+          const statusOverride = buildStatusMap[event.status] ?? 'pending';
           newIterations.set(iteration.id, {
             ...iteration,
-            buildStatus: buildStatusMap[event.status] || 'pending',
+            buildStatus: statusOverride,
           });
         }
         return { ...prev, iterations: newIterations };

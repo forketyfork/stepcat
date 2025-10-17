@@ -7,9 +7,10 @@ export const ITERATION_DISPLAY_HEIGHT = 6;
 interface IterationItemProps {
   iteration: Iteration;
   issues: Issue[];
+  displayNumber: number;
 }
 
-export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues }) => {
+export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues, displayNumber }) => {
   const getAgentDisplayName = (agent: 'claude' | 'codex'): string => {
     return agent === 'claude' ? 'Claude Code' : 'Codex';
   };
@@ -43,7 +44,7 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
         <Text color={getStatusColor(iteration.status)}>
           {getStatusIcon(iteration.status)}
         </Text>
-        <Text> Iteration #{iteration.iterationNumber}</Text>
+        <Text> Iteration #{displayNumber}</Text>
       </Box>
 
       <Box marginLeft={2}>
@@ -59,55 +60,53 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
         )}
       </Box>
 
-      <Box marginLeft={2}>
-        {iteration.buildStatus ? (
-          <>
-            <Text dimColor>- Build: </Text>
-            <Text color={iteration.buildStatus === 'passed' ? 'green' : iteration.buildStatus === 'failed' ? 'red' : 'yellow'}>
-              {iteration.buildStatus}
-            </Text>
-          </>
-        ) : (
-          <Text> </Text>
-        )}
+      {iteration.buildStatus && (
+        <Box marginLeft={2}>
+          <Text dimColor>- Build: </Text>
+        <Text
+          color={
+            iteration.buildStatus === 'passed'
+              ? 'green'
+              : iteration.buildStatus === 'failed' || iteration.buildStatus === 'merge_conflict'
+              ? 'red'
+              : 'yellow'
+          }
+        >
+          {iteration.buildStatus === 'merge_conflict'
+            ? 'Merge conflict, waiting for resolution'
+            : iteration.buildStatus}
+        </Text>
       </Box>
+    )}
 
-      <Box marginLeft={2}>
-        {iteration.reviewStatus ? (
-          <>
-            <Text dimColor>- Review</Text>
-            {iteration.reviewAgent && (
-              <>
-                <Text dimColor> [</Text>
-                <Text dimColor>{getAgentDisplayName(iteration.reviewAgent)}</Text>
-                <Text dimColor>]</Text>
-              </>
-            )}
-            <Text dimColor>: </Text>
-            <Text color={iteration.reviewStatus === 'passed' ? 'green' : iteration.reviewStatus === 'failed' ? 'red' : 'yellow'}>
-              {iteration.reviewStatus}
-            </Text>
-          </>
-        ) : (
-          <Text> </Text>
-        )}
-      </Box>
+      {iteration.reviewStatus && (
+        <Box marginLeft={2}>
+          <Text dimColor>- Review</Text>
+          {iteration.reviewAgent && (
+            <>
+              <Text dimColor> [</Text>
+              <Text dimColor>{getAgentDisplayName(iteration.reviewAgent)}</Text>
+              <Text dimColor>]</Text>
+            </>
+          )}
+          <Text dimColor>: </Text>
+          <Text color={iteration.reviewStatus === 'passed' ? 'green' : iteration.reviewStatus === 'failed' ? 'red' : 'yellow'}>
+            {iteration.reviewStatus}
+          </Text>
+        </Box>
+      )}
 
-      <Box marginLeft={2}>
-        {openIssues.length > 0 ? (
+      {openIssues.length > 0 && (
+        <Box marginLeft={2}>
           <Text color="red">✗ {openIssues.length} open issue{openIssues.length > 1 ? 's' : ''}</Text>
-        ) : (
-          <Text> </Text>
-        )}
-      </Box>
+        </Box>
+      )}
 
-      <Box marginLeft={2}>
-        {fixedIssues.length > 0 ? (
+      {fixedIssues.length > 0 && (
+        <Box marginLeft={2}>
           <Text color="green">✓ {fixedIssues.length} fixed issue{fixedIssues.length > 1 ? 's' : ''}</Text>
-        ) : (
-          <Text> </Text>
-        )}
-      </Box>
+        </Box>
+      )}
     </Box>
   );
 };

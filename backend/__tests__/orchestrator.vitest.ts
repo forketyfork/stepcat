@@ -12,8 +12,18 @@ import { execSync } from 'child_process';
 
 vi.mock('../claude-runner');
 vi.mock('../codex-runner');
-vi.mock('../github-checker');
+vi.mock('../github-checker', async () => {
+  const actual = await vi.importActual<typeof import('../github-checker.js')>('../github-checker.js');
+  const GitHubCheckerMock: any = vi.fn();
+  GitHubCheckerMock.parseRepoInfo = actual.GitHubChecker.parseRepoInfo;
+  return {
+    ...actual,
+    GitHubChecker: GitHubCheckerMock,
+  };
+});
 vi.mock('child_process');
+
+const { MergeConflictError } = await vi.importActual<typeof import('../github-checker.js')>('../github-checker.js');
 
 describe('Orchestrator', () => {
   let tempDir: string;
@@ -319,6 +329,52 @@ Implement the feature
       expect(issues[0].type).toBe('ci_failure');
 
       db.close();
+    });
+  });
+
+  describe('merge conflict handling', () => {
+    it('should surface merge conflicts during build checks', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      db.close();
+
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.waitForChecksToPass = vi
+        .fn()
+        .mockRejectedValue(
+          new MergeConflictError('Merge conflict detected for PR #7', {
+            prNumber: 7,
+            branch: 'feature/test',
+            base: 'main',
+          })
+        );
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+      });
+
+      await expect(orchestrator.run()).rejects.toThrow(/merge conflict/i);
+
+      const db2 = new Database(tempDir);
+      const iterations = db2.getIterations(step1.id);
+      expect(iterations.some(iteration => iteration.buildStatus === 'merge_conflict')).toBe(true);
+
+      const issues = db2.getIssues(iterations[0].id);
+      expect(issues[0].type).toBe('merge_conflict');
+
+      const steps = db2.getSteps(plan.id);
+      expect(steps[0].status).toBe('failed');
+      db2.close();
     });
   });
 

@@ -1,7 +1,7 @@
 import { StepParser } from "./step-parser.js";
 import { ClaudeRunner } from "./claude-runner.js";
 import { CodexRunner } from "./codex-runner.js";
-import { GitHubChecker } from "./github-checker.js";
+import { GitHubChecker, MergeConflictError } from "./github-checker.js";
 import { execSync } from "child_process";
 import { OrchestratorEventEmitter, OrchestratorEvent } from "./events.js";
 import { Database } from "./database.js";
@@ -481,16 +481,81 @@ export class Orchestrator {
 
         this.log(`\nChecking GitHub Actions for commit ${sha}`);
 
-        const checksPass = await this.githubChecker.waitForChecksToPass(
-          sha,
-          this.buildTimeoutMinutes,
-          attemptsWithCommits,
-          this.maxIterationsPerStep,
-        );
+        let checksPass: boolean;
+        try {
+          checksPass = await this.githubChecker.waitForChecksToPass(
+            sha,
+            this.buildTimeoutMinutes,
+            attemptsWithCommits,
+            this.maxIterationsPerStep,
+          );
+        } catch (error) {
+          if (error instanceof MergeConflictError) {
+            const iterationsForStep = this.storage.getIterations(step.id);
+            const latestIteration = iterationsForStep[iterationsForStep.length - 1];
+
+            if (latestIteration) {
+              this.storage.updateIteration(latestIteration.id, { buildStatus: 'merge_conflict' });
+
+              const descriptionLines = [
+                error.details.prNumber
+                  ? `PR #${error.details.prNumber} is marked as having merge conflicts.`
+                  : 'The current branch has merge conflicts with its base branch.',
+                error.details.base
+                  ? `Conflicts must be resolved against "${error.details.base}".`
+                  : undefined,
+                `Branch "${error.details.branch}" needs to be rebased or merged with the latest base before CI can run.`,
+                'Resolve the conflicts and rerun this step.',
+              ].filter((line): line is string => Boolean(line));
+
+              const conflictIssue = this.storage.createIssue(
+                latestIteration.id,
+                'merge_conflict',
+                descriptionLines.join('\n'),
+                null,
+                null,
+                'error',
+              );
+
+              this.emitEvent({
+                type: 'issue_found',
+                timestamp: Date.now(),
+                issueId: conflictIssue.id,
+                iterationId: latestIteration.id,
+                issueType: 'merge_conflict',
+                description: conflictIssue.description,
+              });
+            }
+
+            this.emitEvent({
+              type: 'github_check',
+              timestamp: Date.now(),
+              status: 'blocked',
+              sha,
+              attempt: attemptsWithCommits,
+              maxAttempts: this.maxIterationsPerStep,
+              iterationId: latestIteration?.id ?? previousIterationId,
+              checkName: 'Merge conflict detected',
+            });
+
+            this.storage.updateStepStatus(step.id, 'failed');
+
+            this.emitEvent({
+              type: 'error',
+              timestamp: Date.now(),
+              error: error.message,
+              stepNumber: step.stepNumber,
+            });
+
+            throw error;
+          }
+
+          throw error;
+        }
 
         if (!checksPass) {
           if (previousIterationId) {
-          this.storage.updateIteration(previousIterationId, { buildStatus: 'failed' });
+            this.storage.updateIteration(previousIterationId, { buildStatus: 'failed' });
           }
           const buildErrors = await this.extractBuildErrors(sha);
           const issue = this.storage.createIssue(previousIterationId!, 'ci_failure', buildErrors);

@@ -2,6 +2,22 @@ import { Octokit } from '@octokit/rest';
 import { execSync } from 'child_process';
 import { OrchestratorEventEmitter } from './events.js';
 
+export interface MergeConflictDetails {
+  prNumber?: number;
+  branch: string;
+  base?: string;
+}
+
+export class MergeConflictError extends Error {
+  details: MergeConflictDetails;
+
+  constructor(message: string, details: MergeConflictDetails) {
+    super(message);
+    this.name = 'MergeConflictError';
+    this.details = details;
+  }
+}
+
 export interface GitHubConfig {
   owner: string;
   repo: string;
@@ -61,6 +77,22 @@ export class GitHubChecker {
         });
 
         if (checkRuns.total_count === 0) {
+          const conflict = await this.detectMergeConflict();
+          if (conflict) {
+            const conflictMessageParts: string[] = [];
+            if (conflict.prNumber) {
+              conflictMessageParts.push(`PR #${conflict.prNumber}`);
+            } else {
+              conflictMessageParts.push('Current branch');
+            }
+            conflictMessageParts.push('has merge conflicts');
+            if (conflict.base) {
+              conflictMessageParts.push(`with ${conflict.base}`);
+            }
+            const conflictMessage = conflictMessageParts.join(' ') + '. GitHub actions will not run until conflicts are resolved.';
+            this.log(conflictMessage, 'error');
+            throw new MergeConflictError(conflictMessage, conflict);
+          }
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
           this.log(`[${elapsed}s] No checks found yet, waiting...`);
           await this.sleep(30000);
@@ -176,6 +208,59 @@ export class GitHubChecker {
 
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private getCurrentBranch(): string | null {
+    try {
+      return execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: this.workDir,
+        encoding: 'utf-8',
+      }).trim();
+    } catch {
+      return null;
+    }
+  }
+
+  private async detectMergeConflict(): Promise<MergeConflictDetails | null> {
+    const branch = this.getCurrentBranch();
+    if (!branch || branch === 'HEAD') {
+      return null;
+    }
+
+    try {
+      const pullList = await this.octokit.pulls.list({
+        owner: this.owner,
+        repo: this.repo,
+        head: `${this.owner}:${branch}`,
+        state: 'open',
+        per_page: 1,
+      });
+
+      const pull = pullList.data[0];
+      if (!pull) {
+        return null;
+      }
+
+      const pullDetailsResponse = await this.octokit.pulls.get({
+        owner: this.owner,
+        repo: this.repo,
+        pull_number: pull.number,
+      });
+
+      const pullDetails = pullDetailsResponse.data;
+
+      if (pullDetails.mergeable_state === 'dirty') {
+        return {
+          prNumber: pullDetails.number,
+          branch,
+          base: pullDetails.base?.ref,
+        };
+      }
+    } catch (error) {
+      this.log(`Failed to check merge conflict status: ${error instanceof Error ? error.message : String(error)}`, 'warn');
+    }
+
+    return null;
   }
 
   private log(message: string, level: 'info' | 'warn' | 'error' | 'success' = 'info'): void {

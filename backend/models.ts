@@ -25,7 +25,7 @@ export interface Iteration {
   commitSha: string | null;
   claudeLog: string | null;
   codexLog: string | null;
-  buildStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | null;
+  buildStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | 'merge_conflict' | null;
   reviewStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | null;
   status: 'in_progress' | 'completed' | 'failed' | 'aborted';
   implementationAgent: 'claude' | 'codex';
@@ -37,7 +37,7 @@ export interface Iteration {
 export interface Issue {
   id: number;
   iterationId: number;
-  type: 'ci_failure' | 'codex_review';
+  type: 'ci_failure' | 'codex_review' | 'merge_conflict';
   description: string;
   filePath: string | null;
   lineNumber: number | null;

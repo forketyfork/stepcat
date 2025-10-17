@@ -147,14 +147,16 @@ describe('Database', () => {
       const migrationCount = (db as any).db
         .prepare('SELECT COUNT(*) as count FROM schema_migrations')
         .get().count;
-      expect(migrationCount).toBeGreaterThanOrEqual(2);
+      expect(migrationCount).toBeGreaterThanOrEqual(3);
 
       const legacyIterations = db.getIterations(1);
       expect(legacyIterations).toHaveLength(1);
       expect(() => db.updateIteration(legacyIterations[0].id, { status: 'aborted' })).not.toThrow();
+      expect(() => db.updateIteration(legacyIterations[0].id, { buildStatus: 'merge_conflict' })).not.toThrow();
 
       const updatedIteration = db.getIterations(1)[0];
       expect(updatedIteration.status).toBe('aborted');
+      expect(updatedIteration.buildStatus).toBe('merge_conflict');
     });
   });
 
@@ -318,6 +320,15 @@ describe('Database', () => {
       expect(iterations[0].codexLog).toBe('Codex review...');
     });
 
+    it('should allow merge conflict build status', () => {
+      const iteration = db.createIteration(stepId, 1, 'implementation', 'claude', 'codex');
+
+      db.updateIteration(iteration.id, { buildStatus: 'merge_conflict' });
+
+      const iterations = db.getIterations(stepId);
+      expect(iterations[0].buildStatus).toBe('merge_conflict');
+    });
+
     it('should update iteration status', () => {
       const iteration = db.createIteration(stepId, 1, 'implementation', 'claude', 'codex');
 
@@ -395,6 +406,14 @@ describe('Database', () => {
       expect(issue.lineNumber).toBeNull();
       expect(issue.severity).toBeNull();
       expect(issue.status).toBe('open');
+    });
+
+    it('should support merge conflict issues', () => {
+      const issue = db.createIssue(iterationId, 'merge_conflict', 'Merge conflict detected');
+
+      expect(issue.type).toBe('merge_conflict');
+      const issues = db.getIssues(iterationId);
+      expect(issues[0].type).toBe('merge_conflict');
     });
 
     it('should retrieve issues for an iteration', () => {

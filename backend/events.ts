@@ -57,7 +57,7 @@ export interface LogEvent extends StepCatEvent {
 
 export interface GitHubCheckEvent extends StepCatEvent {
   type: 'github_check';
-  status: 'waiting' | 'running' | 'success' | 'failure';
+  status: 'waiting' | 'running' | 'success' | 'failure' | 'blocked';
   sha: string;
   attempt: number;
   maxAttempts: number;
@@ -117,7 +117,7 @@ export interface IssueFoundEvent extends StepCatEvent {
   type: 'issue_found';
   issueId: number;
   iterationId: number;
-  issueType: 'ci_failure' | 'codex_review';
+  issueType: 'ci_failure' | 'codex_review' | 'merge_conflict';
   description: string;
   filePath?: string;
   lineNumber?: number;

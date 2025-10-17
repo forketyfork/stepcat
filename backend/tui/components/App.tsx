@@ -235,22 +235,24 @@ export const App: React.FC<AppProps> = ({ state }) => {
       });
 
       const iterations = state.iterations.get(step.id) || [];
-      iterations.forEach(iteration => {
+      iterations.forEach((iteration, iterationIndex) => {
+        const displayNumber = iteration.iterationNumber ?? iterationIndex + 1;
         lines.push({
           key: `iteration-${iteration.id}-header`,
-          text: `   ${getIterationStatusIcon(iteration.status)} Iteration #${iteration.iterationNumber}`,
+          text: `   ${getIterationStatusIcon(iteration.status)} Iteration #${displayNumber}`,
           color: getIterationStatusColor(iteration.status),
         });
 
         const agentName = getAgentDisplayName(iteration.implementationAgent);
+        const implementationLabel = `Implementation [${agentName}]`;
         lines.push({
           key: `iteration-${iteration.id}-implementation`,
-          text: `      - Implementation [${agentName}]`,
+          text: `      - ${implementationLabel}`,
           dim: true,
           commitHash: iteration.commitSha ? iteration.commitSha.substring(0, 7) : undefined,
           highlight: iteration.status === 'in_progress'
             ? {
-                word: 'Implementation',
+                word: implementationLabel,
                 startColor: '#72f1b8',
                 endColor: '#2d9ff8',
               }
@@ -258,13 +260,22 @@ export const App: React.FC<AppProps> = ({ state }) => {
         });
 
         if (iteration.buildStatus) {
+          const buildStatusDisplay: Record<NonNullable<Iteration['buildStatus']>, string> = {
+            pending: 'Pending',
+            in_progress: 'in progress',
+            passed: 'OK',
+            failed: 'Failed',
+            merge_conflict: 'Merge conflict, waiting for resolution',
+          };
+          const buildActive = iteration.buildStatus === 'pending' || iteration.buildStatus === 'in_progress';
+          const buildLabel = `Build: ${buildStatusDisplay[iteration.buildStatus]}`;
           lines.push({
             key: `iteration-${iteration.id}-build`,
-            text: `      - Build: ${iteration.buildStatus}`,
+            text: `      - ${buildLabel}`,
             color: getOutcomeColor(iteration.buildStatus) ?? undefined,
-            highlight: iteration.buildStatus === 'in_progress'
+            highlight: buildActive
               ? {
-                  word: 'Build',
+                  word: buildLabel,
                   startColor: '#fdd070',
                   endColor: '#f78fb3',
                 }
@@ -277,14 +288,17 @@ export const App: React.FC<AppProps> = ({ state }) => {
           const reviewLabel = reviewAgentName
             ? `      - Review [${reviewAgentName}]: ${iteration.reviewStatus}`
             : `      - Review: ${iteration.reviewStatus}`;
+          const reviewActive = iteration.reviewStatus === 'pending' || iteration.reviewStatus === 'in_progress';
 
           lines.push({
             key: `iteration-${iteration.id}-review`,
             text: reviewLabel,
             color: getOutcomeColor(iteration.reviewStatus) ?? undefined,
-            highlight: iteration.reviewStatus === 'in_progress'
+            highlight: reviewActive
               ? {
-                  word: 'Review',
+                  word: reviewAgentName
+                    ? `Review [${reviewAgentName}]: ${iteration.reviewStatus}`
+                    : `Review: ${iteration.reviewStatus}`,
                   startColor: '#ad7cff',
                   endColor: '#5bd2ff',
                 }

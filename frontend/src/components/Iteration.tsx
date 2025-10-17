@@ -39,6 +39,18 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
     in_progress: '🔨',
     passed: '✓',
     failed: '✗',
+    merge_conflict: '⚠',
+  } as const;
+
+  const buildStatusText: Record<
+    NonNullable<IterationType['buildStatus']>,
+    string
+  > = {
+    pending: 'Build Pending',
+    in_progress: 'Building',
+    passed: 'Build OK',
+    failed: 'Build Failed',
+    merge_conflict: 'Merge conflict, waiting for resolution',
   };
 
   const reviewStatusIcons = {
@@ -84,13 +96,7 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
               onClick={(e) => e.stopPropagation()}
             >
               {buildStatusIcons[iteration.buildStatus]}{' '}
-              {iteration.buildStatus === 'in_progress'
-                ? 'Building'
-                : iteration.buildStatus === 'passed'
-                ? 'Build OK'
-                : iteration.buildStatus === 'failed'
-                ? 'Build Failed'
-                : 'Pending'}
+              {buildStatusText[iteration.buildStatus]}
             </a>
           )}
           {iteration.reviewStatus && (
