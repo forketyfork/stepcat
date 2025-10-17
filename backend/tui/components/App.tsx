@@ -218,7 +218,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
 
   useInput((input, key) => {
     if (state.viewMode === 'normal') {
-      if (key.meta && input === 'l') {
+      if ((key.meta && input.toLowerCase() === 'l') || (key.ctrl && input.toLowerCase() === 'l')) {
         state.logViewerItems = buildLogViewerItems();
         state.selectedLogIndex = 0;
         state.viewMode = 'log_viewer';

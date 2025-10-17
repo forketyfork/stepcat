@@ -226,9 +226,13 @@ export class TUIAdapter implements UIAdapter {
         this.inkInstance = null;
       }
 
+      process.stdout.write('\x1Bc');
+
       spawnSync('more', [tempFile], {
         stdio: 'inherit',
       });
+
+      process.stdout.write('\x1Bc');
 
       if (this.React && this.App) {
         this.inkInstance = this.ink!.render(
@@ -253,7 +257,7 @@ export class TUIAdapter implements UIAdapter {
     if (this.state.pendingLogView) {
       const logContent = this.state.pendingLogView;
       this.state.pendingLogView = null;
-      this.state.viewMode = 'normal';
+      this.state.viewMode = 'log_viewer';
 
       this.displayLogWithMore(logContent).catch(err => {
         console.error('Failed to display log:', err);
