@@ -27,7 +27,7 @@ export interface Iteration {
   codexLog: string | null;
   buildStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | null;
   reviewStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | null;
-  status: 'in_progress' | 'completed' | 'failed';
+  status: 'in_progress' | 'completed' | 'failed' | 'aborted';
   implementationAgent: 'claude' | 'codex';
   reviewAgent: 'claude' | 'codex' | null;
   createdAt: string;

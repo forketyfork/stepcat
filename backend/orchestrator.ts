@@ -187,6 +187,33 @@ export class Orchestrator {
     };
   }
 
+  private cleanupIncompleteIterations(): void {
+    if (!this.plan) {
+      return;
+    }
+
+    const steps = this.storage.getSteps(this.plan.id);
+    let cleanedCount = 0;
+
+    for (const step of steps) {
+      const iterations = this.storage.getIterations(step.id);
+      for (const iteration of iterations) {
+        if (iteration.status === 'in_progress') {
+          this.log(
+            `Found incomplete iteration ${iteration.iterationNumber} for step ${step.stepNumber}, marking as aborted`,
+            "warn"
+          );
+          this.storage.updateIteration(iteration.id, { status: 'aborted' });
+          cleanedCount++;
+        }
+      }
+    }
+
+    if (cleanedCount > 0) {
+      this.log(`Cleaned up ${cleanedCount} aborted iteration(s)`, "info");
+    }
+  }
+
   private async initializeOrResumePlan(): Promise<void> {
     if (this.executionId) {
       this.log(`Resuming execution ID: ${this.executionId}`, "info");
@@ -196,6 +223,8 @@ export class Orchestrator {
       }
       this.plan = plan;
       this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
+
+      this.cleanupIncompleteIterations();
     } else {
       this.log("Starting new execution", "info");
       this.plan = this.storage.createPlan(
@@ -353,12 +382,21 @@ export class Orchestrator {
 
       this.storage.updateStepStatus(step.id, 'in_progress');
 
-      let iterationNumber = this.storage.getIterations(step.id).length + 1;
+      const allIterations = this.storage.getIterations(step.id);
+      const completedIterations = allIterations.filter(i => i.status === 'completed');
+      const activeIterations = allIterations.filter(i => i.status !== 'aborted');
+      const iterationsWithWork = activeIterations.filter(i => i.commitSha !== null);
+      let iterationNumber: number;
 
-      if (iterationNumber === 1) {
+      if (completedIterations.length === 0) {
+        if (iterationsWithWork.length >= this.maxIterationsPerStep) {
+          this.handleMaxIterationsExceeded(step);
+        }
+
+        const nextIterationNumber = allIterations.length + 1;
         const iteration = this.storage.createIteration(
           step.id,
-          1,
+          nextIterationNumber,
           'implementation',
           this.implementationAgent,
           this.reviewAgent
@@ -369,13 +407,13 @@ export class Orchestrator {
           timestamp: Date.now(),
           iterationId: iteration.id,
           stepId: step.id,
-          iterationNumber: 1,
+          iterationNumber: nextIterationNumber,
           iterationType: 'implementation',
           implementationAgent: this.implementationAgent,
           reviewAgent: this.reviewAgent,
         });
 
-        this.log(`\nIteration 1: Implementation`);
+        this.log(`\nIteration ${nextIterationNumber}: Implementation`);
         this.log("─".repeat(80));
 
         const prompt = PROMPTS.implementation(step.stepNumber, this.planFile);
@@ -408,7 +446,9 @@ export class Orchestrator {
           status: 'completed',
         });
 
-        iterationNumber++;
+        iterationNumber = 2;
+      } else {
+        iterationNumber = completedIterations.length + 1;
       }
 
       while (iterationNumber <= this.maxIterationsPerStep + 1) {

@@ -61,7 +61,7 @@ export class Database implements Storage {
         codexLog TEXT,
         buildStatus TEXT CHECK(buildStatus IN ('pending', 'in_progress', 'passed', 'failed')),
         reviewStatus TEXT CHECK(reviewStatus IN ('pending', 'in_progress', 'passed', 'failed')),
-        status TEXT NOT NULL CHECK(status IN ('in_progress', 'completed', 'failed')),
+        status TEXT NOT NULL CHECK(status IN ('in_progress', 'completed', 'failed', 'aborted')),
         implementationAgent TEXT NOT NULL CHECK(implementationAgent IN ('claude', 'codex')),
         reviewAgent TEXT CHECK(reviewAgent IN ('claude', 'codex')),
         createdAt TEXT NOT NULL,

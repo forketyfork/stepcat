@@ -107,7 +107,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - `commitSha` (TEXT | NULL): Git commit SHA created by this iteration
 - `claudeLog` (TEXT | NULL): Full Claude Code output/logs
 - `codexLog` (TEXT | NULL): Full Codex review output
-- `status` (TEXT): 'in_progress' | 'completed' | 'failed'
+- `status` (TEXT): 'in_progress' | 'completed' | 'failed' | 'aborted'
 - `createdAt` (TEXT): ISO timestamp
 - `updatedAt` (TEXT): ISO timestamp
 
@@ -266,6 +266,9 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 **Iteration and Issue Tracking**:
 - Each Claude execution is an iteration with: type ('implementation' | 'build_fix' | 'review_fix'), commit SHA, logs (Claude and Codex), status
+- Iteration status: 'in_progress' (running), 'completed' (finished), 'failed' (error), 'aborted' (interrupted)
+- Aborted iterations: Interrupted executions (e.g., Ctrl+C) are marked as 'aborted' on resume and don't count toward max iterations
+- Only iterations with commits (actual work done) count toward the max iteration limit
 - Issues are extracted from CI failures and Codex JSON reviews
 - Issues stored with: file path, line number, severity ('error' | 'warning'), description, status ('open' | 'fixed')
 - Full traceability: Issue → Iteration that found it → Iteration that fixed it → Commit SHA
@@ -574,7 +577,7 @@ If you see errors like `Cannot find module '/wrong/path/to/file'`:
 
 10. **Web UI Security**: All dynamic content in the React frontend is automatically escaped by React. No need for manual HTML escaping in JSX.
 
-11. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database and continues from first pending/in_progress step.
+11. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database, marks any in_progress iterations as 'aborted', and continues from first pending/in_progress step. Aborted iterations don't count toward max iterations limit.
 
 12. **Build Process**: The build process is now two-stage:
     - Frontend: React app built with Vite to `frontend/dist/`

@@ -150,6 +150,77 @@ Implement the feature
         });
       }).not.toThrow();
     });
+
+    it('should mark in_progress iterations as aborted on resume', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      const iteration1 = db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      db.close();
+
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const iterations = db2.getIterations(step1.id);
+      const abortedIteration = iterations.find(i => i.id === iteration1.id);
+      expect(abortedIteration?.status).toBe('aborted');
+      db2.close();
+    });
+
+    it('should not count aborted iterations toward max iterations', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      const step2 = db.createStep(plan.id, 2, 'Implementation');
+
+      db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      const iter1 = db.createIteration(step1.id, 2, 'implementation', 'claude', 'codex');
+      db.updateIteration(iter1.id, { status: 'aborted' });
+
+      const iter2 = db.createIteration(step1.id, 3, 'implementation', 'claude', 'codex');
+      db.updateIteration(iter2.id, { status: 'aborted' });
+      db.close();
+
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const steps = db2.getSteps(plan.id);
+      expect(steps[0].status).toBe('completed');
+      expect(steps[1].status).toBe('completed');
+      db2.close();
+    });
   });
 
   describe('build failure handling', () => {
