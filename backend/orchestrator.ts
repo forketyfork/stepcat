@@ -370,6 +370,17 @@ export class Orchestrator {
 
     if (pendingSteps.length === 0) {
       this.log("\n✓ All steps are already marked as done!", "success");
+
+      this.emitEvent({
+        type: "all_complete",
+        timestamp: Date.now(),
+        totalTime: 0,
+      });
+
+      if (this.storageOwned) {
+        this.storage.close();
+      }
+
       return this.plan.id;
     }
 
