@@ -21,6 +21,7 @@ program
   .option('-t, --token <token>', 'GitHub token (defaults to GITHUB_TOKEN env var)')
   .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseInt)
   .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseInt)
+  .option('--max-iterations <count>', 'Maximum iterations per step (default: 3)', parseInt)
   .option('--ui', 'Launch web UI (default: false)')
   .option('--tui', 'Launch terminal UI (default: false)')
   .option('--port <number>', 'Web UI port (default: 3742)', parseInt)
@@ -35,6 +36,16 @@ program
       let planFile: string;
       let workDir: string;
       const executionId: number | undefined = options.executionId;
+      const rawMaxIterations: number | undefined = options.maxIterations;
+      let maxIterationsPerStep: number | undefined;
+      if (rawMaxIterations !== undefined) {
+        if (!Number.isInteger(rawMaxIterations) || rawMaxIterations <= 0) {
+          throw new Error(
+            `Invalid --max-iterations: expected a positive integer, got: ${options.maxIterations}`
+          );
+        }
+        maxIterationsPerStep = rawMaxIterations;
+      }
 
       if (executionId) {
         if (!Number.isInteger(executionId) || executionId <= 0) {
@@ -142,6 +153,7 @@ program
           console.log(`Plan file:      ${planFile}`);
           console.log(`Work directory: ${workDir}`);
           console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
+          console.log(`Max iterations: ${maxIterationsPerStep ?? 3}`);
           console.log('═'.repeat(80));
         }
       } else {
@@ -166,6 +178,7 @@ program
           console.log(`Plan file:      ${planFile}`);
           console.log(`Work directory: ${workDir}`);
           console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
+          console.log(`Max iterations: ${maxIterationsPerStep ?? 3}`);
           console.log('═'.repeat(80));
         }
       }
@@ -209,7 +222,8 @@ program
         uiAdapters,
         silent: options.ui || options.tui,
         executionId,
-        storage
+        storage,
+        maxIterationsPerStep
       });
 
       eventEmitter.on('event', (event: OrchestratorEvent) => {
