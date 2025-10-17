@@ -2,6 +2,14 @@ import { Octokit } from '@octokit/rest';
 import { execSync } from 'child_process';
 import { OrchestratorEventEmitter } from './events.js';
 
+type PullRequestDetails = {
+  number: number;
+  headSha: string;
+  headRef: string;
+  baseRef?: string;
+  mergeableState: string | null;
+};
+
 export interface MergeConflictDetails {
   prNumber?: number;
   branch: string;
@@ -32,6 +40,7 @@ export class GitHubChecker {
   private repo: string;
   private workDir: string;
   private eventEmitter?: OrchestratorEventEmitter;
+  private lastTrackedSha: string | null = null;
 
   constructor(config: GitHubConfig) {
     this.octokit = new Octokit({
@@ -55,6 +64,10 @@ export class GitHubChecker {
     return this.repo;
   }
 
+  getLastTrackedSha(): string | null {
+    return this.lastTrackedSha;
+  }
+
   async waitForChecksToPass(
     sha: string,
     maxWaitMinutes: number = 30,
@@ -63,6 +76,8 @@ export class GitHubChecker {
   ): Promise<boolean> {
     const startTime = Date.now();
     const maxWaitMs = maxWaitMinutes * 60 * 1000;
+    let targetSha = sha;
+    this.lastTrackedSha = targetSha;
 
     this.log(`\nWaiting for GitHub Actions checks (max ${maxWaitMinutes} minutes)...`);
     this.log(`Repository: ${this.owner}/${this.repo}`);
@@ -70,14 +85,21 @@ export class GitHubChecker {
 
     while (Date.now() - startTime < maxWaitMs) {
       try {
+        const prDetails = await this.getPullRequestDetails();
+        if (prDetails && prDetails.headSha && prDetails.headSha !== targetSha) {
+          this.log(`Detected PR #${prDetails.number} head at ${prDetails.headSha}. Tracking it instead of ${targetSha}.`);
+          targetSha = prDetails.headSha;
+          this.lastTrackedSha = targetSha;
+        }
+
         const { data: checkRuns } = await this.octokit.checks.listForRef({
           owner: this.owner,
           repo: this.repo,
-          ref: sha
+          ref: targetSha,
         });
 
         if (checkRuns.total_count === 0) {
-          const conflict = await this.detectMergeConflict();
+          const conflict = await this.detectMergeConflict(prDetails);
           if (conflict) {
             const conflictMessageParts: string[] = [];
             if (conflict.prNumber) {
@@ -93,8 +115,9 @@ export class GitHubChecker {
             this.log(conflictMessage, 'error');
             throw new MergeConflictError(conflictMessage, conflict);
           }
+
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
-          this.log(`[${elapsed}s] No checks found yet, waiting...`);
+          this.log(`[${elapsed}s] No checks found yet for ${targetSha}, waiting...`);
           await this.sleep(30000);
           continue;
         }
@@ -104,17 +127,17 @@ export class GitHubChecker {
 
         if (completed < total) {
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
-          this.log(`[${elapsed}s] Checks in progress: ${completed}/${total} completed`);
+          this.log(`[${elapsed}s] Checks in progress for ${targetSha}: ${completed}/${total} completed`);
 
           if (this.eventEmitter) {
             this.eventEmitter.emit('event', {
               type: 'github_check',
               timestamp: Date.now(),
               status: 'running',
-              sha,
+              sha: targetSha,
               attempt,
               maxAttempts,
-              checkName: `${completed}/${total} checks completed`
+              checkName: `${completed}/${total} checks completed`,
             });
           }
 
@@ -134,12 +157,14 @@ export class GitHubChecker {
         );
 
         if (allPassed) {
+          this.lastTrackedSha = targetSha;
           this.log('\n✓ All checks passed:', 'success');
           checkRuns.check_runs.forEach(run => {
             this.log(`  ✓ ${run.name}: ${run.conclusion}`, 'success');
           });
           return true;
         } else {
+          this.lastTrackedSha = targetSha;
           this.log('\n✗ Some checks failed:', 'error');
           checkRuns.check_runs.forEach(run => {
             const icon = (run.conclusion === 'success' || run.conclusion === 'skipped') ? '✓' : '✗';
@@ -150,7 +175,8 @@ export class GitHubChecker {
         }
       } catch (error) {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        this.log(`[${elapsed}s] Error checking GitHub status: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        const message = error instanceof Error ? error.message : String(error);
+        this.log(`[${elapsed}s] Error checking GitHub status: ${message}`, 'error');
         this.log('Retrying in 30 seconds...', 'warn');
         await this.sleep(30000);
       }
@@ -221,7 +247,7 @@ export class GitHubChecker {
     }
   }
 
-  private async detectMergeConflict(): Promise<MergeConflictDetails | null> {
+  private async getPullRequestDetails(): Promise<PullRequestDetails | null> {
     const branch = this.getCurrentBranch();
     if (!branch || branch === 'HEAD') {
       return null;
@@ -249,15 +275,31 @@ export class GitHubChecker {
 
       const pullDetails = pullDetailsResponse.data;
 
-      if (pullDetails.mergeable_state === 'dirty') {
-        return {
-          prNumber: pullDetails.number,
-          branch,
-          base: pullDetails.base?.ref,
-        };
-      }
+      return {
+        number: pullDetails.number,
+        headSha: pullDetails.head?.sha ?? pull.head.sha ?? '',
+        headRef: pullDetails.head?.ref ?? branch,
+        baseRef: pullDetails.base?.ref,
+        mergeableState: pullDetails.mergeable_state ?? null,
+      };
     } catch (error) {
-      this.log(`Failed to check merge conflict status: ${error instanceof Error ? error.message : String(error)}`, 'warn');
+      this.log(`Failed to retrieve pull request details: ${error instanceof Error ? error.message : String(error)}`, 'warn');
+      return null;
+    }
+  }
+
+  private async detectMergeConflict(prDetails?: PullRequestDetails | null): Promise<MergeConflictDetails | null> {
+    const details = prDetails ?? (await this.getPullRequestDetails());
+    if (!details) {
+      return null;
+    }
+
+    if (details.mergeableState === 'dirty') {
+      return {
+        prNumber: details.number,
+        branch: details.headRef,
+        base: details.baseRef,
+      };
     }
 
     return null;

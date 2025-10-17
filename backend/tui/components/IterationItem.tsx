@@ -44,7 +44,7 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues,
         <Text color={getStatusColor(iteration.status)}>
           {getStatusIcon(iteration.status)}
         </Text>
-        <Text> Iteration #{displayNumber}</Text>
+        <Text> Iteration #{String(displayNumber)}</Text>
       </Box>
 
       <Box marginLeft={2}>
@@ -63,21 +63,27 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues,
       {iteration.buildStatus && (
         <Box marginLeft={2}>
           <Text dimColor>- Build: </Text>
-        <Text
-          color={
-            iteration.buildStatus === 'passed'
-              ? 'green'
-              : iteration.buildStatus === 'failed' || iteration.buildStatus === 'merge_conflict'
-              ? 'red'
-              : 'yellow'
-          }
-        >
-          {iteration.buildStatus === 'merge_conflict'
-            ? 'Merge conflict, waiting for resolution'
-            : iteration.buildStatus}
-        </Text>
-      </Box>
-    )}
+          <Text
+            color={
+              iteration.buildStatus === 'passed'
+                ? 'green'
+                : iteration.buildStatus === 'failed' || iteration.buildStatus === 'merge_conflict'
+                ? 'red'
+                : 'yellow'
+            }
+          >
+            {iteration.buildStatus === 'merge_conflict'
+              ? 'Merge conflict, waiting for resolution'
+              : iteration.buildStatus === 'pending'
+              ? 'Pending'
+              : iteration.buildStatus === 'in_progress'
+              ? 'In progress'
+              : iteration.buildStatus === 'passed'
+              ? 'OK'
+              : 'Failed'}
+          </Text>
+        </Box>
+      )}
 
       {iteration.reviewStatus && (
         <Box marginLeft={2}>

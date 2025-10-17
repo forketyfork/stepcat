@@ -13,10 +13,11 @@ const createLine = (width: number, start: string, end: string, fill: string): st
 };
 
 export const Header: React.FC<HeaderProps> = ({ state }) => {
-  const totalSteps = state.steps.length;
-  const completedByStatus = state.steps.filter(s => s.status === 'completed').length;
-  const firstIncompleteStep = state.steps.find(s => s.status !== 'completed');
-  const inferredCompleted = firstIncompleteStep ? Math.max(0, firstIncompleteStep.stepNumber - 1) : totalSteps;
+  const sortedSteps = [...state.steps].sort((a, b) => a.stepNumber - b.stepNumber);
+  const totalSteps = sortedSteps.length;
+  const completedByStatus = sortedSteps.filter(s => s.status === 'completed').length;
+  const inProgressStep = sortedSteps.find(s => s.status === 'in_progress');
+  const inferredCompleted = inProgressStep ? Math.max(0, inProgressStep.stepNumber - 1) : completedByStatus;
   const completedSteps = Math.max(completedByStatus, inferredCompleted);
   const width = state.terminalWidth;
   const planFileName = state.plan?.planFilePath ? basename(state.plan.planFilePath) : 'N/A';

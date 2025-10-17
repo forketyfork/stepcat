@@ -482,6 +482,7 @@ export class Orchestrator {
         this.log(`\nChecking GitHub Actions for commit ${sha}`);
 
         let checksPass: boolean;
+        let trackedSha: string;
         try {
           checksPass = await this.githubChecker.waitForChecksToPass(
             sha,
@@ -489,7 +490,9 @@ export class Orchestrator {
             attemptsWithCommits,
             this.maxIterationsPerStep,
           );
+          trackedSha = this.githubChecker.getLastTrackedSha() ?? sha;
         } catch (error) {
+          trackedSha = this.githubChecker.getLastTrackedSha() ?? sha;
           if (error instanceof MergeConflictError) {
             const iterationsForStep = this.storage.getIterations(step.id);
             const latestIteration = iterationsForStep[iterationsForStep.length - 1];
@@ -531,7 +534,7 @@ export class Orchestrator {
               type: 'github_check',
               timestamp: Date.now(),
               status: 'blocked',
-              sha,
+              sha: trackedSha,
               attempt: attemptsWithCommits,
               maxAttempts: this.maxIterationsPerStep,
               iterationId: latestIteration?.id ?? previousIterationId,
@@ -557,7 +560,7 @@ export class Orchestrator {
           if (previousIterationId) {
             this.storage.updateIteration(previousIterationId, { buildStatus: 'failed' });
           }
-          const buildErrors = await this.extractBuildErrors(sha);
+          const buildErrors = await this.extractBuildErrors(trackedSha);
           const issue = this.storage.createIssue(previousIterationId!, 'ci_failure', buildErrors);
 
           this.emitEvent({
@@ -637,7 +640,7 @@ export class Orchestrator {
           type: "github_check",
           timestamp: Date.now(),
           status: "success",
-          sha,
+          sha: trackedSha,
           attempt: attemptsWithCommits,
           maxAttempts: this.maxIterationsPerStep,
           iterationId: previousIterationId,

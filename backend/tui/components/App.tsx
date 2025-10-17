@@ -108,6 +108,8 @@ const getOutcomeColor = (status: string | null | undefined): string | undefined 
       return 'green';
     case 'failed':
       return 'red';
+    case 'merge_conflict':
+      return 'red';
     case 'in_progress':
     case 'pending':
       return 'yellow';
@@ -237,9 +239,10 @@ export const App: React.FC<AppProps> = ({ state }) => {
       const iterations = state.iterations.get(step.id) || [];
       iterations.forEach((iteration, iterationIndex) => {
         const displayNumber = iteration.iterationNumber ?? iterationIndex + 1;
+        const displayNumberText = String(displayNumber);
         lines.push({
           key: `iteration-${iteration.id}-header`,
-          text: `   ${getIterationStatusIcon(iteration.status)} Iteration #${displayNumber}`,
+          text: `   ${getIterationStatusIcon(iteration.status)} Iteration #${displayNumberText}`,
           color: getIterationStatusColor(iteration.status),
         });
 
@@ -262,7 +265,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
         if (iteration.buildStatus) {
           const buildStatusDisplay: Record<NonNullable<Iteration['buildStatus']>, string> = {
             pending: 'Pending',
-            in_progress: 'in progress',
+            in_progress: 'In progress',
             passed: 'OK',
             failed: 'Failed',
             merge_conflict: 'Merge conflict, waiting for resolution',

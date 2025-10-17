@@ -138,7 +138,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Creates separate commits for each Claude execution (not amending)
 - For each step, runs iteration loop:
   1. **Initial Implementation**: Claude creates commit, push, wait for CI
-  2. **Build Verification**: If CI fails, create build_fix iteration, Claude fixes and creates new commit, push, repeat. If GitHub reports merge conflicts, Stepcat records the issue with a 'merge_conflict' build status so the branch can be rebased before retrying
+  2. **Build Verification**: If CI fails, create build_fix iteration, Claude fixes and creates new commit, push, repeat. When an open PR exists, Stepcat tracks the PR head commit for CI status so newer pushes unblock the loop, and if GitHub reports merge conflicts we record a 'merge_conflict' build status so the branch can be rebased before retrying
   3. **Code Review**: Run Codex with context-specific prompt (implementation/build_fix/review_fix), parse JSON output
   4. **Review Fixes**: If issues found, create review_fix iteration, Claude fixes and creates new commit, push, repeat from build verification
   5. **Completion**: When Codex passes and CI passes, mark step complete
