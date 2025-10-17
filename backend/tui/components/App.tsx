@@ -1,7 +1,8 @@
 import React from 'react';
-import { Box, Text } from 'ink';
-import { TUIState } from '../types.js';
+import { Box, Text, useInput } from 'ink';
+import { TUIState, LogViewerItem } from '../types.js';
 import { Header } from './Header.js';
+import { LogViewer } from './LogViewer.js';
 import { DbStep, Iteration } from '../../models.js';
 
 interface AppProps {
@@ -179,6 +180,72 @@ export const App: React.FC<AppProps> = ({ state }) => {
 
     return () => clearInterval(interval);
   }, []);
+
+  const buildLogViewerItems = React.useCallback((): LogViewerItem[] => {
+    const items: LogViewerItem[] = [];
+
+    state.steps.forEach(step => {
+      const iterations = state.iterations.get(step.id) || [];
+      iterations.forEach(iteration => {
+        if (iteration.claudeLog) {
+          items.push({
+            id: `${iteration.id}-impl`,
+            stepNumber: step.stepNumber,
+            stepTitle: step.title,
+            iterationNumber: iteration.iterationNumber,
+            logType: 'implementation',
+            logContent: iteration.claudeLog,
+            iteration,
+          });
+        }
+        if (iteration.codexLog) {
+          items.push({
+            id: `${iteration.id}-review`,
+            stepNumber: step.stepNumber,
+            stepTitle: step.title,
+            iterationNumber: iteration.iterationNumber,
+            logType: 'review',
+            logContent: iteration.codexLog,
+            iteration,
+          });
+        }
+      });
+    });
+
+    return items;
+  }, [state.steps, state.iterations]);
+
+  useInput((input, key) => {
+    if (state.viewMode === 'normal') {
+      if (key.meta && input === 'l') {
+        state.logViewerItems = buildLogViewerItems();
+        state.selectedLogIndex = 0;
+        state.viewMode = 'log_viewer';
+        state.stateVersion++;
+      }
+    } else if (state.viewMode === 'log_viewer') {
+      if (key.escape) {
+        state.viewMode = 'normal';
+        state.stateVersion++;
+      } else if (key.upArrow) {
+        if (state.selectedLogIndex > 0) {
+          state.selectedLogIndex--;
+          state.stateVersion++;
+        }
+      } else if (key.downArrow) {
+        if (state.selectedLogIndex < state.logViewerItems.length - 1) {
+          state.selectedLogIndex++;
+          state.stateVersion++;
+        }
+      } else if (key.return) {
+        const selectedItem = state.logViewerItems[state.selectedLogIndex];
+        if (selectedItem && selectedItem.logContent) {
+          state.pendingLogView = selectedItem.logContent;
+          state.stateVersion++;
+        }
+      }
+    }
+  });
 
   const headerHeight = HEADER_BASE_HEIGHT;
   const showCurrentPhase = Boolean(state.currentPhase && !state.isComplete && !state.error);
@@ -559,6 +626,17 @@ export const App: React.FC<AppProps> = ({ state }) => {
       </Box>
     );
   });
+
+  if (state.viewMode === 'log_viewer') {
+    return (
+      <LogViewer
+        items={state.logViewerItems}
+        selectedIndex={state.selectedLogIndex}
+        terminalWidth={state.terminalWidth}
+        terminalHeight={state.terminalHeight}
+      />
+    );
+  }
 
   return (
     <Box flexDirection="column" width={state.terminalWidth} height={state.terminalHeight}>

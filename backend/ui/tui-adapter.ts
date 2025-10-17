@@ -5,6 +5,10 @@ import { Storage } from '../storage.js';
 import type * as ReactTypes from 'react';
 import { pathToFileURL, fileURLToPath } from 'url';
 import { resolve, dirname, sep } from 'path';
+import { writeFileSync, unlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { spawnSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -206,8 +210,47 @@ export class TUIAdapter implements UIAdapter {
     this.rerender();
   }
 
+  private async displayLogWithMore(logContent: string): Promise<void> {
+    const tempFile = join(tmpdir(), `stepcat-log-${Date.now()}.txt`);
+
+    try {
+      writeFileSync(tempFile, logContent, 'utf-8');
+
+      if (this.inkInstance) {
+        this.inkInstance.unmount();
+        this.inkInstance = null;
+      }
+
+      spawnSync('more', [tempFile], {
+        stdio: 'inherit',
+      });
+
+      if (this.React && this.App) {
+        this.inkInstance = this.ink!.render(this.React.createElement(this.App, { state: this.state }));
+      }
+    } finally {
+      try {
+        unlinkSync(tempFile);
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+  }
+
   private rerender(): void {
     this.state.stateVersion++;
+
+    if (this.state.pendingLogView) {
+      const logContent = this.state.pendingLogView;
+      this.state.pendingLogView = null;
+      this.state.viewMode = 'normal';
+
+      this.displayLogWithMore(logContent).catch(err => {
+        console.error('Failed to display log:', err);
+      });
+      return;
+    }
+
     if (this.inkInstance && this.React && this.App) {
       this.inkInstance.rerender(this.React.createElement(this.App, { state: this.state }));
     }
