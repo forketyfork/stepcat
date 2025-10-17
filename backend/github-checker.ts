@@ -87,9 +87,29 @@ export class GitHubChecker {
       try {
         const prDetails = await this.getPullRequestDetails();
         if (prDetails && prDetails.headSha && prDetails.headSha !== targetSha) {
-          this.log(`Detected PR #${prDetails.number} head at ${prDetails.headSha}. Tracking it instead of ${targetSha}.`);
-          targetSha = prDetails.headSha;
-          this.lastTrackedSha = targetSha;
+          const comparison = await this.compareCommits(targetSha, prDetails.headSha);
+
+          if (comparison === 'ahead' || comparison === 'identical') {
+            this.log(
+              `Detected PR #${prDetails.number} head at ${prDetails.headSha}, which includes ${targetSha}. Tracking the newer commit.`,
+            );
+            targetSha = prDetails.headSha;
+            this.lastTrackedSha = targetSha;
+          } else if (comparison === 'behind') {
+            this.log(
+              `PR #${prDetails.number} head ${prDetails.headSha} is behind current commit ${targetSha}. Waiting for checks on ${targetSha}.`,
+            );
+          } else if (comparison === 'diverged') {
+            this.log(
+              `PR #${prDetails.number} head ${prDetails.headSha} has diverged from ${targetSha}. Waiting for ${targetSha} checks.`,
+              'warn',
+            );
+          } else if (comparison === 'unknown') {
+            this.log(
+              `Unable to determine relationship between PR #${prDetails.number} head ${prDetails.headSha} and ${targetSha}. Waiting for ${targetSha} checks.`,
+              'warn',
+            );
+          }
         }
 
         const { data: checkRuns } = await this.octokit.checks.listForRef({
@@ -98,7 +118,9 @@ export class GitHubChecker {
           ref: targetSha,
         });
 
-        if (checkRuns.total_count === 0) {
+        const runsForTarget = checkRuns.check_runs.filter(run => run.head_sha === targetSha);
+
+        if (runsForTarget.length === 0) {
           const conflict = await this.detectMergeConflict(prDetails);
           if (conflict) {
             const conflictMessageParts: string[] = [];
@@ -117,13 +139,19 @@ export class GitHubChecker {
           }
 
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
-          this.log(`[${elapsed}s] No checks found yet for ${targetSha}, waiting...`);
+          if (checkRuns.total_count > 0) {
+            this.log(
+              `[${elapsed}s] Checks found for other commits but not for ${targetSha}. Waiting for current commit checks...`,
+            );
+          } else {
+            this.log(`[${elapsed}s] No checks found yet for ${targetSha}, waiting...`);
+          }
           await this.sleep(30000);
           continue;
         }
 
-        const completed = checkRuns.check_runs.filter(r => r.status === 'completed').length;
-        const total = checkRuns.total_count;
+        const completed = runsForTarget.filter(r => r.status === 'completed').length;
+        const total = runsForTarget.length;
 
         if (completed < total) {
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -141,7 +169,7 @@ export class GitHubChecker {
             });
           }
 
-          checkRuns.check_runs.forEach(run => {
+          runsForTarget.forEach(run => {
             const status = run.status === 'completed'
               ? `✓ ${run.conclusion}`
               : `⏳ ${run.status}`;
@@ -152,21 +180,21 @@ export class GitHubChecker {
           continue;
         }
 
-        const allPassed = checkRuns.check_runs.every(run =>
+        const allPassed = runsForTarget.every(run =>
           run.conclusion === 'success' || run.conclusion === 'skipped'
         );
 
         if (allPassed) {
           this.lastTrackedSha = targetSha;
           this.log('\n✓ All checks passed:', 'success');
-          checkRuns.check_runs.forEach(run => {
+          runsForTarget.forEach(run => {
             this.log(`  ✓ ${run.name}: ${run.conclusion}`, 'success');
           });
           return true;
         } else {
           this.lastTrackedSha = targetSha;
           this.log('\n✗ Some checks failed:', 'error');
-          checkRuns.check_runs.forEach(run => {
+          runsForTarget.forEach(run => {
             const icon = (run.conclusion === 'success' || run.conclusion === 'skipped') ? '✓' : '✗';
             const level = (run.conclusion === 'success' || run.conclusion === 'skipped') ? 'success' : 'error';
             this.log(`  ${icon} ${run.name}: ${run.conclusion}`, level);
@@ -234,6 +262,51 @@ export class GitHubChecker {
 
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async compareCommits(baseSha: string, headSha: string): Promise<'ahead' | 'behind' | 'identical' | 'diverged' | 'unknown'> {
+    if (baseSha === headSha) {
+      return 'identical';
+    }
+
+    try {
+      const { data } = await this.octokit.repos.compareCommitsWithBasehead({
+        owner: this.owner,
+        repo: this.repo,
+        basehead: `${baseSha}...${headSha}`,
+      });
+
+      if (data.status === 'ahead' || data.status === 'behind' || data.status === 'identical' || data.status === 'diverged') {
+        return data.status;
+      }
+    } catch (error) {
+      this.log(
+        `Failed to compare commits ${baseSha} and ${headSha}: ${error instanceof Error ? error.message : String(error)}`,
+        'warn',
+      );
+    }
+
+    if (this.isAncestor(baseSha, headSha)) {
+      return 'ahead';
+    }
+
+    if (this.isAncestor(headSha, baseSha)) {
+      return 'behind';
+    }
+
+    return 'unknown';
+  }
+
+  private isAncestor(potentialAncestor: string, commit: string): boolean {
+    try {
+      execSync(`git merge-base --is-ancestor ${potentialAncestor} ${commit}`, {
+        cwd: this.workDir,
+        stdio: 'ignore',
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private getCurrentBranch(): string | null {
