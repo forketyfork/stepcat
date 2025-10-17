@@ -20,23 +20,44 @@ export interface CodexRunOptions {
 export type CodexReviewResult = ReviewResult;
 
 export class CodexRunner {
-  private emitLog(message: string, eventEmitter?: OrchestratorEventEmitter): void {
-    if (eventEmitter) {
-      eventEmitter.emit("event", {
-        type: "log",
-        timestamp: Date.now(),
-        level: "info",
-        message,
-      });
-    } else {
-      console.log(message);
+  private emitLog(
+    message: string,
+    eventEmitter?: OrchestratorEventEmitter,
+    level: "info" | "warn" | "error" | "success" = "info",
+  ): void {
+    const lines = message.split(/\r?\n/);
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
+      }
+
+      if (eventEmitter) {
+        eventEmitter.emit("event", {
+          type: "log",
+          timestamp: Date.now(),
+          level,
+          message: line,
+        });
+      } else {
+        switch (level) {
+          case "error":
+            console.error(line);
+            break;
+          case "warn":
+            console.warn(line);
+            break;
+          default:
+            console.log(line);
+        }
+      }
     }
   }
 
-  private getCodexPath(): string {
+  private getCodexPath(eventEmitter?: OrchestratorEventEmitter): string {
     const localBin = resolve(moduleDir, "../node_modules/.bin/codex");
 
-    console.log(`Looking for Codex binary at: ${localBin}`);
+    this.emitLog(`Looking for Codex binary at: ${localBin}`, eventEmitter);
 
     if (!existsSync(localBin)) {
       throw new Error(
@@ -49,15 +70,21 @@ export class CodexRunner {
     return localBin;
   }
 
-  private tryGetHeadCommit(workDir: string): string | null {
+  private tryGetHeadCommit(
+    workDir: string,
+    eventEmitter?: OrchestratorEventEmitter,
+  ): string | null {
     try {
       return execSync("git rev-parse HEAD", {
         cwd: workDir,
         encoding: "utf-8",
       }).trim();
     } catch (error) {
-      console.warn(
-        `Warning: Could not get HEAD commit (repo may be empty or unborn): ${error}`,
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitLog(
+        `Warning: Could not get HEAD commit (repo may be empty or unborn): ${message}`,
+        eventEmitter,
+        "warn",
       );
       return null;
     }
@@ -66,7 +93,7 @@ export class CodexRunner {
   async run(
     options: CodexRunOptions,
   ): Promise<{ success: boolean; output: string; commitSha?: string | null }> {
-    const codexPath = this.getCodexPath();
+    const codexPath = this.getCodexPath(options.eventEmitter);
 
     this.emitLog("─".repeat(80), options.eventEmitter);
     this.emitLog(`Running Codex in ${options.workDir}`, options.eventEmitter);
@@ -76,7 +103,7 @@ export class CodexRunner {
 
     let headBefore: string | null = null;
     if (options.expectCommit) {
-      headBefore = this.tryGetHeadCommit(options.workDir);
+      headBefore = this.tryGetHeadCommit(options.workDir, options.eventEmitter);
       this.emitLog(`HEAD before: ${headBefore ?? "(no commit yet)"}`, options.eventEmitter);
       this.emitLog("─".repeat(80), options.eventEmitter);
     }
@@ -90,7 +117,7 @@ export class CodexRunner {
     }>((resolve) => {
       const child = spawn(codexPath, ["exec", "--cd", options.workDir], {
         cwd: options.workDir,
-        stdio: ["pipe", "pipe", "inherit"],
+        stdio: ["pipe", "pipe", "pipe"],
       });
 
       let stdoutData = "";
@@ -118,14 +145,18 @@ export class CodexRunner {
         const text = chunk.toString();
         stdoutData += text;
         if (options.eventEmitter) {
-          const lines = text.split('\n');
-          for (const line of lines) {
-            if (line.trim()) {
-              this.emitLog(line, options.eventEmitter);
-            }
-          }
+          this.emitLog(text, options.eventEmitter);
         } else {
           process.stdout.write(text);
+        }
+      });
+
+      child.stderr?.on("data", (chunk) => {
+        const text = chunk.toString();
+        if (options.eventEmitter) {
+          this.emitLog(text, options.eventEmitter, "warn");
+        } else {
+          process.stderr.write(text);
         }
       });
 
@@ -156,7 +187,7 @@ export class CodexRunner {
 
     let commitSha: string | null | undefined = undefined;
     if (options.expectCommit) {
-      const headAfter = this.tryGetHeadCommit(options.workDir);
+      const headAfter = this.tryGetHeadCommit(options.workDir, options.eventEmitter);
       this.emitLog("─".repeat(80), options.eventEmitter);
       this.emitLog(`HEAD after: ${headAfter ?? "(no commit yet)"}`, options.eventEmitter);
 

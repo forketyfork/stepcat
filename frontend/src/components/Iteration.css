@@ -23,6 +23,11 @@
   border-color: var(--red-500);
 }
 
+.iteration.aborted {
+  background: var(--orange-100);
+  border-color: var(--orange-500);
+}
+
 .iteration-header {
   display: flex;
   align-items: center;
@@ -68,6 +73,10 @@
 
 .iteration.failed .iteration-icon {
   background: var(--red-500);
+}
+
+.iteration.aborted .iteration-icon {
+  background: var(--orange-500);
 }
 
 .iteration-type {
@@ -151,6 +160,12 @@
 .review-status-badge.failed {
   background: var(--red-100);
   color: var(--red-500);
+}
+
+.build-status-badge.merge_conflict {
+  background: var(--orange-100);
+  color: var(--orange-500);
+  animation: pulse 2s ease-in-out infinite;
 }
 
 .issue-count {

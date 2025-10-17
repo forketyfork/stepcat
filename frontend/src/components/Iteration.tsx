@@ -16,7 +16,19 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
   const statusClass = iteration.status;
   const typeLabel = iteration.type.replace('_', ' ');
 
-  const iconContent = iteration.status === 'in_progress' ? '⟳' : iteration.status === 'completed' ? '✓' : '✗';
+  const iconContent = (() => {
+    switch (iteration.status) {
+      case 'in_progress':
+        return '⟳';
+      case 'completed':
+        return '✓';
+      case 'aborted':
+        return '⚠';
+      case 'failed':
+      default:
+        return '✗';
+    }
+  })();
 
   const getAgentDisplayName = (agent: 'claude' | 'codex'): string => {
     return agent === 'claude' ? 'Claude Code' : 'Codex';
@@ -27,6 +39,18 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
     in_progress: '🔨',
     passed: '✓',
     failed: '✗',
+    merge_conflict: '⚠',
+  } as const;
+
+  const buildStatusText: Record<
+    NonNullable<IterationType['buildStatus']>,
+    string
+  > = {
+    pending: 'Build Pending',
+    in_progress: 'Building',
+    passed: 'Build OK',
+    failed: 'Build Failed',
+    merge_conflict: 'Merge conflict, waiting for resolution',
   };
 
   const reviewStatusIcons = {
@@ -72,13 +96,7 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
               onClick={(e) => e.stopPropagation()}
             >
               {buildStatusIcons[iteration.buildStatus]}{' '}
-              {iteration.buildStatus === 'in_progress'
-                ? 'Building'
-                : iteration.buildStatus === 'passed'
-                ? 'Build OK'
-                : iteration.buildStatus === 'failed'
-                ? 'Build Failed'
-                : 'Pending'}
+              {buildStatusText[iteration.buildStatus]}
             </a>
           )}
           {iteration.reviewStatus && (

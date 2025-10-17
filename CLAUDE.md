@@ -82,7 +82,7 @@ Stepcat is organized into two main components:
 
 ### Database Schema
 
-Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in the work directory. The database has four main tables:
+Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in the work directory. The database has four main tables plus a lightweight migrations tracker:
 
 **Plan Table**:
 - `id` (INTEGER PRIMARY KEY): Unique execution identifier
@@ -107,14 +107,16 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - `commitSha` (TEXT | NULL): Git commit SHA created by this iteration
 - `claudeLog` (TEXT | NULL): Full Claude Code output/logs
 - `codexLog` (TEXT | NULL): Full Codex review output
-- `status` (TEXT): 'in_progress' | 'completed' | 'failed'
+- `buildStatus` (TEXT | NULL): 'pending' | 'in_progress' | 'passed' | 'failed' | 'merge_conflict'
+- `reviewStatus` (TEXT | NULL): 'pending' | 'in_progress' | 'passed' | 'failed'
+- `status` (TEXT): 'in_progress' | 'completed' | 'failed' | 'aborted'
 - `createdAt` (TEXT): ISO timestamp
 - `updatedAt` (TEXT): ISO timestamp
 
 **Issue Table**:
 - `id` (INTEGER PRIMARY KEY): Unique issue identifier
 - `iterationId` (INTEGER): Foreign key to iteration where issue was found
-- `type` (TEXT): 'ci_failure' | 'codex_review'
+- `type` (TEXT): 'ci_failure' | 'codex_review' | 'merge_conflict'
 - `description` (TEXT): Issue description
 - `filePath` (TEXT | NULL): File where issue occurred
 - `lineNumber` (INTEGER | NULL): Line number where issue occurred
@@ -125,6 +127,10 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 **Execution ID**: The plan ID serves as the execution ID and can be used to resume executions with `--execution-id <id>`.
 
+**Migrations**:
+- `schema_migrations` records applied schema changes with `{id, name, appliedAt}`.
+- The backend automatically applies pending migrations when the database is opened. Legacy databases (created before migrations were introduced) are assumed to be on the baseline schema and are upgraded in place before any work proceeds.
+
 ### Core Components
 
 **Orchestrator** (`backend/orchestrator.ts`): Main coordinator that implements iteration loop logic
@@ -132,7 +138,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Creates separate commits for each Claude execution (not amending)
 - For each step, runs iteration loop:
   1. **Initial Implementation**: Claude creates commit, push, wait for CI
-  2. **Build Verification**: If CI fails, create build_fix iteration, Claude fixes and creates new commit, push, repeat
+  2. **Build Verification**: If CI fails, create build_fix iteration, Claude fixes and creates new commit, push, repeat. When an open PR exists, Stepcat tracks the PR head commit for CI status so newer pushes unblock the loop, and if GitHub reports merge conflicts we record a 'merge_conflict' build status so the branch can be rebased before retrying
   3. **Code Review**: Run Codex with context-specific prompt (implementation/build_fix/review_fix), parse JSON output
   4. **Review Fixes**: If issues found, create review_fix iteration, Claude fixes and creates new commit, push, repeat from build verification
   5. **Completion**: When Codex passes and CI passes, mark step complete
@@ -252,7 +258,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 **Step Execution Flow**:
 1. **Initial Implementation**: Claude creates commit, orchestrator pushes and waits for GitHub Actions
-2. **Build Verification Loop**: If build fails, create build_fix iteration → Claude creates new commit → orchestrator pushes → repeat from step 2
+2. **Build Verification Loop**: If build fails, create build_fix iteration → Claude creates new commit → orchestrator pushes → repeat from step 2. Merge conflicts are detected during this phase and surface as 'merge_conflict' build statuses until the branch is rebased
 3. **Code Review**: Run Codex review with context-specific prompt (varies based on iteration type: implementation/build_fix/review_fix)
 4. **Review Fix Loop**: If Codex finds issues, parse JSON, save issues to DB, create review_fix iteration → Claude creates new commit → orchestrator pushes → repeat from step 2
 5. **Step Completion**: When Codex passes (result: 'PASS') and CI passes, mark step complete and move to next step
@@ -266,6 +272,10 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 **Iteration and Issue Tracking**:
 - Each Claude execution is an iteration with: type ('implementation' | 'build_fix' | 'review_fix'), commit SHA, logs (Claude and Codex), status
+- Iteration status: 'in_progress' (running), 'completed' (finished), 'failed' (error), 'aborted' (interrupted)
+- Aborted iterations: Interrupted executions (e.g., Ctrl+C) are marked as 'aborted' on resume and don't count toward max iterations
+- Only iterations with commits (actual work done) count toward the max iteration limit
+- Build status tracks CI progress and surfaces merge conflicts via the 'merge_conflict' state when GitHub declines to run checks
 - Issues are extracted from CI failures and Codex JSON reviews
 - Issues stored with: file path, line number, severity ('error' | 'warning'), description, status ('open' | 'fixed')
 - Full traceability: Issue → Iteration that found it → Iteration that fixed it → Commit SHA
@@ -509,6 +519,39 @@ node /path/to/stepcat/dist/cli.js --file plan.md --dir . --tui
 6. **❌ Mixing test file extensions**: Use `.vitest.ts` for Vitest, `.test.ts` for Jest
 7. **❌ Mixing path resolution concerns**: Keep module paths and user paths separate
 
+### TypeScript Coding Guidelines
+
+**NEVER use the `any` type**. Always use concrete types from the models or define specific types.
+
+**DO:**
+```typescript
+import { DbStep, Iteration, Issue } from '../../models.js';
+
+const calculateStepHeight = (step: DbStep, iterations: Iteration[], issues: Map<number, Issue[]>): number => {
+  // Implementation
+};
+```
+
+**DON'T:**
+```typescript
+// ❌ Using any type (FORBIDDEN)
+const calculateStepHeight = (step: any, iterations: any[], issues: Map<number, any[]>): number => {
+  // Implementation
+};
+```
+
+**Why avoid `any`:**
+- Defeats the purpose of TypeScript's type safety
+- Prevents IDE autocomplete and type checking
+- Makes code harder to understand and maintain
+- Hides bugs that TypeScript would otherwise catch
+- ESLint will warn about `any` usage
+
+**When you need a type:**
+1. **First choice**: Use existing types from `models.ts` or other type definition files
+2. **Second choice**: Define a specific interface or type for your use case
+3. **Last resort**: Use `unknown` (not `any`) if the type is truly dynamic, then narrow it with type guards
+
 ### Debugging Path Issues
 
 If you see errors like `Cannot find module '/wrong/path/to/file'`:
@@ -541,7 +584,7 @@ If you see errors like `Cannot find module '/wrong/path/to/file'`:
 
 10. **Web UI Security**: All dynamic content in the React frontend is automatically escaped by React. No need for manual HTML escaping in JSX.
 
-11. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database and continues from first pending/in_progress step.
+11. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database, marks any in_progress iterations as 'aborted', and continues from first pending/in_progress step. Aborted iterations don't count toward max iterations limit.
 
 12. **Build Process**: The build process is now two-stage:
     - Frontend: React app built with Vite to `frontend/dist/`

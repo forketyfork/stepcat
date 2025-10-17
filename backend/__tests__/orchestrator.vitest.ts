@@ -12,8 +12,18 @@ import { execSync } from 'child_process';
 
 vi.mock('../claude-runner');
 vi.mock('../codex-runner');
-vi.mock('../github-checker');
+vi.mock('../github-checker', async () => {
+  const actual = await vi.importActual<typeof import('../github-checker.js')>('../github-checker.js');
+  const GitHubCheckerMock: any = vi.fn();
+  GitHubCheckerMock.parseRepoInfo = actual.GitHubChecker.parseRepoInfo;
+  return {
+    ...actual,
+    GitHubChecker: GitHubCheckerMock,
+  };
+});
 vi.mock('child_process');
+
+const { MergeConflictError } = await vi.importActual<typeof import('../github-checker.js')>('../github-checker.js');
 
 describe('Orchestrator', () => {
   let tempDir: string;
@@ -51,6 +61,7 @@ Implement the feature
     mockGitHubChecker = {
       waitForChecksToPass: vi.fn(),
       getLatestCommitSha: vi.fn(),
+      getLastTrackedSha: vi.fn().mockReturnValue(null),
       getOwner: vi.fn().mockReturnValue('test-owner'),
       getRepo: vi.fn().mockReturnValue('test-repo'),
       getOctokit: vi.fn().mockReturnValue({
@@ -59,6 +70,8 @@ Implement the feature
         },
       }),
     } as any;
+
+    mockGitHubChecker.getLastTrackedSha.mockReturnValue('abc123');
 
     (ClaudeRunner as vi.MockedClass<typeof ClaudeRunner>).mockImplementation(() => mockClaudeRunner);
     (CodexRunner as vi.MockedClass<typeof CodexRunner>).mockImplementation(() => mockCodexRunner);
@@ -74,6 +87,10 @@ Implement the feature
       mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
       mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
@@ -118,6 +135,7 @@ Implement the feature
       mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'def456' });
       mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('def456');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('def456');
       mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
@@ -150,6 +168,127 @@ Implement the feature
         });
       }).not.toThrow();
     });
+
+    it('should mark in_progress iterations as aborted on resume', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      const iteration1 = db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      db.close();
+
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const iterations = db2.getIterations(step1.id);
+      const abortedIteration = iterations.find(i => i.id === iteration1.id);
+      expect(abortedIteration?.status).toBe('aborted');
+      db2.close();
+    });
+
+    it('should not count aborted iterations toward max iterations', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      const step2 = db.createStep(plan.id, 2, 'Implementation');
+
+      db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      const iter1 = db.createIteration(step1.id, 2, 'implementation', 'claude', 'codex');
+      db.updateIteration(iter1.id, { status: 'aborted' });
+
+      const iter2 = db.createIteration(step1.id, 3, 'implementation', 'claude', 'codex');
+      db.updateIteration(iter2.id, { status: 'aborted' });
+      db.close();
+
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const steps = db2.getSteps(plan.id);
+      expect(steps[0].status).toBe('completed');
+      expect(steps[1].status).toBe('completed');
+      db2.close();
+    });
+
+    it('should preserve iteration numbering and events when resuming with aborted iterations', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      db.close();
+
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const eventEmitter = new OrchestratorEventEmitter();
+      const events: any[] = [];
+      eventEmitter.on('event', (event) => events.push(event));
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+        eventEmitter,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const iterations = db2.getIterations(step1.id);
+      expect(iterations).toHaveLength(2);
+      const aborted = iterations.find(i => i.status === 'aborted');
+      const completed = iterations.find(i => i.status === 'completed');
+      expect(aborted?.iterationNumber).toBe(1);
+      expect(completed?.iterationNumber).toBe(2);
+      expect(completed?.commitSha).toBe('abc123');
+
+      const iterationStartEvents = events.filter((event) => event.type === 'iteration_start');
+      const iterationCompleteEvents = events.filter((event) => event.type === 'iteration_complete');
+      expect(iterationStartEvents[0]?.iterationNumber).toBe(2);
+      expect(iterationCompleteEvents[0]?.iterationNumber).toBe(2);
+
+      db2.close();
+    });
   });
 
   describe('build failure handling', () => {
@@ -161,6 +300,11 @@ Implement the feature
         .mockResolvedValue({ success: true, commitSha: 'step2' });
 
       mockGitHubChecker.getLatestCommitSha = jest
+        .fn()
+        .mockReturnValueOnce('abc123')
+        .mockReturnValueOnce('def456')
+        .mockReturnValue('step2');
+      mockGitHubChecker.getLastTrackedSha = jest
         .fn()
         .mockReturnValueOnce('abc123')
         .mockReturnValueOnce('def456')
@@ -204,6 +348,53 @@ Implement the feature
     });
   });
 
+  describe('merge conflict handling', () => {
+    it('should surface merge conflicts during build checks', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      db.close();
+
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.waitForChecksToPass = vi
+        .fn()
+        .mockRejectedValue(
+          new MergeConflictError('Merge conflict detected for PR #7', {
+            prNumber: 7,
+            branch: 'feature/test',
+            base: 'main',
+          })
+        );
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+      });
+
+      await expect(orchestrator.run()).rejects.toThrow(/merge conflict/i);
+
+      const db2 = new Database(tempDir);
+      const iterations = db2.getIterations(step1.id);
+      expect(iterations.some(iteration => iteration.buildStatus === 'merge_conflict')).toBe(true);
+
+      const issues = db2.getIssues(iterations[0].id);
+      expect(issues[0].type).toBe('merge_conflict');
+
+      const steps = db2.getSteps(plan.id);
+      expect(steps[0].status).toBe('failed');
+      db2.close();
+    });
+  });
+
   describe('code review handling', () => {
     it('should create review_fix iteration when Codex finds issues', async () => {
       mockClaudeRunner.run = jest
@@ -213,6 +404,11 @@ Implement the feature
         .mockResolvedValue({ success: true, commitSha: 'step2' });
 
       mockGitHubChecker.getLatestCommitSha = jest
+        .fn()
+        .mockReturnValueOnce('abc123')
+        .mockReturnValueOnce('fix789')
+        .mockReturnValue('step2');
+      mockGitHubChecker.getLastTrackedSha = jest
         .fn()
         .mockReturnValueOnce('abc123')
         .mockReturnValueOnce('fix789')
@@ -269,6 +465,7 @@ Implement the feature
     it('should fail step when max iterations exceeded', async () => {
       mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
       mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
 
       mockCodexRunner.run = vi.fn().mockResolvedValue({
@@ -293,6 +490,31 @@ Implement the feature
       expect(steps[0].status).toBe('failed');
       db.close();
     });
+
+    it('should perform review on final allowed iteration before failing', async () => {
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({
+          result: 'FAIL',
+          issues: [{ file: 'test.ts', severity: 'error', description: 'Always fails' }]
+        })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        maxIterationsPerStep: 3,
+      });
+
+      await expect(orchestrator.run()).rejects.toThrow(/exceeded maximum iterations/);
+      expect(mockCodexRunner.run).toHaveBeenCalledTimes(3);
+    });
   });
 
   describe('event emission', () => {
@@ -300,6 +522,7 @@ Implement the feature
       mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
       mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
@@ -330,6 +553,7 @@ Implement the feature
       mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
       mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
@@ -362,6 +586,7 @@ Implement the feature
       mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
       mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({
@@ -383,6 +608,7 @@ Implement the feature
       mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
       mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
       mockCodexRunner.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({
@@ -417,6 +643,7 @@ Implement the feature
       mockClaudeRunner.run = vi.fn();
       mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -434,20 +661,21 @@ Implement the feature
 
     it('allows using Claude Code for code review', async () => {
       mockClaudeRunner.run = vi.fn().mockImplementation(async (options: any) => {
-        if (options.captureOutput) {
+        if (options.prompt.includes('code review') || options.prompt.includes('Review')) {
           return {
             success: true,
             commitSha: null,
             output: JSON.stringify({ result: 'PASS', issues: [] }),
           };
         }
-        return { success: true, commitSha: 'abc123' };
+        return { success: true, commitSha: 'abc123', output: 'Implementation log' };
       });
 
       mockCodexRunner.run = vi.fn();
 
       mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
       mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
 
       const orchestrator = new Orchestrator({
         planFile,

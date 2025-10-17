@@ -1,7 +1,7 @@
 import { StepParser } from "./step-parser.js";
 import { ClaudeRunner } from "./claude-runner.js";
 import { CodexRunner } from "./codex-runner.js";
-import { GitHubChecker } from "./github-checker.js";
+import { GitHubChecker, MergeConflictError } from "./github-checker.js";
 import { execSync } from "child_process";
 import { OrchestratorEventEmitter, OrchestratorEvent } from "./events.js";
 import { Database } from "./database.js";
@@ -96,20 +96,39 @@ export class Orchestrator {
     level: "info" | "warn" | "error" | "success" = "info",
     stepNumber?: number,
   ) {
-    if (!this.silent) {
-      console.log(message);
-    }
-    this.emitEvent({
-      type: "log",
-      timestamp: Date.now(),
-      level,
-      message,
-      stepNumber,
+    const lines = message.split(/\r?\n/);
+    const baseTimestamp = Date.now();
+
+    lines.forEach((line, index) => {
+      const lineTimestamp = lines.length === 1 ? baseTimestamp : baseTimestamp + index;
+
+      if (!this.silent) {
+        console.log(line);
+      }
+
+      this.emitEvent({
+        type: "log",
+        timestamp: lineTimestamp,
+        level,
+        message: line,
+        stepNumber,
+      });
     });
   }
 
   private getAgentDisplayName(agent: 'claude' | 'codex'): string {
     return agent === 'claude' ? 'Claude Code' : 'Codex';
+  }
+
+  private handleMaxIterationsExceeded(step: DbStep): never {
+    this.storage.updateStepStatus(step.id, 'failed');
+    this.emitEvent({
+      type: "error",
+      timestamp: Date.now(),
+      error: `Step ${step.stepNumber} exceeded maximum iterations`,
+      stepNumber: step.stepNumber,
+    });
+    throw new Error(`Step ${step.stepNumber} exceeded maximum iterations (${this.maxIterationsPerStep})`);
   }
 
   private async runImplementationAgent(
@@ -120,6 +139,7 @@ export class Orchestrator {
         workDir: this.workDir,
         prompt,
         timeoutMinutes: this.agentTimeoutMinutes,
+        captureOutput: true,
         eventEmitter: this.eventEmitter,
       });
     }
@@ -176,6 +196,38 @@ export class Orchestrator {
     };
   }
 
+  private cleanupIncompleteIterations(): void {
+    if (!this.plan) {
+      return;
+    }
+
+    const steps = this.storage.getSteps(this.plan.id);
+    let cleanedCount = 0;
+
+    for (const step of steps) {
+      const iterations = this.storage.getIterations(step.id);
+      for (const iteration of iterations) {
+        if (iteration.status === 'in_progress') {
+          this.log(
+            `Found incomplete iteration ${iteration.iterationNumber} for step ${step.stepNumber}, marking as aborted`,
+            "warn"
+          );
+          this.storage.updateIteration(iteration.id, { status: 'aborted' });
+          cleanedCount++;
+        }
+      }
+    }
+
+    if (cleanedCount > 0) {
+      this.log(`Cleaned up ${cleanedCount} aborted iteration(s)`, "info");
+    }
+  }
+
+  private countIterationsWithCommits(stepId: number): number {
+    const iterations = this.storage.getIterations(stepId);
+    return iterations.filter(iteration => iteration.commitSha !== null && iteration.status !== 'aborted').length;
+  }
+
   private async initializeOrResumePlan(): Promise<void> {
     if (this.executionId) {
       this.log(`Resuming execution ID: ${this.executionId}`, "info");
@@ -185,6 +237,8 @@ export class Orchestrator {
       }
       this.plan = plan;
       this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
+
+      this.cleanupIncompleteIterations();
     } else {
       this.log("Starting new execution", "info");
       this.plan = this.storage.createPlan(
@@ -321,6 +375,9 @@ export class Orchestrator {
 
     let step = this.getCurrentStep();
     while (step) {
+      this.storage.updateStepStatus(step.id, 'in_progress');
+      step = { ...step, status: 'in_progress' };
+
       const freshSteps = this.storage.getSteps(this.plan.id);
       const completedCount = freshSteps.filter(s => s.status === 'completed').length;
 
@@ -340,14 +397,25 @@ export class Orchestrator {
       this.log(`STEP ${step.stepNumber}: ${step.title}`);
       this.log("═".repeat(80));
 
-      this.storage.updateStepStatus(step.id, 'in_progress');
+      const allIterations = this.storage.getIterations(step.id);
+      const highestIterationNumber = allIterations.reduce(
+        (max, iteration) => Math.max(max, iteration.iterationNumber),
+        0
+      );
+      const completedIterations = allIterations.filter(i => i.status === 'completed');
+      const activeIterations = allIterations.filter(i => i.status !== 'aborted');
+      const iterationsWithWork = activeIterations.filter(i => i.commitSha !== null);
+      let iterationNumber: number;
 
-      let iterationNumber = this.storage.getIterations(step.id).length + 1;
+      if (completedIterations.length === 0) {
+        if (iterationsWithWork.length >= this.maxIterationsPerStep) {
+          this.handleMaxIterationsExceeded(step);
+        }
 
-      if (iterationNumber === 1) {
+        const nextIterationNumber = highestIterationNumber + 1;
         const iteration = this.storage.createIteration(
           step.id,
-          1,
+          nextIterationNumber,
           'implementation',
           this.implementationAgent,
           this.reviewAgent
@@ -358,13 +426,13 @@ export class Orchestrator {
           timestamp: Date.now(),
           iterationId: iteration.id,
           stepId: step.id,
-          iterationNumber: 1,
+          iterationNumber: nextIterationNumber,
           iterationType: 'implementation',
           implementationAgent: this.implementationAgent,
           reviewAgent: this.reviewAgent,
         });
 
-        this.log(`\nIteration 1: Implementation`);
+        this.log(`\nIteration ${nextIterationNumber}: Implementation`);
         this.log("─".repeat(80));
 
         const prompt = PROMPTS.implementation(step.stepNumber, this.planFile);
@@ -383,6 +451,7 @@ export class Orchestrator {
 
         this.storage.updateIteration(iteration.id, {
           commitSha: result.commitSha,
+          claudeLog: result.output ?? null,
           status: 'completed',
         });
 
@@ -392,15 +461,18 @@ export class Orchestrator {
           type: "iteration_complete",
           timestamp: Date.now(),
           stepId: step.id,
-          iterationNumber: 1,
+          iterationNumber: iteration.iterationNumber,
           commitSha: result.commitSha,
           status: 'completed',
         });
 
-        iterationNumber++;
+        iterationNumber = iteration.iterationNumber + 1;
+      } else {
+        iterationNumber = highestIterationNumber + 1;
       }
 
-      while (iterationNumber <= this.maxIterationsPerStep) {
+      while (this.countIterationsWithCommits(step.id) <= this.maxIterationsPerStep) {
+        const attemptsWithCommits = this.countIterationsWithCommits(step.id);
         const sha = this.githubChecker.getLatestCommitSha();
         const previousIterationId = this.storage.getIterations(step.id)[iterationNumber - 2]?.id;
 
@@ -413,33 +485,93 @@ export class Orchestrator {
           timestamp: Date.now(),
           status: "waiting",
           sha,
-          attempt: iterationNumber - 1,
+          attempt: attemptsWithCommits,
           maxAttempts: this.maxIterationsPerStep,
           iterationId: previousIterationId,
         });
 
         this.log(`\nChecking GitHub Actions for commit ${sha}`);
 
-        const checksPass = await this.githubChecker.waitForChecksToPass(
-          sha,
-          this.buildTimeoutMinutes,
-          iterationNumber - 1,
-          this.maxIterationsPerStep,
-        );
+        let checksPass: boolean;
+        let trackedSha: string;
+        try {
+          checksPass = await this.githubChecker.waitForChecksToPass(
+            sha,
+            this.buildTimeoutMinutes,
+            attemptsWithCommits,
+            this.maxIterationsPerStep,
+          );
+          trackedSha = this.githubChecker.getLastTrackedSha() ?? sha;
+        } catch (error) {
+          trackedSha = this.githubChecker.getLastTrackedSha() ?? sha;
+          if (error instanceof MergeConflictError) {
+            const iterationsForStep = this.storage.getIterations(step.id);
+            const latestIteration = iterationsForStep[iterationsForStep.length - 1];
+
+            if (latestIteration) {
+              this.storage.updateIteration(latestIteration.id, { buildStatus: 'merge_conflict' });
+
+              const descriptionLines = [
+                error.details.prNumber
+                  ? `PR #${error.details.prNumber} is marked as having merge conflicts.`
+                  : 'The current branch has merge conflicts with its base branch.',
+                error.details.base
+                  ? `Conflicts must be resolved against "${error.details.base}".`
+                  : undefined,
+                `Branch "${error.details.branch}" needs to be rebased or merged with the latest base before CI can run.`,
+                'Resolve the conflicts and rerun this step.',
+              ].filter((line): line is string => Boolean(line));
+
+              const conflictIssue = this.storage.createIssue(
+                latestIteration.id,
+                'merge_conflict',
+                descriptionLines.join('\n'),
+                null,
+                null,
+                'error',
+              );
+
+              this.emitEvent({
+                type: 'issue_found',
+                timestamp: Date.now(),
+                issueId: conflictIssue.id,
+                iterationId: latestIteration.id,
+                issueType: 'merge_conflict',
+                description: conflictIssue.description,
+              });
+            }
+
+            this.emitEvent({
+              type: 'github_check',
+              timestamp: Date.now(),
+              status: 'blocked',
+              sha: trackedSha,
+              attempt: attemptsWithCommits,
+              maxAttempts: this.maxIterationsPerStep,
+              iterationId: latestIteration?.id ?? previousIterationId,
+              checkName: 'Merge conflict detected',
+            });
+
+            this.storage.updateStepStatus(step.id, 'failed');
+
+            this.emitEvent({
+              type: 'error',
+              timestamp: Date.now(),
+              error: error.message,
+              stepNumber: step.stepNumber,
+            });
+
+            throw error;
+          }
+
+          throw error;
+        }
 
         if (!checksPass) {
           if (previousIterationId) {
-          this.storage.updateIteration(previousIterationId, { buildStatus: 'failed' });
+            this.storage.updateIteration(previousIterationId, { buildStatus: 'failed' });
           }
-          const buildErrors = await this.extractBuildErrors(sha);
-          const iteration = this.storage.createIteration(
-            step.id,
-            iterationNumber,
-            'build_fix',
-            this.implementationAgent,
-            this.reviewAgent
-          );
-
+          const buildErrors = await this.extractBuildErrors(trackedSha);
           const issue = this.storage.createIssue(previousIterationId!, 'ci_failure', buildErrors);
 
           this.emitEvent({
@@ -450,6 +582,18 @@ export class Orchestrator {
             issueType: 'ci_failure',
             description: buildErrors,
           });
+
+          if (attemptsWithCommits >= this.maxIterationsPerStep) {
+            this.handleMaxIterationsExceeded(step);
+          }
+
+          const iteration = this.storage.createIteration(
+            step.id,
+            iterationNumber,
+            'build_fix',
+            this.implementationAgent,
+            this.reviewAgent
+          );
 
           this.emitEvent({
             type: "iteration_start",
@@ -481,6 +625,7 @@ export class Orchestrator {
 
           this.storage.updateIteration(iteration.id, {
             commitSha: result.commitSha,
+            claudeLog: result.output ?? null,
             status: 'completed',
           });
 
@@ -507,8 +652,8 @@ export class Orchestrator {
           type: "github_check",
           timestamp: Date.now(),
           status: "success",
-          sha,
-          attempt: iterationNumber - 1,
+          sha: trackedSha,
+          attempt: attemptsWithCommits,
           maxAttempts: this.maxIterationsPerStep,
           iterationId: previousIterationId,
         });
@@ -571,14 +716,6 @@ export class Orchestrator {
         });
 
         if (reviewResult.result === 'FAIL' && reviewResult.issues.length > 0) {
-          const iteration = this.storage.createIteration(
-            step.id,
-            iterationNumber,
-            'review_fix',
-            this.implementationAgent,
-            this.reviewAgent
-          );
-
           for (const issue of reviewResult.issues) {
             const dbIssue = this.storage.createIssue(
               previousIteration.id,
@@ -602,6 +739,18 @@ export class Orchestrator {
               severity: issue.severity,
             });
           }
+
+          if (attemptsWithCommits >= this.maxIterationsPerStep) {
+            this.handleMaxIterationsExceeded(step);
+          }
+
+          const iteration = this.storage.createIteration(
+            step.id,
+            iterationNumber,
+            'review_fix',
+            this.implementationAgent,
+            this.reviewAgent
+          );
 
           this.emitEvent({
             type: "iteration_start",
@@ -633,6 +782,7 @@ export class Orchestrator {
 
           this.storage.updateIteration(iteration.id, {
             commitSha: result.commitSha,
+            claudeLog: result.output ?? null,
             status: 'completed',
           });
 
@@ -674,15 +824,8 @@ export class Orchestrator {
         }
       }
 
-      if (iterationNumber > this.maxIterationsPerStep) {
-        this.storage.updateStepStatus(step.id, 'failed');
-        this.emitEvent({
-          type: "error",
-          timestamp: Date.now(),
-          error: `Step ${step.stepNumber} exceeded maximum iterations`,
-          stepNumber: step.stepNumber,
-        });
-        throw new Error(`Step ${step.stepNumber} exceeded maximum iterations (${this.maxIterationsPerStep})`);
+      if (this.countIterationsWithCommits(step.id) > this.maxIterationsPerStep) {
+        this.handleMaxIterationsExceeded(step);
       }
 
       step = this.getCurrentStep();

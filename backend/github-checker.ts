@@ -2,6 +2,30 @@ import { Octokit } from '@octokit/rest';
 import { execSync } from 'child_process';
 import { OrchestratorEventEmitter } from './events.js';
 
+type PullRequestDetails = {
+  number: number;
+  headSha: string;
+  headRef: string;
+  baseRef?: string;
+  mergeableState: string | null;
+};
+
+export interface MergeConflictDetails {
+  prNumber?: number;
+  branch: string;
+  base?: string;
+}
+
+export class MergeConflictError extends Error {
+  details: MergeConflictDetails;
+
+  constructor(message: string, details: MergeConflictDetails) {
+    super(message);
+    this.name = 'MergeConflictError';
+    this.details = details;
+  }
+}
+
 export interface GitHubConfig {
   owner: string;
   repo: string;
@@ -16,6 +40,7 @@ export class GitHubChecker {
   private repo: string;
   private workDir: string;
   private eventEmitter?: OrchestratorEventEmitter;
+  private lastTrackedSha: string | null = null;
 
   constructor(config: GitHubConfig) {
     this.octokit = new Octokit({
@@ -39,6 +64,10 @@ export class GitHubChecker {
     return this.repo;
   }
 
+  getLastTrackedSha(): string | null {
+    return this.lastTrackedSha;
+  }
+
   async waitForChecksToPass(
     sha: string,
     maxWaitMinutes: number = 30,
@@ -47,78 +76,136 @@ export class GitHubChecker {
   ): Promise<boolean> {
     const startTime = Date.now();
     const maxWaitMs = maxWaitMinutes * 60 * 1000;
+    let targetSha = sha;
+    this.lastTrackedSha = targetSha;
 
-    console.log(`\nWaiting for GitHub Actions checks (max ${maxWaitMinutes} minutes)...`);
-    console.log(`Repository: ${this.owner}/${this.repo}`);
-    console.log(`Commit: ${sha}`);
+    this.log(`\nWaiting for GitHub Actions checks (max ${maxWaitMinutes} minutes)...`);
+    this.log(`Repository: ${this.owner}/${this.repo}`);
+    this.log(`Commit: ${sha}`);
 
     while (Date.now() - startTime < maxWaitMs) {
       try {
+        const prDetails = await this.getPullRequestDetails();
+        if (prDetails && prDetails.headSha && prDetails.headSha !== targetSha) {
+          const comparison = await this.compareCommits(targetSha, prDetails.headSha);
+
+          if (comparison === 'ahead' || comparison === 'identical') {
+            this.log(
+              `Detected PR #${prDetails.number} head at ${prDetails.headSha}, which includes ${targetSha}. Tracking the newer commit.`,
+            );
+            targetSha = prDetails.headSha;
+            this.lastTrackedSha = targetSha;
+          } else if (comparison === 'behind') {
+            this.log(
+              `PR #${prDetails.number} head ${prDetails.headSha} is behind current commit ${targetSha}. Waiting for checks on ${targetSha}.`,
+            );
+          } else if (comparison === 'diverged') {
+            this.log(
+              `PR #${prDetails.number} head ${prDetails.headSha} has diverged from ${targetSha}. Waiting for ${targetSha} checks.`,
+              'warn',
+            );
+          } else if (comparison === 'unknown') {
+            this.log(
+              `Unable to determine relationship between PR #${prDetails.number} head ${prDetails.headSha} and ${targetSha}. Waiting for ${targetSha} checks.`,
+              'warn',
+            );
+          }
+        }
+
         const { data: checkRuns } = await this.octokit.checks.listForRef({
           owner: this.owner,
           repo: this.repo,
-          ref: sha
+          ref: targetSha,
         });
 
-        if (checkRuns.total_count === 0) {
+        const runsForTarget = checkRuns.check_runs.filter(run => run.head_sha === targetSha);
+
+        if (runsForTarget.length === 0) {
+          const conflict = await this.detectMergeConflict(prDetails);
+          if (conflict) {
+            const conflictMessageParts: string[] = [];
+            if (conflict.prNumber) {
+              conflictMessageParts.push(`PR #${conflict.prNumber}`);
+            } else {
+              conflictMessageParts.push('Current branch');
+            }
+            conflictMessageParts.push('has merge conflicts');
+            if (conflict.base) {
+              conflictMessageParts.push(`with ${conflict.base}`);
+            }
+            const conflictMessage = conflictMessageParts.join(' ') + '. GitHub actions will not run until conflicts are resolved.';
+            this.log(conflictMessage, 'error');
+            throw new MergeConflictError(conflictMessage, conflict);
+          }
+
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
-          console.log(`[${elapsed}s] No checks found yet, waiting...`);
+          if (checkRuns.total_count > 0) {
+            this.log(
+              `[${elapsed}s] Checks found for other commits but not for ${targetSha}. Waiting for current commit checks...`,
+            );
+          } else {
+            this.log(`[${elapsed}s] No checks found yet for ${targetSha}, waiting...`);
+          }
           await this.sleep(30000);
           continue;
         }
 
-        const completed = checkRuns.check_runs.filter(r => r.status === 'completed').length;
-        const total = checkRuns.total_count;
+        const completed = runsForTarget.filter(r => r.status === 'completed').length;
+        const total = runsForTarget.length;
 
         if (completed < total) {
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
-          console.log(`[${elapsed}s] Checks in progress: ${completed}/${total} completed`);
+          this.log(`[${elapsed}s] Checks in progress for ${targetSha}: ${completed}/${total} completed`);
 
           if (this.eventEmitter) {
             this.eventEmitter.emit('event', {
               type: 'github_check',
               timestamp: Date.now(),
               status: 'running',
-              sha,
+              sha: targetSha,
               attempt,
               maxAttempts,
-              checkName: `${completed}/${total} checks completed`
+              checkName: `${completed}/${total} checks completed`,
             });
           }
 
-          checkRuns.check_runs.forEach(run => {
+          runsForTarget.forEach(run => {
             const status = run.status === 'completed'
               ? `✓ ${run.conclusion}`
               : `⏳ ${run.status}`;
-            console.log(`  - ${run.name}: ${status}`);
+            this.log(`  - ${run.name}: ${status}`);
           });
 
           await this.sleep(30000);
           continue;
         }
 
-        const allPassed = checkRuns.check_runs.every(run =>
+        const allPassed = runsForTarget.every(run =>
           run.conclusion === 'success' || run.conclusion === 'skipped'
         );
 
         if (allPassed) {
-          console.log('\n✓ All checks passed:');
-          checkRuns.check_runs.forEach(run => {
-            console.log(`  ✓ ${run.name}: ${run.conclusion}`);
+          this.lastTrackedSha = targetSha;
+          this.log('\n✓ All checks passed:', 'success');
+          runsForTarget.forEach(run => {
+            this.log(`  ✓ ${run.name}: ${run.conclusion}`, 'success');
           });
           return true;
         } else {
-          console.log('\n✗ Some checks failed:');
-          checkRuns.check_runs.forEach(run => {
+          this.lastTrackedSha = targetSha;
+          this.log('\n✗ Some checks failed:', 'error');
+          runsForTarget.forEach(run => {
             const icon = (run.conclusion === 'success' || run.conclusion === 'skipped') ? '✓' : '✗';
-            console.log(`  ${icon} ${run.name}: ${run.conclusion}`);
+            const level = (run.conclusion === 'success' || run.conclusion === 'skipped') ? 'success' : 'error';
+            this.log(`  ${icon} ${run.name}: ${run.conclusion}`, level);
           });
           return false;
         }
       } catch (error) {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        console.error(`[${elapsed}s] Error checking GitHub status:`, error instanceof Error ? error.message : String(error));
-        console.log('Retrying in 30 seconds...');
+        const message = error instanceof Error ? error.message : String(error);
+        this.log(`[${elapsed}s] Error checking GitHub status: ${message}`, 'error');
+        this.log('Retrying in 30 seconds...', 'warn');
         await this.sleep(30000);
       }
     }
@@ -131,7 +218,7 @@ export class GitHubChecker {
       cwd: this.workDir,
       encoding: 'utf-8'
     }).trim();
-    console.log(`Latest commit: ${sha}`);
+    this.log(`Latest commit: ${sha}`);
     return sha;
   }
 
@@ -157,13 +244,10 @@ export class GitHubChecker {
         encoding: 'utf-8'
       }).trim();
 
-      console.log(`Git remote URL: ${remoteUrl}`);
-
       const match = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
       if (match) {
         const owner = match[1];
         const repo = match[2];
-        console.log(`Parsed repository: ${owner}/${repo}`);
         return { owner, repo };
       }
 
@@ -178,5 +262,137 @@ export class GitHubChecker {
 
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async compareCommits(baseSha: string, headSha: string): Promise<'ahead' | 'behind' | 'identical' | 'diverged' | 'unknown'> {
+    if (baseSha === headSha) {
+      return 'identical';
+    }
+
+    try {
+      const { data } = await this.octokit.repos.compareCommitsWithBasehead({
+        owner: this.owner,
+        repo: this.repo,
+        basehead: `${baseSha}...${headSha}`,
+      });
+
+      if (data.status === 'ahead' || data.status === 'behind' || data.status === 'identical' || data.status === 'diverged') {
+        return data.status;
+      }
+    } catch (error) {
+      this.log(
+        `Failed to compare commits ${baseSha} and ${headSha}: ${error instanceof Error ? error.message : String(error)}`,
+        'warn',
+      );
+    }
+
+    if (this.isAncestor(baseSha, headSha)) {
+      return 'ahead';
+    }
+
+    if (this.isAncestor(headSha, baseSha)) {
+      return 'behind';
+    }
+
+    return 'unknown';
+  }
+
+  private isAncestor(potentialAncestor: string, commit: string): boolean {
+    try {
+      execSync(`git merge-base --is-ancestor ${potentialAncestor} ${commit}`, {
+        cwd: this.workDir,
+        stdio: 'ignore',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private getCurrentBranch(): string | null {
+    try {
+      return execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: this.workDir,
+        encoding: 'utf-8',
+      }).trim();
+    } catch {
+      return null;
+    }
+  }
+
+  private async getPullRequestDetails(): Promise<PullRequestDetails | null> {
+    const branch = this.getCurrentBranch();
+    if (!branch || branch === 'HEAD') {
+      return null;
+    }
+
+    try {
+      const pullList = await this.octokit.pulls.list({
+        owner: this.owner,
+        repo: this.repo,
+        head: `${this.owner}:${branch}`,
+        state: 'open',
+        per_page: 1,
+      });
+
+      const pull = pullList.data[0];
+      if (!pull) {
+        return null;
+      }
+
+      const pullDetailsResponse = await this.octokit.pulls.get({
+        owner: this.owner,
+        repo: this.repo,
+        pull_number: pull.number,
+      });
+
+      const pullDetails = pullDetailsResponse.data;
+
+      return {
+        number: pullDetails.number,
+        headSha: pullDetails.head?.sha ?? pull.head.sha ?? '',
+        headRef: pullDetails.head?.ref ?? branch,
+        baseRef: pullDetails.base?.ref,
+        mergeableState: pullDetails.mergeable_state ?? null,
+      };
+    } catch (error) {
+      this.log(`Failed to retrieve pull request details: ${error instanceof Error ? error.message : String(error)}`, 'warn');
+      return null;
+    }
+  }
+
+  private async detectMergeConflict(prDetails?: PullRequestDetails | null): Promise<MergeConflictDetails | null> {
+    const details = prDetails ?? (await this.getPullRequestDetails());
+    if (!details) {
+      return null;
+    }
+
+    if (details.mergeableState === 'dirty') {
+      return {
+        prNumber: details.number,
+        branch: details.headRef,
+        base: details.baseRef,
+      };
+    }
+
+    return null;
+  }
+
+  private log(message: string, level: 'info' | 'warn' | 'error' | 'success' = 'info'): void {
+    if (this.eventEmitter) {
+      const lines = message.split('\n');
+      for (const line of lines) {
+        if (line.trim()) {
+          this.eventEmitter.emit('event', {
+            type: 'log',
+            timestamp: Date.now(),
+            level,
+            message: line
+          });
+        }
+      }
+    } else {
+      console.log(message);
+    }
   }
 }

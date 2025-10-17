@@ -20,20 +20,20 @@ export interface Iteration {
   commitSha: string | null;
   claudeLog: string | null;
   codexLog: string | null;
-  status: 'in_progress' | 'completed' | 'failed';
+  status: 'in_progress' | 'completed' | 'failed' | 'aborted';
   implementationAgent: 'claude' | 'codex';
   reviewAgent: 'claude' | 'codex' | null;
   createdAt: string;
   updatedAt: string;
   issues: number[];
-  buildStatus?: 'pending' | 'in_progress' | 'passed' | 'failed';
+  buildStatus?: 'pending' | 'in_progress' | 'passed' | 'failed' | 'merge_conflict';
   reviewStatus?: 'pending' | 'in_progress' | 'passed' | 'failed';
 }
 
 export interface Issue {
   id: number;
   iterationId: number;
-  type: 'ci_failure' | 'codex_review';
+  type: 'ci_failure' | 'codex_review' | 'merge_conflict';
   description: string;
   filePath: string | null;
   lineNumber: number | null;
@@ -103,7 +103,7 @@ export interface IssueFoundEvent extends BaseEvent {
   type: 'issue_found';
   issueId: number;
   iterationId: number;
-  issueType: 'ci_failure' | 'codex_review';
+  issueType: 'ci_failure' | 'codex_review' | 'merge_conflict';
   description: string;
   filePath?: string;
   lineNumber?: number;
@@ -139,7 +139,7 @@ export interface LogEvent extends BaseEvent {
 export interface GitHubCheckEvent extends BaseEvent {
   type: 'github_check';
   iterationId?: number;
-  status: 'waiting' | 'running' | 'success' | 'failure';
+  status: 'waiting' | 'running' | 'success' | 'failure' | 'blocked';
 }
 
 export interface ErrorEvent extends BaseEvent {
