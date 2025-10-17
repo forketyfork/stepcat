@@ -21,6 +21,8 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
   const completedSteps = Math.max(completedByStatus, inferredCompleted);
   const width = state.terminalWidth;
   const planFileName = state.plan?.planFilePath ? basename(state.plan.planFilePath) : 'N/A';
+  const showCurrentPhase = Boolean(state.currentPhase && !state.isComplete && !state.error);
+  const currentPhaseText = showCurrentPhase && state.currentPhase ? state.currentPhase : '';
 
   const topLine = createLine(width, '╔', '╗', '═');
   const middleLine = createLine(width, '╠', '╣', '═');
@@ -28,7 +30,11 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
 
   const title = 'STEPCAT - Step-by-step Agent Orchestration';
   const executionId = state.plan?.id || 'N/A';
-  const statsContent = `Execution ID: ${executionId}  │  Steps: ${completedSteps}/${totalSteps}  │  Plan: ${planFileName}`;
+  const statsBaseContent = `Execution ID: ${executionId}  │  Steps: ${completedSteps}/${totalSteps}  │  Plan: ${planFileName}`;
+  const statsContent = showCurrentPhase
+    ? `${statsBaseContent}  │  Current: ${currentPhaseText}`
+    : statsBaseContent;
+  const statsPadding = ' '.repeat(Math.max(0, width - statsContent.length - 4));
 
   return (
     <Box flexDirection="column">
@@ -53,7 +59,13 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
         <Text bold color="cyan">{totalSteps}</Text>
         <Text>  │  Plan: </Text>
         <Text bold color="cyan">{planFileName}</Text>
-        <Text bold color="magenta">{' '.repeat(Math.max(0, width - statsContent.length - 4))} ║</Text>
+        {showCurrentPhase && (
+          <>
+            <Text>  │  Current: </Text>
+            <Text bold color="cyan">{currentPhaseText}</Text>
+          </>
+        )}
+        <Text bold color="magenta">{statsPadding} ║</Text>
       </Box>
       <Box>
         <Text bold color="magenta">{bottomLine}</Text>

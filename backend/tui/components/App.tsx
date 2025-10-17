@@ -180,9 +180,8 @@ export const App: React.FC<AppProps> = ({ state }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const headerHeight = HEADER_BASE_HEIGHT + 1; // +1 for spacing after header
+  const headerHeight = HEADER_BASE_HEIGHT;
   const showCurrentPhase = Boolean(state.currentPhase && !state.isComplete && !state.error);
-  const currentPhaseHeight = showCurrentPhase ? 1 : 0;
   const showCompletion = state.isComplete && !state.error;
   const completionHeight = showCompletion ? 1 : 0;
   const errorHeight = state.error ? 3 : 0; // double border box
@@ -190,7 +189,6 @@ export const App: React.FC<AppProps> = ({ state }) => {
   const completionSpacing = showCompletion && (showCurrentPhase || state.error) ? 1 : 0;
   const reservedHeight =
     headerHeight +
-    currentPhaseHeight +
     errorHeight +
     errorSpacing +
     completionHeight +
@@ -565,16 +563,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
   return (
     <Box flexDirection="column" width={state.terminalWidth} height={state.terminalHeight}>
       <Box flexDirection="column" flexShrink={0}>
-        <Box marginBottom={1}>
-          <Header state={state} />
-        </Box>
-
-        {showCurrentPhase && (
-          <Box>
-            <Text dimColor>Current: </Text>
-            <Text color="cyan">{state.currentPhase}</Text>
-          </Box>
-        )}
+        <Header state={state} />
 
         {state.error && (
           <Box
