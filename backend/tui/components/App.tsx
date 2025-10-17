@@ -491,15 +491,20 @@ export const App: React.FC<AppProps> = ({ state }) => {
     });
   }
 
-  const maxPrefixLength = Math.max(0, logInnerWidth - 1);
-  const prefixTemplate = '[00:00:00] ';
+  const prefixTemplate = '[00:00:00 AM] ';
+  const maxPrefixLength = Math.max(
+    0,
+    Math.min(prefixTemplate.length, logInnerWidth - 2)
+  );
 
   const logRows = rows.slice(0, LOG_LINES_TO_DISPLAY).map(row => {
     let prefix = row.showPrefix && row.timestamp
       ? `[${new Date(row.timestamp).toLocaleTimeString()}] `
-      : ''.padEnd(prefixTemplate.length, ' ');
+      : ''.padEnd(maxPrefixLength, ' ');
 
-    if (prefix.length > maxPrefixLength) {
+    if (maxPrefixLength === 0) {
+      prefix = '';
+    } else if (prefix.length > maxPrefixLength) {
       prefix = prefix.slice(prefix.length - maxPrefixLength);
     } else if (prefix.length < maxPrefixLength) {
       prefix = prefix.padEnd(maxPrefixLength, ' ');
