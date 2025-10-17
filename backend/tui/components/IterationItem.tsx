@@ -18,6 +18,7 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
     switch (status) {
       case 'in_progress': return '⟳';
       case 'completed': return '✓';
+      case 'aborted': return '⚠';
       case 'failed': return '✗';
       default: return '·';
     }
@@ -27,6 +28,7 @@ export const IterationItem: React.FC<IterationItemProps> = ({ iteration, issues 
     switch (status) {
       case 'in_progress': return 'cyan';
       case 'completed': return 'green';
+      case 'aborted': return 'yellow';
       case 'failed': return 'red';
       default: return 'gray';
     }

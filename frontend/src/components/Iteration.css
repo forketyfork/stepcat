@@ -23,6 +23,11 @@
   border-color: var(--red-500);
 }
 
+.iteration.aborted {
+  background: var(--orange-100);
+  border-color: var(--orange-500);
+}
+
 .iteration-header {
   display: flex;
   align-items: center;
@@ -68,6 +73,10 @@
 
 .iteration.failed .iteration-icon {
   background: var(--red-500);
+}
+
+.iteration.aborted .iteration-icon {
+  background: var(--orange-500);
 }
 
 .iteration-type {

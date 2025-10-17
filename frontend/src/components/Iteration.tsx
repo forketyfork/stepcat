@@ -16,7 +16,19 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
   const statusClass = iteration.status;
   const typeLabel = iteration.type.replace('_', ' ');
 
-  const iconContent = iteration.status === 'in_progress' ? '⟳' : iteration.status === 'completed' ? '✓' : '✗';
+  const iconContent = (() => {
+    switch (iteration.status) {
+      case 'in_progress':
+        return '⟳';
+      case 'completed':
+        return '✓';
+      case 'aborted':
+        return '⚠';
+      case 'failed':
+      default:
+        return '✗';
+    }
+  })();
 
   const getAgentDisplayName = (agent: 'claude' | 'codex'): string => {
     return agent === 'claude' ? 'Claude Code' : 'Codex';

@@ -20,7 +20,7 @@ export interface Iteration {
   commitSha: string | null;
   claudeLog: string | null;
   codexLog: string | null;
-  status: 'in_progress' | 'completed' | 'failed';
+  status: 'in_progress' | 'completed' | 'failed' | 'aborted';
   implementationAgent: 'claude' | 'codex';
   reviewAgent: 'claude' | 'codex' | null;
   createdAt: string;

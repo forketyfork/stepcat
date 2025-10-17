@@ -214,6 +214,11 @@ export class Orchestrator {
     }
   }
 
+  private countIterationsWithCommits(stepId: number): number {
+    const iterations = this.storage.getIterations(stepId);
+    return iterations.filter(iteration => iteration.commitSha !== null && iteration.status !== 'aborted').length;
+  }
+
   private async initializeOrResumePlan(): Promise<void> {
     if (this.executionId) {
       this.log(`Resuming execution ID: ${this.executionId}`, "info");
@@ -383,6 +388,10 @@ export class Orchestrator {
       this.storage.updateStepStatus(step.id, 'in_progress');
 
       const allIterations = this.storage.getIterations(step.id);
+      const highestIterationNumber = allIterations.reduce(
+        (max, iteration) => Math.max(max, iteration.iterationNumber),
+        0
+      );
       const completedIterations = allIterations.filter(i => i.status === 'completed');
       const activeIterations = allIterations.filter(i => i.status !== 'aborted');
       const iterationsWithWork = activeIterations.filter(i => i.commitSha !== null);
@@ -393,7 +402,7 @@ export class Orchestrator {
           this.handleMaxIterationsExceeded(step);
         }
 
-        const nextIterationNumber = allIterations.length + 1;
+        const nextIterationNumber = highestIterationNumber + 1;
         const iteration = this.storage.createIteration(
           step.id,
           nextIterationNumber,
@@ -441,17 +450,18 @@ export class Orchestrator {
           type: "iteration_complete",
           timestamp: Date.now(),
           stepId: step.id,
-          iterationNumber: 1,
+          iterationNumber: iteration.iterationNumber,
           commitSha: result.commitSha,
           status: 'completed',
         });
 
-        iterationNumber = 2;
+        iterationNumber = iteration.iterationNumber + 1;
       } else {
-        iterationNumber = completedIterations.length + 1;
+        iterationNumber = highestIterationNumber + 1;
       }
 
-      while (iterationNumber <= this.maxIterationsPerStep + 1) {
+      while (this.countIterationsWithCommits(step.id) <= this.maxIterationsPerStep) {
+        const attemptsWithCommits = this.countIterationsWithCommits(step.id);
         const sha = this.githubChecker.getLatestCommitSha();
         const previousIterationId = this.storage.getIterations(step.id)[iterationNumber - 2]?.id;
 
@@ -464,7 +474,7 @@ export class Orchestrator {
           timestamp: Date.now(),
           status: "waiting",
           sha,
-          attempt: iterationNumber - 1,
+          attempt: attemptsWithCommits,
           maxAttempts: this.maxIterationsPerStep,
           iterationId: previousIterationId,
         });
@@ -474,7 +484,7 @@ export class Orchestrator {
         const checksPass = await this.githubChecker.waitForChecksToPass(
           sha,
           this.buildTimeoutMinutes,
-          iterationNumber - 1,
+          attemptsWithCommits,
           this.maxIterationsPerStep,
         );
 
@@ -494,7 +504,7 @@ export class Orchestrator {
             description: buildErrors,
           });
 
-          if (iterationNumber > this.maxIterationsPerStep) {
+          if (attemptsWithCommits >= this.maxIterationsPerStep) {
             this.handleMaxIterationsExceeded(step);
           }
 
@@ -563,7 +573,7 @@ export class Orchestrator {
           timestamp: Date.now(),
           status: "success",
           sha,
-          attempt: iterationNumber - 1,
+          attempt: attemptsWithCommits,
           maxAttempts: this.maxIterationsPerStep,
           iterationId: previousIterationId,
         });
@@ -650,7 +660,7 @@ export class Orchestrator {
             });
           }
 
-          if (iterationNumber > this.maxIterationsPerStep) {
+          if (attemptsWithCommits >= this.maxIterationsPerStep) {
             this.handleMaxIterationsExceeded(step);
           }
 
@@ -733,7 +743,7 @@ export class Orchestrator {
         }
       }
 
-      if (iterationNumber > this.maxIterationsPerStep + 1) {
+      if (this.countIterationsWithCommits(step.id) > this.maxIterationsPerStep) {
         this.handleMaxIterationsExceeded(step);
       }
 

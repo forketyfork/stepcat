@@ -82,7 +82,7 @@ Stepcat is organized into two main components:
 
 ### Database Schema
 
-Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in the work directory. The database has four main tables:
+Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in the work directory. The database has four main tables plus a lightweight migrations tracker:
 
 **Plan Table**:
 - `id` (INTEGER PRIMARY KEY): Unique execution identifier
@@ -124,6 +124,10 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - `resolvedAt` (TEXT | NULL): ISO timestamp when marked fixed
 
 **Execution ID**: The plan ID serves as the execution ID and can be used to resume executions with `--execution-id <id>`.
+
+**Migrations**:
+- `schema_migrations` records applied schema changes with `{id, name, appliedAt}`.
+- The backend automatically applies pending migrations when the database is opened. Legacy databases (created before migrations were introduced) are assumed to be on the baseline schema and are upgraded in place before any work proceeds.
 
 ### Core Components
 

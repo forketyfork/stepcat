@@ -221,6 +221,53 @@ Implement the feature
       expect(steps[1].status).toBe('completed');
       db2.close();
     });
+
+    it('should preserve iteration numbering and events when resuming with aborted iterations', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      db.close();
+
+      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunner.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const eventEmitter = new OrchestratorEventEmitter();
+      const events: any[] = [];
+      eventEmitter.on('event', (event) => events.push(event));
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+        eventEmitter,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const iterations = db2.getIterations(step1.id);
+      expect(iterations).toHaveLength(2);
+      const aborted = iterations.find(i => i.status === 'aborted');
+      const completed = iterations.find(i => i.status === 'completed');
+      expect(aborted?.iterationNumber).toBe(1);
+      expect(completed?.iterationNumber).toBe(2);
+      expect(completed?.commitSha).toBe('abc123');
+
+      const iterationStartEvents = events.filter((event) => event.type === 'iteration_start');
+      const iterationCompleteEvents = events.filter((event) => event.type === 'iteration_complete');
+      expect(iterationStartEvents[0]?.iterationNumber).toBe(2);
+      expect(iterationCompleteEvents[0]?.iterationNumber).toBe(2);
+
+      db2.close();
+    });
   });
 
   describe('build failure handling', () => {

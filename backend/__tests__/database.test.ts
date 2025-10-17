@@ -1,5 +1,6 @@
+import BetterSqlite3 from 'better-sqlite3';
 import { Database } from '../database.js';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -31,6 +32,129 @@ describe('Database', () => {
     it('should enable foreign keys', () => {
       const result = (db as any).db.pragma('foreign_keys', { simple: true });
       expect(result).toBe(1);
+    });
+
+    it('should run migrations for legacy databases', () => {
+      db.close();
+
+      const legacyDir = join(tempDir, '.stepcat');
+      rmSync(legacyDir, { recursive: true, force: true });
+      mkdirSync(legacyDir, { recursive: true });
+      const legacyPath = join(legacyDir, 'executions.db');
+
+      const legacyDb = new BetterSqlite3(legacyPath);
+      const now = new Date().toISOString();
+      legacyDb.exec(`
+        BEGIN;
+
+        CREATE TABLE plans (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          planFilePath TEXT NOT NULL,
+          workDir TEXT NOT NULL,
+          owner TEXT NOT NULL,
+          repo TEXT NOT NULL,
+          createdAt TEXT NOT NULL
+        );
+
+        CREATE TABLE steps (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          planId INTEGER NOT NULL,
+          stepNumber INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('pending', 'in_progress', 'completed', 'failed')),
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          FOREIGN KEY (planId) REFERENCES plans(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE iterations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          stepId INTEGER NOT NULL,
+          iterationNumber INTEGER NOT NULL,
+          type TEXT NOT NULL CHECK(type IN ('implementation', 'build_fix', 'review_fix')),
+          commitSha TEXT,
+          claudeLog TEXT,
+          codexLog TEXT,
+          buildStatus TEXT CHECK(buildStatus IN ('pending', 'in_progress', 'passed', 'failed')),
+          reviewStatus TEXT CHECK(reviewStatus IN ('pending', 'in_progress', 'passed', 'failed')),
+          status TEXT NOT NULL CHECK(status IN ('in_progress', 'completed', 'failed')),
+          implementationAgent TEXT NOT NULL CHECK(implementationAgent IN ('claude', 'codex')),
+          reviewAgent TEXT CHECK(reviewAgent IN ('claude', 'codex')),
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          FOREIGN KEY (stepId) REFERENCES steps(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE issues (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          iterationId INTEGER NOT NULL,
+          type TEXT NOT NULL CHECK(type IN ('ci_failure', 'codex_review')),
+          description TEXT NOT NULL,
+          filePath TEXT,
+          lineNumber INTEGER,
+          severity TEXT CHECK(severity IN ('error', 'warning')),
+          status TEXT NOT NULL CHECK(status IN ('open', 'fixed')),
+          createdAt TEXT NOT NULL,
+          resolvedAt TEXT,
+          FOREIGN KEY (iterationId) REFERENCES iterations(id) ON DELETE CASCADE
+        );
+
+        INSERT INTO plans (id, planFilePath, workDir, owner, repo, createdAt)
+        VALUES (1, '/legacy/plan.md', '${tempDir.replace(/'/g, "''")}', 'legacy-owner', 'legacy-repo', '${now}');
+
+        INSERT INTO steps (id, planId, stepNumber, title, status, createdAt, updatedAt)
+        VALUES (1, 1, 1, 'Legacy Step', 'in_progress', '${now}', '${now}');
+
+        INSERT INTO iterations (
+          id,
+          stepId,
+          iterationNumber,
+          type,
+          commitSha,
+          claudeLog,
+          codexLog,
+          buildStatus,
+          reviewStatus,
+          status,
+          implementationAgent,
+          reviewAgent,
+          createdAt,
+          updatedAt
+        )
+        VALUES (
+          1,
+          1,
+          1,
+          'implementation',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          'in_progress',
+          'claude',
+          'codex',
+          '${now}',
+          '${now}'
+        );
+
+        COMMIT;
+      `);
+      legacyDb.close();
+
+      db = new Database(tempDir);
+
+      const migrationCount = (db as any).db
+        .prepare('SELECT COUNT(*) as count FROM schema_migrations')
+        .get().count;
+      expect(migrationCount).toBeGreaterThanOrEqual(2);
+
+      const legacyIterations = db.getIterations(1);
+      expect(legacyIterations).toHaveLength(1);
+      expect(() => db.updateIteration(legacyIterations[0].id, { status: 'aborted' })).not.toThrow();
+
+      const updatedIteration = db.getIterations(1)[0];
+      expect(updatedIteration.status).toBe('aborted');
     });
   });
 

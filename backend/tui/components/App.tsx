@@ -74,6 +74,8 @@ const getIterationStatusIcon = (status: Iteration['status']): string => {
       return '⟳';
     case 'completed':
       return '✓';
+    case 'aborted':
+      return '⚠';
     case 'failed':
       return '✗';
     default:
@@ -87,6 +89,8 @@ const getIterationStatusColor = (status: Iteration['status']): string => {
       return 'cyan';
     case 'completed':
       return 'green';
+    case 'aborted':
+      return 'yellow';
     case 'failed':
       return 'red';
     default:

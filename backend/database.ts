@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Plan, DbStep, Iteration, Issue } from './models.js';
 import { Storage, IterationUpdate } from './storage.js';
+import { migrations } from './migrations.js';
 
 export class Database implements Storage {
   private db: BetterSqlite3.Database;
@@ -19,7 +20,9 @@ export class Database implements Storage {
       this.db = new BetterSqlite3(dbPath);
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('foreign_keys = ON');
-      this.initializeSchema();
+      this.ensureMigrationsTable();
+      this.runMigrations();
+      this.db.pragma('foreign_keys = ON');
     } catch (error) {
       throw new Error(
         `Failed to initialize database at ${dbPath}: ${error instanceof Error ? error.message : String(error)}`
@@ -27,64 +30,39 @@ export class Database implements Storage {
     }
   }
 
-  private initializeSchema(): void {
+  private ensureMigrationsTable(): void {
     this.db.exec(`
-      BEGIN;
-
-      CREATE TABLE IF NOT EXISTS plans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        planFilePath TEXT NOT NULL,
-        workDir TEXT NOT NULL,
-        owner TEXT NOT NULL,
-        repo TEXT NOT NULL,
-        createdAt TEXT NOT NULL
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        appliedAt TEXT NOT NULL
       );
-
-      CREATE TABLE IF NOT EXISTS steps (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        planId INTEGER NOT NULL,
-        stepNumber INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        status TEXT NOT NULL CHECK(status IN ('pending', 'in_progress', 'completed', 'failed')),
-        createdAt TEXT NOT NULL,
-        updatedAt TEXT NOT NULL,
-        FOREIGN KEY (planId) REFERENCES plans(id) ON DELETE CASCADE
-      );
-
-      CREATE TABLE IF NOT EXISTS iterations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        stepId INTEGER NOT NULL,
-        iterationNumber INTEGER NOT NULL,
-        type TEXT NOT NULL CHECK(type IN ('implementation', 'build_fix', 'review_fix')),
-        commitSha TEXT,
-        claudeLog TEXT,
-        codexLog TEXT,
-        buildStatus TEXT CHECK(buildStatus IN ('pending', 'in_progress', 'passed', 'failed')),
-        reviewStatus TEXT CHECK(reviewStatus IN ('pending', 'in_progress', 'passed', 'failed')),
-        status TEXT NOT NULL CHECK(status IN ('in_progress', 'completed', 'failed', 'aborted')),
-        implementationAgent TEXT NOT NULL CHECK(implementationAgent IN ('claude', 'codex')),
-        reviewAgent TEXT CHECK(reviewAgent IN ('claude', 'codex')),
-        createdAt TEXT NOT NULL,
-        updatedAt TEXT NOT NULL,
-        FOREIGN KEY (stepId) REFERENCES steps(id) ON DELETE CASCADE
-      );
-
-      CREATE TABLE IF NOT EXISTS issues (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        iterationId INTEGER NOT NULL,
-        type TEXT NOT NULL CHECK(type IN ('ci_failure', 'codex_review')),
-        description TEXT NOT NULL,
-        filePath TEXT,
-        lineNumber INTEGER,
-        severity TEXT CHECK(severity IN ('error', 'warning')),
-        status TEXT NOT NULL CHECK(status IN ('open', 'fixed')),
-        createdAt TEXT NOT NULL,
-        resolvedAt TEXT,
-        FOREIGN KEY (iterationId) REFERENCES iterations(id) ON DELETE CASCADE
-      );
-
-      COMMIT;
     `);
+  }
+
+  private runMigrations(): void {
+    const appliedRows = this.db.prepare('SELECT id FROM schema_migrations').all() as Array<{ id: number }>;
+    const applied = new Set(appliedRows.map(row => row.id));
+
+    for (const migration of migrations) {
+      if (applied.has(migration.id)) {
+        continue;
+      }
+
+      try {
+        migration.up(this.db);
+        const appliedAt = new Date().toISOString();
+        this.db
+          .prepare('INSERT INTO schema_migrations (id, name, appliedAt) VALUES (?, ?, ?)')
+          .run(migration.id, migration.name, appliedAt);
+      } catch (error) {
+        throw new Error(
+          `Failed to apply migration ${migration.id} (${migration.name}): ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
   }
 
   createPlan(planFilePath: string, workDir: string, owner: string, repo: string): Plan {
