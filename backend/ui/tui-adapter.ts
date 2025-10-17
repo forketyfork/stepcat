@@ -179,11 +179,15 @@ export class TUIAdapter implements UIAdapter {
         break;
 
       case 'log':
-        this.state.logs.push({
-          level: event.level,
-          message: event.message,
-          timestamp: event.timestamp
-        });
+        {
+          const normalizedMessage = event.message.replace(/[\r\n]+/g, ' ');
+          const hasContent = normalizedMessage.trim().length > 0;
+          this.state.logs.push({
+            level: event.level,
+            message: hasContent ? normalizedMessage : '',
+            timestamp: event.timestamp
+          });
+        }
         if (this.state.logs.length > 50) {
           this.state.logs.shift();
         }

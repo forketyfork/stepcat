@@ -96,15 +96,23 @@ export class Orchestrator {
     level: "info" | "warn" | "error" | "success" = "info",
     stepNumber?: number,
   ) {
-    if (!this.silent) {
-      console.log(message);
-    }
-    this.emitEvent({
-      type: "log",
-      timestamp: Date.now(),
-      level,
-      message,
-      stepNumber,
+    const lines = message.split(/\r?\n/);
+    const baseTimestamp = Date.now();
+
+    lines.forEach((line, index) => {
+      const lineTimestamp = lines.length === 1 ? baseTimestamp : baseTimestamp + index;
+
+      if (!this.silent) {
+        console.log(line);
+      }
+
+      this.emitEvent({
+        type: "log",
+        timestamp: lineTimestamp,
+        level,
+        message: line,
+        stepNumber,
+      });
     });
   }
 
@@ -366,6 +374,9 @@ export class Orchestrator {
 
     let step = this.getCurrentStep();
     while (step) {
+      this.storage.updateStepStatus(step.id, 'in_progress');
+      step = { ...step, status: 'in_progress' };
+
       const freshSteps = this.storage.getSteps(this.plan.id);
       const completedCount = freshSteps.filter(s => s.status === 'completed').length;
 
@@ -384,8 +395,6 @@ export class Orchestrator {
       this.log(`\n${"═".repeat(80)}`);
       this.log(`STEP ${step.stepNumber}: ${step.title}`);
       this.log("═".repeat(80));
-
-      this.storage.updateStepStatus(step.id, 'in_progress');
 
       const allIterations = this.storage.getIterations(step.id);
       const highestIterationNumber = allIterations.reduce(

@@ -11,7 +11,7 @@ describe('TUI App log rendering', () => {
       logs: [
         {
           level: 'info',
-          message: 'Test log entry for display',
+          message: 'Test log entry\nfor display',
           timestamp: new Date('2024-01-01T10:45:54Z').getTime(),
         },
       ],

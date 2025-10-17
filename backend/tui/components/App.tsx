@@ -230,6 +230,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
     const lines: StepLine[] = [];
 
     state.steps.forEach((step, stepIndex) => {
+      const isCurrentStep = step.status === 'in_progress';
       lines.push({
         key: `step-${step.id}`,
         text: ` ${getStepStatusIcon(step.status)} Step ${step.stepNumber}: ${step.title}`,
@@ -270,7 +271,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
             failed: 'Failed',
             merge_conflict: 'Merge conflict, waiting for resolution',
           };
-          const buildActive = iteration.buildStatus === 'pending' || iteration.buildStatus === 'in_progress';
+          const buildActive = isCurrentStep && (iteration.buildStatus === 'pending' || iteration.buildStatus === 'in_progress');
           const buildLabel = `Build: ${buildStatusDisplay[iteration.buildStatus]}`;
           lines.push({
             key: `iteration-${iteration.id}-build`,
@@ -291,7 +292,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
           const reviewLabel = reviewAgentName
             ? `      - Review [${reviewAgentName}]: ${iteration.reviewStatus}`
             : `      - Review: ${iteration.reviewStatus}`;
-          const reviewActive = iteration.reviewStatus === 'pending' || iteration.reviewStatus === 'in_progress';
+          const reviewActive = isCurrentStep && (iteration.reviewStatus === 'pending' || iteration.reviewStatus === 'in_progress');
 
           lines.push({
             key: `iteration-${iteration.id}-review`,
@@ -464,13 +465,18 @@ export const App: React.FC<AppProps> = ({ state }) => {
 
   const rows: LogRow[] =
     recentLogs.length > 0
-      ? recentLogs.map((log, idx) => ({
-          key: `${log.timestamp}-${idx}`,
-          message: log.message,
-          level: (log.level as LogRow['level']) ?? 'info',
-          timestamp: log.timestamp,
-          showPrefix: true,
-        }))
+      ? recentLogs.map((log, idx) => {
+          const sanitizedMessage = (log.message ?? '').replace(/[\r\n]+/g, ' ');
+          const hasContent = sanitizedMessage.trim().length > 0;
+          return {
+            key: `${log.timestamp}-${idx}`,
+            message: hasContent ? sanitizedMessage : '',
+            level: (log.level as LogRow['level']) ?? 'info',
+            timestamp: log.timestamp,
+            showPrefix: hasContent,
+            dim: !hasContent,
+          };
+        })
       : [
           {
             key: 'log-empty',
@@ -498,9 +504,15 @@ export const App: React.FC<AppProps> = ({ state }) => {
   );
 
   const logRows = rows.slice(0, LOG_LINES_TO_DISPLAY).map(row => {
-    let prefix = row.showPrefix && row.timestamp
-      ? `[${new Date(row.timestamp).toLocaleTimeString()}] `
-      : ''.padEnd(maxPrefixLength, ' ');
+    const hasMessage = (row.message ?? '').trim().length > 0;
+    const shouldShowPrefix = row.showPrefix && row.timestamp && hasMessage;
+
+    let prefix: string;
+    if (shouldShowPrefix && row.timestamp) {
+      prefix = `[${new Date(row.timestamp).toLocaleTimeString()}] `;
+    } else {
+      prefix = ''.padEnd(maxPrefixLength, ' ');
+    }
 
     if (maxPrefixLength === 0) {
       prefix = '';
@@ -512,7 +524,7 @@ export const App: React.FC<AppProps> = ({ state }) => {
 
     const availableForMessage = Math.max(0, logInnerWidth - 1 - prefix.length);
 
-    let messageText = row.message ?? '';
+    let messageText = (row.message ?? '').replace(/[\r\n]+/g, ' ');
     if (messageText.length > availableForMessage) {
       if (availableForMessage <= 0) {
         messageText = '';
