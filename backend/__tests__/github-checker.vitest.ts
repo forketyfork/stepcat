@@ -90,6 +90,7 @@ describe('GitHubChecker waitForChecksToPass', () => {
     };
     (checker as any).log = noopLog;
     vi.spyOn(checker as any, 'sleep').mockImplementation(() => Promise.resolve());
+    vi.spyOn(checker as any, 'getCurrentBranch').mockReturnValue('feature/test');
 
     const result = await checker.waitForChecksToPass(currentSha, 1);
 
@@ -155,6 +156,7 @@ describe('GitHubChecker waitForChecksToPass', () => {
     };
     (checker as any).log = noopLog;
     vi.spyOn(checker as any, 'sleep').mockImplementation(() => Promise.resolve());
+    vi.spyOn(checker as any, 'getCurrentBranch').mockReturnValue('feature/next');
 
     const result = await checker.waitForChecksToPass(currentSha, 1);
 
