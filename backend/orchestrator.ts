@@ -139,6 +139,7 @@ export class Orchestrator {
         workDir: this.workDir,
         prompt,
         timeoutMinutes: this.agentTimeoutMinutes,
+        captureOutput: true,
         eventEmitter: this.eventEmitter,
       });
     }
@@ -450,6 +451,7 @@ export class Orchestrator {
 
         this.storage.updateIteration(iteration.id, {
           commitSha: result.commitSha,
+          claudeLog: result.output ?? null,
           status: 'completed',
         });
 
@@ -623,6 +625,7 @@ export class Orchestrator {
 
           this.storage.updateIteration(iteration.id, {
             commitSha: result.commitSha,
+            claudeLog: result.output ?? null,
             status: 'completed',
           });
 
@@ -779,6 +782,7 @@ export class Orchestrator {
 
           this.storage.updateIteration(iteration.id, {
             commitSha: result.commitSha,
+            claudeLog: result.output ?? null,
             status: 'completed',
           });
 

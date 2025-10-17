@@ -7,6 +7,7 @@ import { DbStep, Iteration } from '../../models.js';
 
 interface AppProps {
   state: TUIState;
+  onStateChange: () => void;
 }
 
 const LOG_LINES_TO_DISPLAY = 5;
@@ -170,7 +171,7 @@ const createGradientSegments = (
   });
 };
 
-export const App: React.FC<AppProps> = ({ state }) => {
+export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
   const [gradientOffset, setGradientOffset] = React.useState(0);
 
   React.useEffect(() => {
@@ -222,26 +223,31 @@ export const App: React.FC<AppProps> = ({ state }) => {
         state.selectedLogIndex = 0;
         state.viewMode = 'log_viewer';
         state.stateVersion++;
+        onStateChange();
       }
     } else if (state.viewMode === 'log_viewer') {
       if (key.escape) {
         state.viewMode = 'normal';
         state.stateVersion++;
+        onStateChange();
       } else if (key.upArrow) {
         if (state.selectedLogIndex > 0) {
           state.selectedLogIndex--;
           state.stateVersion++;
+          onStateChange();
         }
       } else if (key.downArrow) {
         if (state.selectedLogIndex < state.logViewerItems.length - 1) {
           state.selectedLogIndex++;
           state.stateVersion++;
+          onStateChange();
         }
       } else if (key.return) {
         const selectedItem = state.logViewerItems[state.selectedLogIndex];
         if (selectedItem && selectedItem.logContent) {
           state.pendingLogView = selectedItem.logContent;
           state.stateVersion++;
+          onStateChange();
         }
       }
     }

@@ -661,14 +661,14 @@ Implement the feature
 
     it('allows using Claude Code for code review', async () => {
       mockClaudeRunner.run = vi.fn().mockImplementation(async (options: any) => {
-        if (options.captureOutput) {
+        if (options.prompt.includes('code review') || options.prompt.includes('Review')) {
           return {
             success: true,
             commitSha: null,
             output: JSON.stringify({ result: 'PASS', issues: [] }),
           };
         }
-        return { success: true, commitSha: 'abc123' };
+        return { success: true, commitSha: 'abc123', output: 'Implementation log' };
       });
 
       mockCodexRunner.run = vi.fn();

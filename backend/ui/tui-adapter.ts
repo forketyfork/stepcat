@@ -18,7 +18,7 @@ const isBuiltArtifact = moduleDir.split(sep).includes('dist');
 type InkModule = typeof import('ink');
 type ReactModule = typeof import('react');
 type InkInstance = { rerender: (node: ReactTypes.ReactNode) => void; unmount: () => void };
-type AppComponent = ReactTypes.FC<{ state: TUIState }>;
+type AppComponent = ReactTypes.FC<{ state: TUIState; onStateChange: () => void }>;
 
 export class TUIAdapter implements UIAdapter {
   private state: TUIState;
@@ -69,7 +69,12 @@ export class TUIAdapter implements UIAdapter {
     this.resizeHandler = this.handleResize.bind(this);
     process.stdout.on('resize', this.resizeHandler);
 
-    this.inkInstance = this.ink.render(this.React.createElement(this.App, { state: this.state }));
+    this.inkInstance = this.ink.render(
+      this.React.createElement(this.App, {
+        state: this.state,
+        onStateChange: this.rerender.bind(this)
+      })
+    );
   }
 
   onEvent(event: OrchestratorEvent): void {
@@ -226,7 +231,12 @@ export class TUIAdapter implements UIAdapter {
       });
 
       if (this.React && this.App) {
-        this.inkInstance = this.ink!.render(this.React.createElement(this.App, { state: this.state }));
+        this.inkInstance = this.ink!.render(
+          this.React.createElement(this.App, {
+            state: this.state,
+            onStateChange: this.rerender.bind(this)
+          })
+        );
       }
     } finally {
       try {
@@ -252,7 +262,12 @@ export class TUIAdapter implements UIAdapter {
     }
 
     if (this.inkInstance && this.React && this.App) {
-      this.inkInstance.rerender(this.React.createElement(this.App, { state: this.state }));
+      this.inkInstance.rerender(
+        this.React.createElement(this.App, {
+          state: this.state,
+          onStateChange: this.rerender.bind(this)
+        })
+      );
     }
   }
 
