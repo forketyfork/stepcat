@@ -2,6 +2,25 @@
 
 Step-by-step agent orchestration solution that automates implementation of multi-step development plans using Claude Code and Codex, with configurable agents for each stage.
 
+## Table of Contents
+
+- [Quickstart](#quickstart)
+- [Overview](#overview)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Implementation Plan Format](#implementation-plan-format)
+- [Git Commit Strategy](#git-commit-strategy)
+- [How It Works](#how-it-works)
+- [Requirements](#requirements)
+- [Environment Variables](#environment-variables)
+- [Project Architecture](#project-architecture)
+- [Development](#development)
+- [Testing](#testing)
+- [Frontend Development](#frontend-development)
+- [Troubleshooting](#troubleshooting)
+- [Uninstall](#uninstall)
+- [License](#license)
+
 ## Overview
 
 Stepcat orchestrates the implementation of complex development tasks by:
@@ -14,6 +33,29 @@ Stepcat orchestrates the implementation of complex development tasks by:
 7. Moving to the next step when all checks pass
 
 All execution state is stored in a SQLite database (`.stepcat/executions.db`), enabling resume functionality and complete audit trails. Each implementation iteration creates a separate git commit, providing full transparency and traceability.
+
+## Quickstart
+
+1. Ensure your target repository is on GitHub with Actions enabled and has a `justfile` exposing `just build`, `just lint`, and `just test`.
+2. Install Stepcat:
+   ```bash
+   npm install -g stepcat
+   ```
+3. Create a minimal `plan.md`:
+   ```markdown
+   ## Step 1: Setup Project Structure
+   ## Step 2: Implement Core Features
+   ## Step 3: Add Tests
+   ```
+4. Run in CLI mode:
+   ```bash
+   export GITHUB_TOKEN=your_token_here
+   stepcat --file plan.md --dir /path/to/project
+   ```
+5. Optional web UI:
+   ```bash
+   stepcat --file plan.md --dir /path/to/project --ui
+   ```
 
 ## Installation
 
@@ -251,7 +293,7 @@ For each pending step in the plan:
 **Key Points**:
 - All state stored in SQLite database (`.stepcat/executions.db`)
 - Plan file is never modified during execution
- - Each implementation agent execution creates a separate commit (full audit trail)
+- Each implementation agent execution creates a separate commit (full audit trail)
 - Issues are tracked with file paths, line numbers, and resolution status
 - Iteration types: 'implementation', 'build_fix', 'review_fix'
 - Full traceability: Issue → Iteration → Commit SHA
@@ -260,6 +302,10 @@ For each pending step in the plan:
 ## Environment Variables
 
 - `GITHUB_TOKEN` - GitHub personal access token (required if not provided via `--token`)
+
+Authentication notes:
+- Required scopes: `repo` and `workflow` (to trigger and read check runs).
+- The token is read at runtime and not persisted by Stepcat. Avoid committing it; prefer environment variables.
 
 ## Project Architecture
 
@@ -398,6 +444,27 @@ npm run dev
 ```
 
 The frontend dev server runs on `http://localhost:5173` and expects the backend WebSocket server to be running on port 3742.
+
+## Troubleshooting
+
+- CI checks don't start:
+  - Verify the repository remote is GitHub (`git remote -v`).
+  - Confirm GitHub Actions is enabled and your `GITHUB_TOKEN` has `repo` and `workflow` scopes.
+  - Ensure there is an open PR or that your branch/Actions are configured to run checks on push.
+- `just` command not found:
+  - Install `just` from `https://github.com/casey/just` or use the npm script equivalents in this README.
+- Web UI is blank or 404s:
+  - Build the frontend (`npm run build:frontend`) before running with `--ui`, or use CLI mode without `--ui`.
+- Path or module resolution errors when running from another directory:
+  - Use the built output (`npm run build`) and execute the CLI from `dist/` if developing locally.
+
+## Uninstall
+
+Remove the globally installed CLI:
+
+```bash
+npm uninstall -g stepcat
+```
 
 ## License
 
