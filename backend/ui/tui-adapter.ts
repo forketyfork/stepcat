@@ -51,8 +51,31 @@ export class TUIAdapter implements UIAdapter {
   }
 
   async initialize(): Promise<void> {
-    this.ink = await import('ink');
-    this.React = await import('react');
+    try {
+      this.ink = await import('ink');
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        [
+          'Failed to load Ink for the terminal UI.',
+          'Ensure optional runtime dependencies are installed with `npm install ink react` before using the --tui flag.',
+          `Original error: ${details}`
+        ].join('\n')
+      );
+    }
+
+    try {
+      this.React = await import('react');
+    } catch (error) {
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        [
+          'React >=19 is required for the terminal UI.',
+          'Install it with `npm install react@^19` before using the --tui flag.',
+          `Original error: ${details}`
+        ].join('\n')
+      );
+    }
 
     const isDev = process.env.NODE_ENV !== 'production' && !isBuiltArtifact;
     const fileName = isDev ? 'App.tsx' : 'App.js';
