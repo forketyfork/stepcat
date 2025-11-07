@@ -10,11 +10,52 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 
-vi.mock('../claude-runner');
-vi.mock('../codex-runner');
+const { mockClaudeRunnerInstance, mockCodexRunnerInstance, mockGitHubCheckerInstance } = vi.hoisted(() => {
+  const mockClaudeRunnerInstance = {
+    run: vi.fn(),
+    buildImplementationPrompt: vi.fn(),
+    buildFixPrompt: vi.fn(),
+    buildReviewFixPrompt: vi.fn(),
+  };
+
+  const mockCodexRunnerInstance = {
+    run: vi.fn(),
+    buildReviewPrompt: vi.fn(),
+    buildBuildFixReviewPrompt: vi.fn(),
+    buildReviewFixReviewPrompt: vi.fn(),
+  };
+
+  const mockGitHubCheckerInstance = {
+    waitForChecksToPass: vi.fn(),
+    getLatestCommitSha: vi.fn(),
+    getLastTrackedSha: vi.fn().mockReturnValue('abc123'),
+    getOwner: vi.fn().mockReturnValue('test-owner'),
+    getRepo: vi.fn().mockReturnValue('test-repo'),
+    getOctokit: vi.fn().mockReturnValue({
+      checks: {
+        listForRef: vi.fn().mockResolvedValue({ data: { check_runs: [] } }),
+      },
+    }),
+  };
+
+  return { mockClaudeRunnerInstance, mockCodexRunnerInstance, mockGitHubCheckerInstance };
+});
+
+vi.mock('../claude-runner', () => {
+  return {
+    ClaudeRunner: vi.fn(function() { return mockClaudeRunnerInstance; }),
+  };
+});
+
+vi.mock('../codex-runner', () => {
+  return {
+    CodexRunner: vi.fn(function() { return mockCodexRunnerInstance; }),
+  };
+});
+
 vi.mock('../github-checker', async () => {
   const actual = await vi.importActual<typeof import('../github-checker.js')>('../github-checker.js');
-  const GitHubCheckerMock: any = vi.fn();
+  const GitHubCheckerMock: any = vi.fn(function() { return mockGitHubCheckerInstance; });
   GitHubCheckerMock.parseRepoInfo = actual.GitHubChecker.parseRepoInfo;
   return {
     ...actual,
@@ -28,9 +69,6 @@ const { MergeConflictError } = await vi.importActual<typeof import('../github-ch
 describe('Orchestrator', () => {
   let tempDir: string;
   let planFile: string;
-  let mockClaudeRunner: vi.Mocked<ClaudeRunner>;
-  let mockCodexRunner: vi.Mocked<CodexRunner>;
-  let mockGitHubChecker: vi.Mocked<GitHubChecker>;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'orchestrator-test-'));
@@ -50,32 +88,10 @@ Implement the feature
 
     vi.clearAllMocks();
 
-    mockClaudeRunner = new ClaudeRunner() as vi.Mocked<ClaudeRunner>;
-    mockCodexRunner = new CodexRunner() as vi.Mocked<CodexRunner>;
-
     vi.spyOn(GitHubChecker, 'parseRepoInfo').mockReturnValue({
       owner: 'test-owner',
       repo: 'test-repo',
     });
-
-    mockGitHubChecker = {
-      waitForChecksToPass: vi.fn(),
-      getLatestCommitSha: vi.fn(),
-      getLastTrackedSha: vi.fn().mockReturnValue(null),
-      getOwner: vi.fn().mockReturnValue('test-owner'),
-      getRepo: vi.fn().mockReturnValue('test-repo'),
-      getOctokit: vi.fn().mockReturnValue({
-        checks: {
-          listForRef: vi.fn().mockResolvedValue({ data: { check_runs: [] } }),
-        },
-      }),
-    } as any;
-
-    mockGitHubChecker.getLastTrackedSha.mockReturnValue('abc123');
-
-    (ClaudeRunner as vi.MockedClass<typeof ClaudeRunner>).mockImplementation(() => mockClaudeRunner);
-    (CodexRunner as vi.MockedClass<typeof CodexRunner>).mockImplementation(() => mockCodexRunner);
-    (GitHubChecker as vi.MockedClass<typeof GitHubChecker>).mockImplementation(() => mockGitHubChecker);
   });
 
   afterEach(() => {
@@ -84,14 +100,14 @@ Implement the feature
 
   describe('new execution', () => {
     it('should initialize plan and steps in database', async () => {
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -132,11 +148,11 @@ Implement the feature
       db.updateStepStatus(step1.id, 'completed');
       db.close();
 
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'def456' });
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('def456');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('def456');
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'def456' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('def456');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('def456');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -176,11 +192,11 @@ Implement the feature
       const iteration1 = db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
       db.close();
 
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -216,11 +232,11 @@ Implement the feature
       db.updateIteration(iter2.id, { status: 'aborted' });
       db.close();
 
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -249,11 +265,11 @@ Implement the feature
       db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
       db.close();
 
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -293,30 +309,30 @@ Implement the feature
 
   describe('build failure handling', () => {
     it('should create build_fix iteration when CI fails', async () => {
-      mockClaudeRunner.run = jest
+      mockClaudeRunnerInstance.run = jest
         .fn()
         .mockResolvedValueOnce({ success: true, commitSha: 'abc123' })
         .mockResolvedValueOnce({ success: true, commitSha: 'def456' })
         .mockResolvedValue({ success: true, commitSha: 'step2' });
 
-      mockGitHubChecker.getLatestCommitSha = jest
+      mockGitHubCheckerInstance.getLatestCommitSha = jest
         .fn()
         .mockReturnValueOnce('abc123')
         .mockReturnValueOnce('def456')
         .mockReturnValue('step2');
-      mockGitHubChecker.getLastTrackedSha = jest
+      mockGitHubCheckerInstance.getLastTrackedSha = jest
         .fn()
         .mockReturnValueOnce('abc123')
         .mockReturnValueOnce('def456')
         .mockReturnValue('step2');
 
-      mockGitHubChecker.waitForChecksToPass = jest
+      mockGitHubCheckerInstance.waitForChecksToPass = jest
         .fn()
         .mockResolvedValueOnce(false)
         .mockResolvedValueOnce(true)
         .mockResolvedValue(true);
 
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -355,10 +371,10 @@ Implement the feature
       const step1 = db.createStep(plan.id, 1, 'Setup');
       db.close();
 
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.waitForChecksToPass = vi
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.waitForChecksToPass = vi
         .fn()
         .mockRejectedValue(
           new MergeConflictError('Merge conflict detected for PR #7', {
@@ -367,7 +383,7 @@ Implement the feature
             base: 'main',
           })
         );
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -397,26 +413,26 @@ Implement the feature
 
   describe('code review handling', () => {
     it('should create review_fix iteration when Codex finds issues', async () => {
-      mockClaudeRunner.run = jest
+      mockClaudeRunnerInstance.run = jest
         .fn()
         .mockResolvedValueOnce({ success: true, commitSha: 'abc123' })
         .mockResolvedValueOnce({ success: true, commitSha: 'fix789' })
         .mockResolvedValue({ success: true, commitSha: 'step2' });
 
-      mockGitHubChecker.getLatestCommitSha = jest
+      mockGitHubCheckerInstance.getLatestCommitSha = jest
         .fn()
         .mockReturnValueOnce('abc123')
         .mockReturnValueOnce('fix789')
         .mockReturnValue('step2');
-      mockGitHubChecker.getLastTrackedSha = jest
+      mockGitHubCheckerInstance.getLastTrackedSha = jest
         .fn()
         .mockReturnValueOnce('abc123')
         .mockReturnValueOnce('fix789')
         .mockReturnValue('step2');
 
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
 
-      mockCodexRunner.run = jest
+      mockCodexRunnerInstance.run = jest
         .fn()
         .mockResolvedValueOnce({
           success: true,
@@ -463,12 +479,12 @@ Implement the feature
 
   describe('max iterations enforcement', () => {
     it('should fail step when max iterations exceeded', async () => {
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
 
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({
           result: 'FAIL',
@@ -492,12 +508,12 @@ Implement the feature
     });
 
     it('should perform review on final allowed iteration before failing', async () => {
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
 
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({
           result: 'FAIL',
@@ -513,17 +529,17 @@ Implement the feature
       });
 
       await expect(orchestrator.run()).rejects.toThrow(/exceeded maximum iterations/);
-      expect(mockCodexRunner.run).toHaveBeenCalledTimes(3);
+      expect(mockCodexRunnerInstance.run).toHaveBeenCalledTimes(3);
     });
   });
 
   describe('event emission', () => {
     it('should emit step_start and step_complete events', async () => {
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -550,11 +566,11 @@ Implement the feature
     });
 
     it('should emit iteration_start and iteration_complete events', async () => {
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({ result: 'PASS', issues: [] })
       });
@@ -583,11 +599,11 @@ Implement the feature
 
   describe('configuration', () => {
     it('should use default max iterations of 3', async () => {
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({
           result: 'FAIL',
@@ -605,11 +621,11 @@ Implement the feature
     });
 
     it('should use custom max iterations when provided', async () => {
-      mockClaudeRunner.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
-      mockCodexRunner.run = vi.fn().mockResolvedValue({
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
         success: true,
         output: JSON.stringify({
           result: 'FAIL',
@@ -630,7 +646,7 @@ Implement the feature
 
   describe('agent configuration', () => {
     it('allows using Codex for implementation iterations', async () => {
-      mockCodexRunner.run = vi.fn().mockImplementation(async (options: any) => {
+      mockCodexRunnerInstance.run = vi.fn().mockImplementation(async (options: any) => {
         if (options.expectCommit) {
           return { success: true, output: 'Implementation complete', commitSha: 'abc123' };
         }
@@ -640,10 +656,10 @@ Implement the feature
         };
       });
 
-      mockClaudeRunner.run = vi.fn();
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockClaudeRunnerInstance.run = vi.fn();
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -654,13 +670,13 @@ Implement the feature
 
       await orchestrator.run();
 
-      expect(mockCodexRunner.run).toHaveBeenCalled();
-      expect(mockCodexRunner.run.mock.calls[0][0].expectCommit).toBe(true);
-      expect(mockClaudeRunner.run).not.toHaveBeenCalled();
+      expect(mockCodexRunnerInstance.run).toHaveBeenCalled();
+      expect(mockCodexRunnerInstance.run.mock.calls[0][0].expectCommit).toBe(true);
+      expect(mockClaudeRunnerInstance.run).not.toHaveBeenCalled();
     });
 
     it('allows using Claude Code for code review', async () => {
-      mockClaudeRunner.run = vi.fn().mockImplementation(async (options: any) => {
+      mockClaudeRunnerInstance.run = vi.fn().mockImplementation(async (options: any) => {
         if (options.prompt.includes('code review') || options.prompt.includes('Review')) {
           return {
             success: true,
@@ -671,11 +687,11 @@ Implement the feature
         return { success: true, commitSha: 'abc123', output: 'Implementation log' };
       });
 
-      mockCodexRunner.run = vi.fn();
+      mockCodexRunnerInstance.run = vi.fn();
 
-      mockGitHubChecker.waitForChecksToPass = vi.fn().mockResolvedValue(true);
-      mockGitHubChecker.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
-      mockGitHubChecker.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -686,8 +702,8 @@ Implement the feature
 
       await orchestrator.run();
 
-      expect(mockClaudeRunner.run).toHaveBeenCalled();
-      expect(mockCodexRunner.run).not.toHaveBeenCalled();
+      expect(mockClaudeRunnerInstance.run).toHaveBeenCalled();
+      expect(mockCodexRunnerInstance.run).not.toHaveBeenCalled();
     });
   });
 });
