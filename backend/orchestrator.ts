@@ -116,6 +116,99 @@ export class Orchestrator {
     });
   }
 
+  private formatWorkingTreeSummary(
+    workingTreeStatus?: string | null,
+  ): string | null {
+    if (workingTreeStatus === undefined || workingTreeStatus === null) {
+      return null;
+    }
+
+    const lines = workingTreeStatus
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      return null;
+    }
+
+    if (lines.length === 1) {
+      return lines[0];
+    }
+
+    return `${lines[0]} (+${lines.length - 1} more)`;
+  }
+
+  private buildAgentLog(
+    agentOutput?: string,
+    workingTreeStatus?: string | null,
+  ): string | null {
+    const trimmedOutput = agentOutput?.trim() ?? "";
+    const hasWorkingTreeStatus =
+      workingTreeStatus !== undefined && workingTreeStatus !== null;
+    const trimmedStatus = hasWorkingTreeStatus
+      ? workingTreeStatus.trim()
+      : "";
+    const segments: string[] = [];
+
+    if (trimmedOutput) {
+      segments.push(trimmedOutput);
+    }
+
+    if (hasWorkingTreeStatus) {
+      if (segments.length > 0) {
+        segments.push("");
+      }
+      segments.push("Working tree status after run:");
+      segments.push(trimmedStatus || "(clean)");
+    } else if (workingTreeStatus === null) {
+      if (segments.length > 0) {
+        segments.push("");
+      }
+      segments.push("Working tree status after run:");
+      segments.push("(unavailable)");
+    }
+
+    if (segments.length === 0) {
+      return null;
+    }
+
+    return segments.join("\n");
+  }
+
+  private logWorkingTreeStatusAfterAgent(
+    workingTreeStatus: string | null | undefined,
+    stepNumber: number,
+  ): void {
+    if (workingTreeStatus === undefined) {
+      return;
+    }
+
+    if (workingTreeStatus === null) {
+      this.log(
+        "⚠ Unable to read working tree status after agent run",
+        "warn",
+        stepNumber,
+      );
+      return;
+    }
+
+    if (workingTreeStatus.length === 0) {
+      this.log(
+        "⚠ Working tree clean after agent run",
+        "warn",
+        stepNumber,
+      );
+      return;
+    }
+
+    this.log(
+      `⚠ Working tree contains uncommitted changes after agent run:\n${workingTreeStatus}`,
+      "warn",
+      stepNumber,
+    );
+  }
+
   private getAgentDisplayName(agent: 'claude' | 'codex'): string {
     return agent === 'claude' ? 'Claude Code' : 'Codex';
   }
@@ -133,7 +226,12 @@ export class Orchestrator {
 
   private async runImplementationAgent(
     prompt: string,
-  ): Promise<{ success: boolean; commitSha: string | null; output?: string }> {
+  ): Promise<{
+    success: boolean;
+    commitSha: string | null;
+    output?: string;
+    workingTreeStatus?: string | null;
+  }> {
     if (this.implementationAgent === 'claude') {
       return this.claudeRunner.run({
         workDir: this.workDir,
@@ -446,19 +544,41 @@ export class Orchestrator {
         const result = await this.runImplementationAgent(prompt);
 
         if (!result || !result.commitSha) {
-          this.storage.updateIteration(iteration.id, { status: 'failed' });
+          const failureLog = this.buildAgentLog(result?.output, result?.workingTreeStatus);
+          const workingTreeSummary = this.formatWorkingTreeSummary(
+            result?.workingTreeStatus ?? null,
+          );
+
+          this.storage.updateIteration(iteration.id, {
+            status: 'failed',
+            claudeLog: failureLog ?? null,
+          });
+
+          this.logWorkingTreeStatusAfterAgent(
+            result?.workingTreeStatus,
+            step.stepNumber,
+          );
+
+          const agentName = this.getAgentDisplayName(this.implementationAgent);
+          const errorSuffix = workingTreeSummary
+            ? ` (working tree dirty: ${workingTreeSummary})`
+            : "";
+          const errorMessage = `${agentName} completed but did not create a commit${errorSuffix}`;
+
           this.emitEvent({
             type: "error",
             timestamp: Date.now(),
-            error: `${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit`,
+            error: errorMessage,
             stepNumber: step.stepNumber,
           });
-          throw new Error(`${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit for implementation`);
+          throw new Error(
+            `${agentName} completed but did not create a commit for implementation${errorSuffix}`,
+          );
         }
 
         this.storage.updateIteration(iteration.id, {
           commitSha: result.commitSha,
-          claudeLog: result.output ?? null,
+          claudeLog: this.buildAgentLog(result.output, result.workingTreeStatus) ?? null,
           status: 'completed',
         });
 
@@ -620,19 +740,41 @@ export class Orchestrator {
           const result = await this.runImplementationAgent(prompt);
 
           if (!result || !result.commitSha) {
-            this.storage.updateIteration(iteration.id, { status: 'failed' });
+            const failureLog = this.buildAgentLog(result?.output, result?.workingTreeStatus);
+            const workingTreeSummary = this.formatWorkingTreeSummary(
+              result?.workingTreeStatus ?? null,
+            );
+
+            this.storage.updateIteration(iteration.id, {
+              status: 'failed',
+              claudeLog: failureLog ?? null,
+            });
+
+            this.logWorkingTreeStatusAfterAgent(
+              result?.workingTreeStatus,
+              step.stepNumber,
+            );
+
+            const agentName = this.getAgentDisplayName(this.implementationAgent);
+            const errorSuffix = workingTreeSummary
+              ? ` (working tree dirty: ${workingTreeSummary})`
+              : "";
+            const errorMessage = `${agentName} completed but did not create a commit${errorSuffix}`;
+
             this.emitEvent({
               type: "error",
               timestamp: Date.now(),
-              error: `${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit`,
+              error: errorMessage,
               stepNumber: step.stepNumber,
             });
-            throw new Error(`${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit for build fix`);
+            throw new Error(
+              `${agentName} completed but did not create a commit for build fix${errorSuffix}`,
+            );
           }
 
           this.storage.updateIteration(iteration.id, {
             commitSha: result.commitSha,
-            claudeLog: result.output ?? null,
+            claudeLog: this.buildAgentLog(result.output, result.workingTreeStatus) ?? null,
             status: 'completed',
           });
 
@@ -777,19 +919,41 @@ export class Orchestrator {
           const result = await this.runImplementationAgent(prompt);
 
           if (!result || !result.commitSha) {
-            this.storage.updateIteration(iteration.id, { status: 'failed' });
+            const failureLog = this.buildAgentLog(result?.output, result?.workingTreeStatus);
+            const workingTreeSummary = this.formatWorkingTreeSummary(
+              result?.workingTreeStatus ?? null,
+            );
+
+            this.storage.updateIteration(iteration.id, {
+              status: 'failed',
+              claudeLog: failureLog ?? null,
+            });
+
+            this.logWorkingTreeStatusAfterAgent(
+              result?.workingTreeStatus,
+              step.stepNumber,
+            );
+
+            const agentName = this.getAgentDisplayName(this.implementationAgent);
+            const errorSuffix = workingTreeSummary
+              ? ` (working tree dirty: ${workingTreeSummary})`
+              : "";
+            const errorMessage = `${agentName} completed but did not create a commit${errorSuffix}`;
+
             this.emitEvent({
               type: "error",
               timestamp: Date.now(),
-              error: `${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit`,
+              error: errorMessage,
               stepNumber: step.stepNumber,
             });
-            throw new Error(`${this.getAgentDisplayName(this.implementationAgent)} completed but did not create a commit for review fix`);
+            throw new Error(
+              `${agentName} completed but did not create a commit for review fix${errorSuffix}`,
+            );
           }
 
           this.storage.updateIteration(iteration.id, {
             commitSha: result.commitSha,
-            claudeLog: result.output ?? null,
+            claudeLog: this.buildAgentLog(result.output, result.workingTreeStatus) ?? null,
             status: 'completed',
           });
 

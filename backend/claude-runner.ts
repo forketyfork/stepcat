@@ -66,9 +66,34 @@ export class ClaudeRunner {
     }
   }
 
+  private getWorkingTreeStatus(
+    workDir: string,
+    eventEmitter?: OrchestratorEventEmitter,
+  ): string | null {
+    try {
+      const status = execSync("git status --short", {
+        cwd: workDir,
+        encoding: "utf-8",
+      }).trim();
+      return status.length > 0 ? status : "";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitLog(
+        `Warning: Could not read working tree status: ${message}`,
+        eventEmitter,
+      );
+      return null;
+    }
+  }
+
   async run(
     options: ClaudeRunOptions,
-  ): Promise<{ success: boolean; commitSha: string | null; output?: string }> {
+  ): Promise<{
+    success: boolean;
+    commitSha: string | null;
+    output?: string;
+    workingTreeStatus?: string | null;
+  }> {
     const claudePath = this.getClaudePath();
 
     this.emitLog("─".repeat(80), options.eventEmitter);
@@ -184,18 +209,64 @@ export class ClaudeRunner {
     this.emitLog(`HEAD after: ${headAfter ?? "(no commit yet)"}`, options.eventEmitter);
 
     if (!headAfter) {
+      const workingTreeStatus = this.getWorkingTreeStatus(
+        options.workDir,
+        options.eventEmitter,
+      );
+      if (workingTreeStatus !== null) {
+        if (workingTreeStatus) {
+          this.emitLog(
+            "Working tree contains uncommitted changes after Claude Code run:",
+            options.eventEmitter,
+          );
+          this.emitLog(workingTreeStatus, options.eventEmitter);
+        } else {
+          this.emitLog(
+            "Working tree clean after Claude Code run",
+            options.eventEmitter,
+          );
+        }
+      }
       this.emitLog(
         "⚠ Claude Code completed but could not read HEAD commit",
         options.eventEmitter
       );
       this.emitLog("─".repeat(80), options.eventEmitter);
-      return { success: true, commitSha: null, output: capturedOutput };
+      return {
+        success: true,
+        commitSha: null,
+        output: capturedOutput,
+        workingTreeStatus,
+      };
     }
 
     if (headBefore === headAfter) {
+      const workingTreeStatus = this.getWorkingTreeStatus(
+        options.workDir,
+        options.eventEmitter,
+      );
+      if (workingTreeStatus !== null) {
+        if (workingTreeStatus) {
+          this.emitLog(
+            "Working tree contains uncommitted changes after Claude Code run:",
+            options.eventEmitter,
+          );
+          this.emitLog(workingTreeStatus, options.eventEmitter);
+        } else {
+          this.emitLog(
+            "Working tree clean after Claude Code run",
+            options.eventEmitter,
+          );
+        }
+      }
       this.emitLog("✓ Claude Code completed (no commit created)", options.eventEmitter);
       this.emitLog("─".repeat(80), options.eventEmitter);
-      return { success: true, commitSha: null, output: capturedOutput };
+      return {
+        success: true,
+        commitSha: null,
+        output: capturedOutput,
+        workingTreeStatus,
+      };
     }
 
     this.emitLog("✓ Claude Code completed successfully and created a commit", options.eventEmitter);
