@@ -79,6 +79,12 @@ Run Stepcat with terminal output:
 stepcat --file plan.md --dir /path/to/project
 ```
 
+**Keyboard Shortcuts:**
+- **Ctrl+L** (or **Cmd+L** on macOS) - Open log viewer to browse implementation and review logs
+  - ↑↓ - Navigate through logs
+  - Enter - View selected log
+  - Esc - Return to main view
+
 ### Web UI Mode
 
 Launch the beautiful web interface for real-time progress visualization:
