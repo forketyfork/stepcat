@@ -15,7 +15,7 @@ After implementation:
 
 ---
 Plan: docs/plans/PLAN.md
-Step: 3
+Step: ${stepNumber}
 Stage: implementation
 
 <summary of your changes>
@@ -30,6 +30,7 @@ CRITICAL REQUIREMENTS:
 - Creating a commit is a required part of completing this task`,
 
   buildFix: (
+    stepNumber: number,
     buildErrors: string,
   ) => `The GitHub Actions build has failed with the following errors:
 
@@ -41,7 +42,7 @@ Please fix these errors, then create a git commit for your changes with a clear 
 
 ---
 Plan: docs/plans/PLAN.md
-Step: 3
+Step: ${stepNumber}
 Stage: build fix
 
 <summary of your changes>
@@ -55,6 +56,7 @@ CRITICAL REQUIREMENTS:
 - Creating a commit is a required part of completing this task
 `,
   reviewFix: (
+    stepNumber: number,
     reviewComments: string,
   ) => `A code review has identified the following possible issues:
 
@@ -66,7 +68,7 @@ Please review these comments and fix any legitimate issues, then create a git co
 
 ---
 Plan: docs/plans/PLAN.md
-Step: 3
+Step: ${stepNumber}
 Stage: code review fix
 
 <summary of your changes>

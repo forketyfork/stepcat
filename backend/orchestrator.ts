@@ -616,7 +616,7 @@ export class Orchestrator {
           this.log(`\nIteration ${iterationNumber}: Build Fix`);
           this.log("─".repeat(80));
 
-          const prompt = PROMPTS.buildFix(buildErrors);
+          const prompt = PROMPTS.buildFix(step.stepNumber, buildErrors);
           const result = await this.runImplementationAgent(prompt);
 
           if (!result || !result.commitSha) {
@@ -773,7 +773,7 @@ export class Orchestrator {
           this.log(`\nIteration ${iterationNumber}: Review Fix`);
           this.log("─".repeat(80));
 
-          const prompt = PROMPTS.reviewFix(JSON.stringify(reviewResult.issues, null, 2));
+          const prompt = PROMPTS.reviewFix(step.stepNumber, JSON.stringify(reviewResult.issues, null, 2));
           const result = await this.runImplementationAgent(prompt);
 
           if (!result || !result.commitSha) {

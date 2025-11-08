@@ -218,11 +218,11 @@ export class ClaudeRunner {
     return PROMPTS.implementation(stepNumber, planFilePath);
   }
 
-  buildFixPrompt(buildErrors: string): string {
-    return PROMPTS.buildFix(buildErrors);
+  buildFixPrompt(stepNumber: number, buildErrors: string): string {
+    return PROMPTS.buildFix(stepNumber, buildErrors);
   }
 
-  buildReviewFixPrompt(reviewComments: string): string {
-    return PROMPTS.reviewFix(reviewComments);
+  buildReviewFixPrompt(stepNumber: number, reviewComments: string): string {
+    return PROMPTS.reviewFix(stepNumber, reviewComments);
   }
 }
