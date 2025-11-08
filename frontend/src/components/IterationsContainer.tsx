@@ -35,13 +35,15 @@ export function IterationsContainer({
 
   return (
     <div className="iterations-container expanded">
-      {iterations.map((iteration) => {
+      {iterations.map((iteration, index) => {
         const iterationIssues = iteration.issues.map((id) => issues.get(id)).filter((i): i is Issue => i !== undefined);
+        const displayNumber = iteration.displayNumber ?? index + 1;
 
         return (
           <Iteration
             key={iteration.id}
             iteration={iteration}
+            displayNumber={displayNumber}
             issues={iterationIssues}
             isExpanded={expandedIterations.has(iteration.id)}
             onToggle={() => onToggleIteration(iteration.id)}

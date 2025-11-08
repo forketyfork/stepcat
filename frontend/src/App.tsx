@@ -77,12 +77,46 @@ function App() {
       newSteps.set(step.id, { ...step, iterations: [] });
     });
 
+    const iterationsByStep = new Map<number, Iteration[]>();
     event.iterations.forEach((iteration) => {
-      newIterations.set(iteration.id, { ...iteration, issues: [] });
-      const step = newSteps.get(iteration.stepId);
-      if (step) {
-        step.iterations.push(iteration.id);
+      const grouped = iterationsByStep.get(iteration.stepId) ?? [];
+      grouped.push(iteration);
+      iterationsByStep.set(iteration.stepId, grouped);
+    });
+
+    iterationsByStep.forEach((stepIterations, stepId) => {
+      const sortedIterations = [...stepIterations].sort((a, b) => {
+        const aNumber = Number.isFinite(a.iterationNumber) ? a.iterationNumber : Number.POSITIVE_INFINITY;
+        const bNumber = Number.isFinite(b.iterationNumber) ? b.iterationNumber : Number.POSITIVE_INFINITY;
+        if (aNumber !== bNumber) {
+          return aNumber - bNumber;
+        }
+        return a.createdAt.localeCompare(b.createdAt);
+      });
+
+      const step = newSteps.get(stepId);
+      if (!step) {
+        sortedIterations.forEach((iteration) => {
+          const iterationWithDisplay: Iteration = {
+            ...iteration,
+            issues: [],
+            displayNumber: Number.isFinite(iteration.iterationNumber) ? iteration.iterationNumber : 1,
+          };
+          newIterations.set(iteration.id, iterationWithDisplay);
+        });
+        return;
       }
+
+      sortedIterations.forEach((iteration, index) => {
+        const iterationWithDisplay: Iteration = {
+          ...iteration,
+          issues: [],
+          displayNumber: index + 1,
+        };
+
+        newIterations.set(iteration.id, iterationWithDisplay);
+        step.iterations.push(iteration.id);
+      });
     });
 
     event.issues.forEach((issue) => {
@@ -143,6 +177,10 @@ function App() {
     setState((prev) => {
       const existingIteration = prev.iterations.get(event.iterationId);
 
+      const newSteps = new Map(prev.steps);
+      const step = newSteps.get(event.stepId);
+      const nextDisplayNumber = step ? step.iterations.length + 1 : 1;
+
       if (existingIteration) {
         const newIterations = new Map(prev.iterations);
         newIterations.set(event.iterationId, {
@@ -163,6 +201,7 @@ function App() {
           id: event.iterationId,
           stepId: event.stepId,
           iterationNumber: event.iterationNumber,
+          displayNumber: nextDisplayNumber,
           type: event.iterationType,
           commitSha: null,
           claudeLog: null,
@@ -178,10 +217,9 @@ function App() {
         const newIterations = new Map(prev.iterations);
         newIterations.set(newIteration.id, newIteration);
 
-        const newSteps = new Map(prev.steps);
-        const step = newSteps.get(event.stepId);
         if (step) {
           step.iterations = [...step.iterations, newIteration.id];
+          newSteps.set(step.id, step);
         }
 
         setExpansionState((prevExp) => ({

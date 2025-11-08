@@ -16,6 +16,7 @@ export interface Iteration {
   id: number;
   stepId: number;
   iterationNumber: number;
+  displayNumber?: number;
   type: 'implementation' | 'build_fix' | 'review_fix';
   commitSha: string | null;
   claudeLog: string | null;

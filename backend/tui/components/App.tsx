@@ -187,13 +187,14 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
 
     state.steps.forEach(step => {
       const iterations = state.iterations.get(step.id) || [];
-      iterations.forEach(iteration => {
+      iterations.forEach((iteration, iterationIndex) => {
+        const displayNumber = iterationIndex + 1;
         if (iteration.claudeLog) {
           items.push({
             id: `${iteration.id}-impl`,
             stepNumber: step.stepNumber,
             stepTitle: step.title,
-            iterationNumber: iteration.iterationNumber,
+            iterationNumber: displayNumber,
             logType: 'implementation',
             logContent: iteration.claudeLog,
             iteration,
@@ -204,7 +205,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
             id: `${iteration.id}-review`,
             stepNumber: step.stepNumber,
             stepTitle: step.title,
-            iterationNumber: iteration.iterationNumber,
+            iterationNumber: displayNumber,
             logType: 'review',
             logContent: iteration.codexLog,
             iteration,
@@ -310,7 +311,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
 
       const iterations = state.iterations.get(step.id) || [];
       iterations.forEach((iteration, iterationIndex) => {
-        const displayNumber = iteration.iterationNumber ?? iterationIndex + 1;
+        const displayNumber = iterationIndex + 1;
         const displayNumberText = String(displayNumber);
         lines.push({
           key: `iteration-${iteration.id}-header`,

@@ -43,15 +43,15 @@ export const StepItem: React.FC<StepItemProps> = ({ step, iterations, issues }) 
       {iterations.length > 0 && (
         <Box flexDirection="column" marginTop={0}>
           {iterations.map((iteration, index) => {
-            const displayNumber = iteration.iterationNumber ?? index + 1;
+            const displayNumber = index + 1;
             return (
-            <IterationItem
-              key={iteration.id}
-              iteration={iteration}
-              issues={issues.get(iteration.id) || []}
-              displayNumber={displayNumber}
-            />
-          );
+              <IterationItem
+                key={iteration.id}
+                iteration={iteration}
+                issues={issues.get(iteration.id) || []}
+                displayNumber={displayNumber}
+              />
+            );
           })}
         </Box>
       )}

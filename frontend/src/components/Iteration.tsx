@@ -5,6 +5,7 @@ import './Iteration.css';
 
 interface IterationProps {
   iteration: IterationType;
+  displayNumber: number;
   issues: Issue[];
   isExpanded: boolean;
   onToggle: () => void;
@@ -12,7 +13,7 @@ interface IterationProps {
   repo: string;
 }
 
-export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo }: IterationProps) {
+export function Iteration({ iteration, displayNumber, issues, isExpanded, onToggle, owner, repo }: IterationProps) {
   const statusClass = iteration.status;
   const typeLabel = iteration.type.replace('_', ' ');
 
@@ -78,7 +79,7 @@ export function Iteration({ iteration, issues, isExpanded, onToggle, owner, repo
       >
         <div className="iteration-title">
           <div className="iteration-icon">{iconContent}</div>
-          <span>Iteration {iteration.iterationNumber}</span>
+          <span>Iteration {displayNumber}</span>
           <span className="iteration-type">{typeLabel}</span>
           <span className="iteration-agents">
             [impl: {getAgentDisplayName(iteration.implementationAgent)}
