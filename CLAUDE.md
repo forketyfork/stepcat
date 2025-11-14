@@ -8,6 +8,37 @@ Stepcat is a step-by-step agent orchestration solution that automates multi-step
 
 **Key Principle**: One commit per iteration (not per step) for complete audit trail. Each implementation agent execution creates a separate git commit, providing full transparency and traceability throughout the development process.
 
+## Task Completion Requirements
+
+**CRITICAL: Before completing ANY task, you MUST:**
+
+1. **Run Linting**: Execute formatting and linting checks
+   ```bash
+   just lint              # Backend ESLint
+   just lint-frontend     # Frontend ESLint (if frontend changes)
+   ```
+
+2. **Run Tests**: Execute all relevant tests
+   ```bash
+   just test              # Run all tests (Jest + Vitest)
+   ```
+
+3. **Fix Any Issues**: If linting or tests fail, fix all issues before marking the task as complete
+
+4. **Verify Build** (for significant changes):
+   ```bash
+   just build             # Build the entire project
+   ```
+
+**This applies to:**
+- Feature implementations
+- Bug fixes
+- Refactoring
+- Code improvements
+- ANY code changes
+
+**Exception**: You may skip these steps only when explicitly instructed by the user (e.g., "skip tests for now").
+
 ## Common Commands
 
 ### Development
