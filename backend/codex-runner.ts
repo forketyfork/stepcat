@@ -4,6 +4,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { ReviewParser, ReviewResult } from "./review-parser.js";
 import { OrchestratorEventEmitter } from "./events.js";
+import { getLogger, LogLevel } from "./logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,11 +27,14 @@ export class CodexRunner {
     level: "info" | "warn" | "error" | "success" = "info",
   ): void {
     const lines = message.split(/\r?\n/);
+    const logLevel: LogLevel = level === "success" ? "info" : level;
 
     for (const line of lines) {
       if (!line.trim()) {
         continue;
       }
+
+      getLogger()?.log(logLevel, "CodexRunner", line);
 
       if (eventEmitter) {
         eventEmitter.emit("event", {

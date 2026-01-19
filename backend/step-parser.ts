@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "fs";
+import { getLogger } from "./logger.js";
 
 export type StepPhase = "pending" | "implementation" | "review" | "done";
 
@@ -17,8 +18,8 @@ export class StepParser {
     this.filePath = filePath;
     try {
       this.content = readFileSync(filePath, "utf-8");
-      console.log(`Loaded plan file: ${filePath}`);
-      console.log(`File size: ${this.content.length} bytes`);
+      getLogger()?.info("StepParser", `Loaded plan file: ${filePath}`);
+      getLogger()?.debug("StepParser", `File size: ${this.content.length} bytes`);
     } catch (error) {
       throw new Error(
         `Failed to read plan file: ${filePath}\n` +
@@ -31,7 +32,7 @@ export class StepParser {
     const steps: Step[] = [];
     const lines = this.content.split("\n");
 
-    console.log(`Parsing steps from ${lines.length} lines...`);
+    getLogger()?.debug("StepParser", `Parsing steps from ${lines.length} lines`);
 
     for (const line of lines) {
       const match = line.match(/^##\s+Step\s+(\d+):\s+(.+)$/i);
@@ -86,10 +87,7 @@ export class StepParser {
     const totalSteps = sorted.length;
     const doneSteps = sorted.filter((s) => s.phase === "done").length;
     const pendingSteps = totalSteps - doneSteps;
-
-    console.log(
-      `Found ${totalSteps} steps (${doneSteps} done, ${pendingSteps} pending)`,
-    );
+    getLogger()?.info("StepParser", `Found ${totalSteps} steps (${doneSteps} done, ${pendingSteps} pending)`);
 
     return sorted;
   }
@@ -135,6 +133,6 @@ export class StepParser {
 
     this.content = lines.join("\n");
     writeFileSync(this.filePath, this.content, "utf-8");
-    console.log(`Updated step ${stepNumber} to phase: ${newPhase}`);
+    getLogger()?.info("StepParser", `Updated step ${stepNumber} to phase: ${newPhase}`);
   }
 }

@@ -4,6 +4,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { PROMPTS } from "./prompts.js";
 import { OrchestratorEventEmitter } from "./events.js";
+import { getLogger } from "./logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,7 +48,7 @@ export class ClaudeRunner {
   private getClaudePath(): string {
     const localBin = resolve(moduleDir, "../node_modules/.bin/claude");
 
-    console.log(`Looking for Claude Code binary at: ${localBin}`);
+    getLogger()?.debug("ClaudeRunner", `Looking for Claude Code binary at: ${localBin}`);
 
     if (!existsSync(localBin)) {
       throw new Error(
@@ -67,9 +68,7 @@ export class ClaudeRunner {
         encoding: "utf-8",
       }).trim();
     } catch (error) {
-      console.warn(
-        `Warning: Could not get HEAD commit (repo may be empty or unborn): ${error}`,
-      );
+      getLogger()?.warn("ClaudeRunner", `Could not get HEAD commit (repo may be empty or unborn): ${error}`);
       return null;
     }
   }
@@ -103,7 +102,6 @@ export class ClaudeRunner {
     const claudePath = this.getClaudePath();
     const timeout = (options.timeoutMinutes ?? 5) * 60 * 1000;
     const captureOutput = options.captureOutput ?? false;
-    const shouldPipeStdout = captureOutput || !!options.eventEmitter;
 
     this.emitLog("─".repeat(80), options.eventEmitter);
     this.emitLog("Retrying with --continue to complete the commit...", options.eventEmitter);
@@ -129,11 +127,7 @@ export class ClaudeRunner {
         ],
         {
           cwd: options.workDir,
-          stdio: [
-            "pipe",
-            shouldPipeStdout ? "pipe" : "inherit",
-            "inherit",
-          ],
+          stdio: ["pipe", "pipe", "pipe"],
         },
       );
 
@@ -157,7 +151,7 @@ export class ClaudeRunner {
       child.stdin.write(options.prompt);
       child.stdin.end();
 
-      if (shouldPipeStdout && child.stdout) {
+      if (child.stdout) {
         child.stdout.on("data", (chunk) => {
           const text = chunk.toString();
           if (captureOutput) {
@@ -172,6 +166,22 @@ export class ClaudeRunner {
             }
           } else {
             process.stdout.write(text);
+          }
+        });
+      }
+
+      if (child.stderr) {
+        child.stderr.on("data", (chunk) => {
+          const text = chunk.toString();
+          if (options.eventEmitter) {
+            const lines = text.split('\n');
+            for (const line of lines) {
+              if (line.trim()) {
+                this.emitLog(line, options.eventEmitter);
+              }
+            }
+          } else {
+            process.stderr.write(text);
           }
         });
       }
@@ -232,9 +242,7 @@ export class ClaudeRunner {
     this.emitLog("─".repeat(80), options.eventEmitter);
 
     const timeout = (options.timeoutMinutes ?? 30) * 60 * 1000;
-
     const captureOutput = options.captureOutput ?? false;
-    const shouldPipeStdout = captureOutput || !!options.eventEmitter;
 
     const result = await new Promise<{
       exitCode: number | null;
@@ -255,11 +263,7 @@ export class ClaudeRunner {
         ],
         {
           cwd: options.workDir,
-          stdio: [
-            "pipe",
-            shouldPipeStdout ? "pipe" : "inherit",
-            "inherit",
-          ],
+          stdio: ["pipe", "pipe", "pipe"],
         },
       );
 
@@ -283,7 +287,7 @@ export class ClaudeRunner {
       child.stdin.write(options.prompt);
       child.stdin.end();
 
-      if (shouldPipeStdout && child.stdout) {
+      if (child.stdout) {
         child.stdout.on("data", (chunk) => {
           const text = chunk.toString();
           if (captureOutput) {
@@ -298,6 +302,22 @@ export class ClaudeRunner {
             }
           } else {
             process.stdout.write(text);
+          }
+        });
+      }
+
+      if (child.stderr) {
+        child.stderr.on("data", (chunk) => {
+          const text = chunk.toString();
+          if (options.eventEmitter) {
+            const lines = text.split('\n');
+            for (const line of lines) {
+              if (line.trim()) {
+                this.emitLog(line, options.eventEmitter);
+              }
+            }
+          } else {
+            process.stderr.write(text);
           }
         });
       }

@@ -10,6 +10,7 @@ import { Plan, DbStep, Iteration } from "./models.js";
 import { PROMPTS } from "./prompts.js";
 import { UIAdapter } from "./ui/ui-adapter.js";
 import { ReviewParser } from "./review-parser.js";
+import { Logger, getLogger, LogLevel } from "./logger.js";
 
 export interface OrchestratorConfig {
   planFile: string;
@@ -50,12 +51,15 @@ export class Orchestrator {
   private reviewAgent: 'claude' | 'codex';
 
   constructor(config: OrchestratorConfig) {
+    this.workDir = config.workDir;
+
+    Logger.initialize({ workDir: config.workDir });
+
     this.parser = new StepParser(config.planFile);
     this.planFile = config.planFile;
     this.planContent = this.parser.getContent();
     this.claudeRunner = new ClaudeRunner();
     this.codexRunner = new CodexRunner();
-    this.workDir = config.workDir;
     this.buildTimeoutMinutes = config.buildTimeoutMinutes ?? 30;
     this.agentTimeoutMinutes = config.agentTimeoutMinutes ?? 30;
     this.eventEmitter = config.eventEmitter ?? new OrchestratorEventEmitter();
@@ -98,9 +102,12 @@ export class Orchestrator {
   ) {
     const lines = message.split(/\r?\n/);
     const baseTimestamp = Date.now();
+    const logLevel: LogLevel = level === "success" ? "info" : level;
 
     lines.forEach((line, index) => {
       const lineTimestamp = lines.length === 1 ? baseTimestamp : baseTimestamp + index;
+
+      getLogger()?.log(logLevel, "Orchestrator", line);
 
       if (!this.silent) {
         console.log(line);
@@ -555,16 +562,18 @@ CRITICAL REQUIREMENTS:
 
   private async pushCommit(): Promise<void> {
     try {
-      execSync("git push", {
+      const output = execSync("git push", {
         cwd: this.workDir,
-        stdio: "inherit",
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
       });
+      if (output && output.trim()) {
+        this.log(output.trim());
+      }
       this.log("✓ Pushed commit to GitHub", "success");
     } catch (error) {
-      this.log(
-        `⚠ Failed to push commit: ${error instanceof Error ? error.message : String(error)}`,
-        "warn",
-      );
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.log(`⚠ Failed to push commit: ${errorMessage}`, "warn");
       throw new Error("Failed to push commit to GitHub");
     }
   }
@@ -1230,6 +1239,8 @@ CRITICAL REQUIREMENTS:
     if (this.storageOwned) {
       this.storage.close();
     }
+
+    getLogger()?.close();
 
     return this.plan.id;
   }
