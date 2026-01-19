@@ -22,6 +22,14 @@ type AppComponent = ReactTypes.FC<{ state: TUIState; onStateChange: () => void }
 
 const RERENDER_THROTTLE_MS = 33; // ~30fps max
 
+// Strip ANSI escape codes from strings to prevent rendering issues
+// Matches all ANSI escape sequences: CSI sequences, OSC sequences, and simple escapes
+// eslint-disable-next-line no-control-regex
+const ANSI_REGEX = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+function stripAnsi(str: string): string {
+  return str.replace(ANSI_REGEX, '');
+}
+
 export class TUIAdapter implements UIAdapter {
   private state: TUIState;
   private inkInstance: InkInstance | null = null;
@@ -193,11 +201,12 @@ export class TUIAdapter implements UIAdapter {
 
       case 'log':
         {
-          const normalizedMessage = event.message.replace(/[\r\n]+/g, ' ');
-          const hasContent = normalizedMessage.trim().length > 0;
+          // Strip ANSI codes and normalize whitespace to prevent rendering issues
+          const cleanMessage = stripAnsi(event.message).replace(/[\r\n]+/g, ' ');
+          const hasContent = cleanMessage.trim().length > 0;
           this.state.logs.push({
             level: event.level,
-            message: hasContent ? normalizedMessage : '',
+            message: hasContent ? cleanMessage : '',
             timestamp: event.timestamp
           });
         }

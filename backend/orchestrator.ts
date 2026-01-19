@@ -503,6 +503,9 @@ CRITICAL REQUIREMENTS:
         claudeLog: result.output ?? null,
       });
 
+      // Push the recovered commit to GitHub
+      await this.pushCommit();
+
       this.emitEvent({
         type: "iteration_complete",
         timestamp: Date.now(),
@@ -516,6 +519,30 @@ CRITICAL REQUIREMENTS:
     }
   }
 
+  private emitInitialState(): void {
+    if (!this.plan) return;
+
+    const allSteps = this.storage.getSteps(this.plan.id);
+    const allIterations = allSteps.flatMap((s) => this.storage.getIterations(s.id));
+    const allIssues = allIterations.flatMap((i) => this.storage.getIssues(i.id));
+
+    this.emitEvent({
+      type: "execution_started",
+      timestamp: Date.now(),
+      executionId: this.plan.id,
+      isResume: !!this.executionId,
+    });
+
+    this.emitEvent({
+      type: "state_sync",
+      timestamp: Date.now(),
+      plan: this.plan,
+      steps: allSteps,
+      iterations: allIterations,
+      issues: allIssues,
+    });
+  }
+
   private async initializeOrResumePlan(): Promise<void> {
     if (this.executionId) {
       this.log(`Resuming execution ID: ${this.executionId}`, "info");
@@ -526,9 +553,15 @@ CRITICAL REQUIREMENTS:
       this.plan = plan;
       this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
 
+      // Emit initial state so UI updates immediately
+      this.emitInitialState();
+
       this.cleanupIncompleteIterations();
       this.tryRecoverManualCommit();
       await this.tryRecoverUncommittedChanges();
+
+      // Emit updated state after recovery
+      this.emitInitialState();
     } else {
       this.log("Starting new execution", "info");
       this.plan = this.storage.createPlan(
@@ -544,6 +577,9 @@ CRITICAL REQUIREMENTS:
         this.storage.createStep(this.plan.id, step.number, step.title);
       }
       this.log(`Initialized ${parsedSteps.length} steps in database`, "info");
+
+      // Emit initial state for new execution
+      this.emitInitialState();
     }
   }
 
@@ -632,26 +668,7 @@ CRITICAL REQUIREMENTS:
       throw new Error("Plan not initialized");
     }
 
-    this.emitEvent({
-      type: "execution_started",
-      timestamp: Date.now(),
-      executionId: this.plan.id,
-      isResume: !!this.executionId,
-    });
-
     const allSteps = this.storage.getSteps(this.plan.id);
-    const allIterations = allSteps.flatMap((s) => this.storage.getIterations(s.id));
-    const allIssues = allIterations.flatMap((i) => this.storage.getIssues(i.id));
-
-    this.emitEvent({
-      type: "state_sync",
-      timestamp: Date.now(),
-      plan: this.plan,
-      steps: allSteps,
-      iterations: allIterations,
-      issues: allIssues,
-    });
-
     const pendingSteps = allSteps.filter((s) => s.status === 'pending' || s.status === 'in_progress');
 
     this.log("═".repeat(80));
