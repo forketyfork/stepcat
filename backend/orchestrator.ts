@@ -4,7 +4,6 @@ import { CodexRunner } from "./codex-runner.js";
 import { GitHubChecker, MergeConflictError } from "./github-checker.js";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { createInterface } from "readline";
 import { dirname, resolve } from "path";
 import { OrchestratorEventEmitter, OrchestratorEvent } from "./events.js";
 import { Database } from "./database.js";
@@ -44,8 +43,37 @@ type AgentRunResult = {
 
 type PermissionHandlingResult = "applied" | "declined" | "noop";
 
+type CheckRunOutput = {
+  title?: string | null;
+  summary?: string | null;
+  text?: string | null;
+};
+
+type CheckRunSummary = {
+  id: number;
+  name: string;
+  status?: string | null;
+  conclusion?: string | null;
+  output?: CheckRunOutput | null;
+  details_url?: string | null;
+};
+
+type CheckRunAnnotation = {
+  path: string;
+  start_line?: number | null;
+  end_line?: number | null;
+  annotation_level?: string | null;
+  message: string;
+  title?: string | null;
+  raw_details?: string | null;
+};
+
+
 export class Orchestrator {
   private static readonly MAX_PERMISSION_REQUEST_ATTEMPTS = 3;
+  private static readonly MAX_BUILD_OUTPUT_CHARS = 8000;
+  private static readonly MAX_ANNOTATIONS = 20;
+  private static readonly MAX_ANNOTATION_CHARS = 500;
   private parser: StepParser;
   private claudeRunner: ClaudeRunner;
   private codexRunner: CodexRunner;
@@ -243,24 +271,25 @@ export class Orchestrator {
 
     this.log(message, "warn", stepNumber);
 
-    if (this.silent || !process.stdin.isTTY) {
+    if (!process.stdin.isTTY) {
       this.log(
-        "Cannot prompt for permission approval in non-interactive mode. " +
-          "Update .claude/settings.local.json manually and resume the execution.",
+        "Cannot prompt for permission approval without a TTY. " +
+          "Run with --tui to approve permissions.",
         "warn",
         stepNumber,
       );
-      return false;
+      throw new Error("Permission approval requires a TTY.");
     }
 
-    return new Promise((resolve) => {
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      rl.question("Approve permission update? [y/N] ", (answer) => {
-        rl.close();
-        const normalized = answer.trim().toLowerCase();
-        resolve(normalized === "y" || normalized === "yes");
-      });
-    });
+    const adapter = this.uiAdapters.find(
+      (candidate) => typeof candidate.requestPermissionApproval === "function",
+    );
+
+    if (!adapter || !adapter.requestPermissionApproval) {
+      throw new Error("Permission approval requires the TUI. Re-run with --tui.");
+    }
+
+    return adapter.requestPermissionApproval({ permissions, reason }, stepNumber);
   }
 
   private loadSettingsLocal(settingsPath: string): Record<string, unknown> {
@@ -955,13 +984,82 @@ CRITICAL REQUIREMENTS:
     }
   }
 
+  private truncateLog(log: string, maxChars: number): string {
+    if (log.length <= maxChars) {
+      return log;
+    }
+    const truncatedCount = log.length - maxChars;
+    return `... (truncated ${truncatedCount} chars)\n${log.slice(truncatedCount)}`;
+  }
+
+  private singleLine(text: string): string {
+    return text.replace(/\s+/g, " ").trim();
+  }
+
+  private formatAnnotations(annotations: CheckRunAnnotation[]): string | null {
+    if (annotations.length === 0) {
+      return null;
+    }
+
+    const limitedAnnotations = annotations.slice(0, Orchestrator.MAX_ANNOTATIONS);
+    const lines = limitedAnnotations.map((annotation) => {
+      const lineSuffix = annotation.start_line != null ? `:${annotation.start_line}` : "";
+      const location = `${annotation.path}${lineSuffix}`;
+      const level = annotation.annotation_level ?? "failure";
+      const message = this.singleLine(
+        this.truncateLog(annotation.message, Orchestrator.MAX_ANNOTATION_CHARS),
+      );
+      const detailParts: string[] = [];
+      if (annotation.title) {
+        detailParts.push(this.singleLine(annotation.title));
+      }
+      if (annotation.raw_details) {
+        detailParts.push(
+          this.singleLine(
+            this.truncateLog(annotation.raw_details, Orchestrator.MAX_ANNOTATION_CHARS),
+          ),
+        );
+      }
+      const details = detailParts.length > 0 ? ` (${detailParts.join(" - ")})` : "";
+      return `- ${location}: ${level}: ${message}${details}`;
+    });
+
+    if (annotations.length > limitedAnnotations.length) {
+      lines.push(`... ${annotations.length - limitedAnnotations.length} more annotations omitted`);
+    }
+
+    return lines.join("\n");
+  }
+
+  private async fetchCheckRunAnnotations(checkRunId: number): Promise<CheckRunAnnotation[]> {
+    try {
+      const response = await this.githubChecker.getOctokit().request(
+        "GET /repos/{owner}/{repo}/check-runs/{check_run_id}/annotations",
+        {
+          owner: this.githubChecker.getOwner(),
+          repo: this.githubChecker.getRepo(),
+          check_run_id: checkRunId,
+          per_page: Orchestrator.MAX_ANNOTATIONS,
+        },
+      );
+      return response.data as CheckRunAnnotation[];
+    } catch (error) {
+      this.log(
+        `Warning: Could not fetch check run annotations: ${error instanceof Error ? error.message : String(error)}`,
+        "warn",
+      );
+      return [];
+    }
+  }
+
   private async extractBuildErrors(sha: string): Promise<string> {
     try {
-      const { data: checkRuns } = await this.githubChecker.getOctokit().checks.listForRef({
+      const response = await this.githubChecker.getOctokit().checks.listForRef({
         owner: this.githubChecker.getOwner(),
         repo: this.githubChecker.getRepo(),
         ref: sha,
       });
+      const checkRuns = response.data as { check_runs: CheckRunSummary[] };
 
       const failedChecks = checkRuns.check_runs.filter(
         run => run.status === 'completed' && run.conclusion !== 'success' && run.conclusion !== 'skipped'
@@ -976,10 +1074,19 @@ CRITICAL REQUIREMENTS:
         let message = `Check: ${check.name}\n`;
         message += `Conclusion: ${check.conclusion}\n`;
         if (check.output?.title) {
-          message += `Title: ${check.output.title}\n`;
+          message += `Title: ${this.singleLine(check.output.title)}\n`;
         }
         if (check.output?.summary) {
-          message += `Summary: ${check.output.summary}\n`;
+          message += `Summary:\n${this.truncateLog(check.output.summary, Orchestrator.MAX_BUILD_OUTPUT_CHARS)}\n`;
+        }
+        if (check.output?.text) {
+          message += `Output:\n${this.truncateLog(check.output.text, Orchestrator.MAX_BUILD_OUTPUT_CHARS)}\n`;
+        }
+
+        const annotations = await this.fetchCheckRunAnnotations(check.id);
+        const formattedAnnotations = this.formatAnnotations(annotations);
+        if (formattedAnnotations) {
+          message += `Annotations:\n${formattedAnnotations}\n`;
         }
         if (check.details_url) {
           message += `Details: ${check.details_url}\n`;

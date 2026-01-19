@@ -35,6 +35,7 @@ const { mockClaudeRunnerInstance, mockCodexRunnerInstance, mockGitHubCheckerInst
       checks: {
         listForRef: vi.fn().mockResolvedValue({ data: { check_runs: [] } }),
       },
+      request: vi.fn().mockResolvedValue({ data: [] }),
     }),
   };
 
@@ -843,6 +844,139 @@ Implement the feature
 
       expect(mockClaudeRunnerInstance.run).toHaveBeenCalled();
       expect(mockCodexRunnerInstance.run).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('extractBuildErrors', () => {
+    it('includes output text and annotations for failed checks', async () => {
+      const listForRef = vi.fn().mockResolvedValue({
+        data: {
+          check_runs: [
+            {
+              id: 101,
+              name: 'build',
+              status: 'completed',
+              conclusion: 'failure',
+              output: {
+                title: 'Build failed',
+                summary: 'Compile error',
+                text: 'error: expected type',
+              },
+              details_url: 'https://example.com/details',
+            },
+          ],
+        },
+      });
+      const request = vi.fn().mockResolvedValue({
+        data: [
+          {
+            path: 'src/main.zig',
+            start_line: 12,
+            end_line: 12,
+            annotation_level: 'failure',
+            message: 'expected type',
+            title: 'Compiler error',
+            raw_details: 'details here',
+          },
+        ],
+      });
+
+      mockGitHubCheckerInstance.getOctokit = vi.fn().mockReturnValue({
+        checks: { listForRef },
+        request,
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+      });
+
+      const extractBuildErrors = (orchestrator as unknown as {
+        extractBuildErrors: (sha: string) => Promise<string>;
+      }).extractBuildErrors;
+      const errors = await extractBuildErrors.call(orchestrator, 'abc123');
+
+      expect(errors).toContain('Check: build');
+      expect(errors).toContain('Output:');
+      expect(errors).toContain('Annotations:');
+      expect(errors).toContain('src/main.zig:12');
+      expect(listForRef).toHaveBeenCalled();
+      expect(request).toHaveBeenCalled();
+    });
+  });
+
+  describe('permission prompts', () => {
+    const setTty = (value: boolean): void => {
+      Object.defineProperty(process.stdin, 'isTTY', {
+        value,
+        configurable: true,
+      });
+    };
+
+    it('routes permission approval to the UI adapter', async () => {
+      const originalIsTty = process.stdin.isTTY;
+      setTty(true);
+
+      const requestPermissionApproval = vi.fn().mockResolvedValue(true);
+      const uiAdapter = {
+        initialize: vi.fn(),
+        onEvent: vi.fn(),
+        shutdown: vi.fn(),
+        getName: () => 'test-ui',
+        requestPermissionApproval,
+      };
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        uiAdapters: [uiAdapter],
+      });
+
+      const confirmPermissionUpdate = (orchestrator as unknown as {
+        confirmPermissionUpdate: (
+          permissions: string[],
+          reason: string | undefined,
+          stepNumber: number,
+        ) => Promise<boolean>;
+      }).confirmPermissionUpdate;
+
+      await expect(
+        confirmPermissionUpdate.call(orchestrator, ['Bash(zig build:*)'], 'needed', 1),
+      ).resolves.toBe(true);
+
+      expect(requestPermissionApproval).toHaveBeenCalledWith(
+        { permissions: ['Bash(zig build:*)'], reason: 'needed' },
+        1,
+      );
+
+      setTty(originalIsTty ?? false);
+    });
+
+    it('fails when no UI adapter can approve permissions', async () => {
+      const originalIsTty = process.stdin.isTTY;
+      setTty(true);
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+      });
+
+      const confirmPermissionUpdate = (orchestrator as unknown as {
+        confirmPermissionUpdate: (
+          permissions: string[],
+          reason: string | undefined,
+          stepNumber: number,
+        ) => Promise<boolean>;
+      }).confirmPermissionUpdate;
+
+      await expect(
+        confirmPermissionUpdate.call(orchestrator, ['Bash(zig build:*)'], 'needed', 1),
+      ).rejects.toThrow(/requires the TUI/);
+
+      setTty(originalIsTty ?? false);
     });
   });
 });

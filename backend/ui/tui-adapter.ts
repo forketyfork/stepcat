@@ -2,6 +2,7 @@ import { UIAdapter, UIAdapterConfig } from './ui-adapter.js';
 import { OrchestratorEvent } from '../events.js';
 import { TUIState, initialState } from '../tui/types.js';
 import { Storage } from '../storage.js';
+import { PermissionRequest } from '../permission-requests.js';
 import type * as ReactTypes from 'react';
 import type { RenderOptions } from 'ink';
 import { pathToFileURL, fileURLToPath } from 'url';
@@ -427,6 +428,31 @@ export class TUIAdapter implements UIAdapter {
     this.state.terminalWidth = nextWidth;
     this.state.terminalHeight = nextHeight;
     this.rerender();
+  }
+
+  async requestPermissionApproval(
+    request: PermissionRequest,
+    stepNumber: number,
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      const previousViewMode = this.state.viewMode;
+      this.state.permissionPrompt = {
+        stepNumber,
+        permissions: request.permissions,
+        reason: request.reason,
+        previousViewMode,
+        onDecision: (approved: boolean) => {
+          this.state.permissionPrompt = null;
+          this.state.viewMode = previousViewMode;
+          this.state.stateVersion++;
+          this.rerender();
+          resolve(approved);
+        },
+      };
+      this.state.viewMode = 'permission_prompt';
+      this.state.stateVersion++;
+      this.rerender();
+    });
   }
 
   async shutdown(): Promise<void> {

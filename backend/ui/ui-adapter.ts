@@ -1,4 +1,5 @@
 import { OrchestratorEvent } from '../events.js';
+import { PermissionRequest } from '../permission-requests.js';
 import { Storage } from '../storage.js';
 import type { StopController } from '../stop-controller.js';
 
@@ -15,4 +16,9 @@ export interface UIAdapter {
   shutdown(): Promise<void>;
 
   getName(): string;
+
+  requestPermissionApproval?: (
+    request: PermissionRequest,
+    stepNumber: number,
+  ) => Promise<boolean>;
 }
