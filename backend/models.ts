@@ -37,7 +37,7 @@ export interface Iteration {
 export interface Issue {
   id: number;
   iterationId: number;
-  type: 'ci_failure' | 'codex_review' | 'merge_conflict';
+  type: 'ci_failure' | 'codex_review' | 'merge_conflict' | 'permission_request';
   description: string;
   filePath: string | null;
   lineNumber: number | null;

@@ -55,7 +55,7 @@ export const migrations: Migration[] = [
         CREATE TABLE IF NOT EXISTS issues (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           iterationId INTEGER NOT NULL,
-          type TEXT NOT NULL CHECK(type IN ('ci_failure', 'codex_review')),
+          type TEXT NOT NULL CHECK(type IN ('ci_failure', 'codex_review', 'permission_request')),
           description TEXT NOT NULL,
           filePath TEXT,
           lineNumber INTEGER,
@@ -221,7 +221,75 @@ export const migrations: Migration[] = [
           CREATE TABLE issues_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             iterationId INTEGER NOT NULL,
-            type TEXT NOT NULL CHECK(type IN ('ci_failure', 'codex_review', 'merge_conflict')),
+            type TEXT NOT NULL CHECK(type IN ('ci_failure', 'codex_review', 'merge_conflict', 'permission_request')),
+            description TEXT NOT NULL,
+            filePath TEXT,
+            lineNumber INTEGER,
+            severity TEXT CHECK(severity IN ('error', 'warning')),
+            status TEXT NOT NULL CHECK(status IN ('open', 'fixed')),
+            createdAt TEXT NOT NULL,
+            resolvedAt TEXT,
+            FOREIGN KEY (iterationId) REFERENCES iterations(id) ON DELETE CASCADE
+          );
+
+          INSERT INTO issues_new (
+            id,
+            iterationId,
+            type,
+            description,
+            filePath,
+            lineNumber,
+            severity,
+            status,
+            createdAt,
+            resolvedAt
+          )
+          SELECT
+            id,
+            iterationId,
+            type,
+            description,
+            filePath,
+            lineNumber,
+            severity,
+            status,
+            createdAt,
+            resolvedAt
+          FROM issues;
+
+          DROP TABLE issues;
+
+          ALTER TABLE issues_new RENAME TO issues;
+
+          COMMIT;
+        `);
+      } catch (error) {
+        db.exec('ROLLBACK;');
+        throw error;
+      } finally {
+        if (foreignKeysEnabled) {
+          db.pragma('foreign_keys = ON');
+        }
+      }
+    },
+  },
+  {
+    id: 4,
+    name: 'add_permission_request_issue_type',
+    up: (db) => {
+      const pragmaOptions = { simple: true } as const;
+      const foreignKeysEnabled = db.pragma('foreign_keys', pragmaOptions) === 1;
+
+      db.pragma('foreign_keys = OFF');
+
+      try {
+        db.exec(`
+          BEGIN;
+
+          CREATE TABLE issues_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            iterationId INTEGER NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('ci_failure', 'codex_review', 'merge_conflict', 'permission_request')),
             description TEXT NOT NULL,
             filePath TEXT,
             lineNumber INTEGER,

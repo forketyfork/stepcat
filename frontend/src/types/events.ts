@@ -34,7 +34,7 @@ export interface Iteration {
 export interface Issue {
   id: number;
   iterationId: number;
-  type: 'ci_failure' | 'codex_review' | 'merge_conflict';
+  type: 'ci_failure' | 'codex_review' | 'merge_conflict' | 'permission_request';
   description: string;
   filePath: string | null;
   lineNumber: number | null;
@@ -104,7 +104,7 @@ export interface IssueFoundEvent extends BaseEvent {
   type: 'issue_found';
   issueId: number;
   iterationId: number;
-  issueType: 'ci_failure' | 'codex_review' | 'merge_conflict';
+  issueType: 'ci_failure' | 'codex_review' | 'merge_conflict' | 'permission_request';
   description: string;
   filePath?: string;
   lineNumber?: number;
