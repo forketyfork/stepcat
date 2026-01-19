@@ -15,6 +15,8 @@ interface AppProps {
 const LOG_PANEL_HEIGHT = 7; // 5 lines + 2 borders
 const HEADER_BASE_HEIGHT = 5;
 const STEP_PANEL_LABEL = 'Steps';
+const TUI_ANIMATE_HIGHLIGHTS = process.env.STEPCAT_TUI_ANIMATE !== 'false';
+const HIGHLIGHT_ANIMATION_INTERVAL_MS = 100;
 
 type GradientHighlight = {
   word: string;
@@ -165,14 +167,6 @@ const createGradientSegments = (
 
 export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAfterStep }) => {
   const [gradientOffset, setGradientOffset] = React.useState(0);
-
-  React.useEffect(() => {
-    const interval = setInterval(() => {
-      setGradientOffset(prev => (prev + 0.05) % 1);
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, []);
 
   const buildLogViewerItems = React.useCallback((): LogViewerItem[] => {
     const items: LogViewerItem[] = [];
@@ -413,6 +407,26 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
 
     return lines;
   }, [state.steps, state.iterations, state.issues, state.stateVersion]);
+
+  const hasAnimatedHighlights = React.useMemo(() => {
+    if (!TUI_ANIMATE_HIGHLIGHTS) {
+      return false;
+    }
+    return allStepLines.some(line => Boolean(line.highlight));
+  }, [allStepLines]);
+
+  React.useEffect(() => {
+    if (!hasAnimatedHighlights) {
+      setGradientOffset(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setGradientOffset(prev => (prev + 0.05) % 1);
+    }, HIGHLIGHT_ANIMATION_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [hasAnimatedHighlights]);
 
   const stepsInnerHeight = Math.max(0, stepsAreaHeight - 2);
 
