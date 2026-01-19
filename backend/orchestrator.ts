@@ -8,7 +8,7 @@ import { dirname, resolve } from "path";
 import { OrchestratorEventEmitter, OrchestratorEvent } from "./events.js";
 import { Database } from "./database.js";
 import { Storage } from "./storage.js";
-import { Plan, DbStep, Iteration } from "./models.js";
+import { Plan, DbStep, Iteration, Issue } from "./models.js";
 import { PERMISSION_REQUEST_INSTRUCTIONS, PROMPTS } from "./prompts.js";
 import { UIAdapter } from "./ui/ui-adapter.js";
 import { ReviewParser } from "./review-parser.js";
@@ -787,6 +787,36 @@ export class Orchestrator {
     return iterations.filter(iteration => iteration.commitSha !== null && iteration.status !== 'aborted').length;
   }
 
+  private getLatestIterationWithCommit(stepId: number): Iteration | null {
+    const iterations = this.storage.getIterations(stepId);
+    for (let index = iterations.length - 1; index >= 0; index -= 1) {
+      const iteration = iterations[index];
+      if (iteration.commitSha !== null && iteration.status !== 'aborted') {
+        return iteration;
+      }
+    }
+    return null;
+  }
+
+  private getLatestIssuesForStep(stepId: number, issueType: Issue['type']): Issue[] {
+    const iterations = this.storage.getIterations(stepId);
+    for (let index = iterations.length - 1; index >= 0; index -= 1) {
+      const issues = this.storage.getIssues(iterations[index].id).filter(issue => issue.type === issueType);
+      if (issues.length > 0) {
+        return issues;
+      }
+    }
+    return [];
+  }
+
+  private formatLatestBuildErrors(stepId: number): string {
+    const buildIssues = this.getLatestIssuesForStep(stepId, 'ci_failure');
+    if (buildIssues.length === 0) {
+      return "Build checks failed. Please review the GitHub Actions logs and fix the issues.";
+    }
+    return buildIssues.map(issue => issue.description).join("\n");
+  }
+
   private getWorkingTreeStatus(): string | null {
     try {
       const status = execSync("git status --short", {
@@ -1264,8 +1294,9 @@ CRITICAL REQUIREMENTS:
 
       while (this.countIterationsWithCommits(step.id) <= this.maxIterationsPerStep) {
         const attemptsWithCommits = this.countIterationsWithCommits(step.id);
-        const sha = this.githubChecker.getLatestCommitSha();
-        const previousIterationId = this.storage.getIterations(step.id)[iterationNumber - 2]?.id;
+        const latestCommittedIteration = this.getLatestIterationWithCommit(step.id);
+        const sha = latestCommittedIteration?.commitSha ?? this.githubChecker.getLatestCommitSha();
+        const previousIterationId = latestCommittedIteration?.id;
 
         if (previousIterationId) {
           this.storage.updateIteration(previousIterationId, { buildStatus: 'pending' });
@@ -1363,13 +1394,16 @@ CRITICAL REQUIREMENTS:
             this.storage.updateIteration(previousIterationId, { buildStatus: 'failed' });
           }
           const buildErrors = await this.extractBuildErrors(trackedSha);
-          const issue = this.storage.createIssue(previousIterationId!, 'ci_failure', buildErrors);
+          if (!previousIterationId) {
+            throw new Error(`No committed iteration found for step ${step.stepNumber} while recording build failures.`);
+          }
+          const issue = this.storage.createIssue(previousIterationId, 'ci_failure', buildErrors);
 
           this.emitEvent({
             type: "issue_found",
             timestamp: Date.now(),
             issueId: issue.id,
-            iterationId: previousIterationId!,
+            iterationId: previousIterationId,
             issueType: 'ci_failure',
             description: buildErrors,
           });
@@ -1477,7 +1511,10 @@ CRITICAL REQUIREMENTS:
 
         this.log("✓ All GitHub Actions checks passed", "success");
 
-        const previousIteration = this.storage.getIterations(step.id)[iterationNumber - 2];
+        const previousIteration = this.getLatestIterationWithCommit(step.id);
+        if (!previousIteration) {
+          throw new Error(`No committed iteration found for step ${step.stepNumber} to review.`);
+        }
         const promptType = this.determineCodexPromptType(previousIteration);
 
         const commitSha = previousIteration.commitSha || 'HEAD';
@@ -1485,10 +1522,7 @@ CRITICAL REQUIREMENTS:
         if (promptType === 'implementation') {
           codexPrompt = PROMPTS.codexReviewImplementation(step.stepNumber, step.title, this.planContent, commitSha);
         } else if (promptType === 'build_fix') {
-          const buildErrors = this.storage.getIssues(previousIteration.id)
-            .filter(i => i.type === 'ci_failure')
-            .map(i => i.description)
-            .join('\n');
+          const buildErrors = this.formatLatestBuildErrors(step.id);
           codexPrompt = PROMPTS.codexReviewBuildFix(buildErrors, commitSha);
         } else {
           const openIssues = this.storage.getOpenIssues(step.id)

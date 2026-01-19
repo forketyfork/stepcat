@@ -502,6 +502,68 @@ Implement the feature
 
       db.close();
     });
+
+    it('should attach CI failures to the last committed iteration after a failed attempt', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      db.createStep(plan.id, 2, 'Implementation');
+      const iteration1 = db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      db.updateIteration(iteration1.id, { commitSha: 'abc123', status: 'completed' });
+      const failedIteration = db.createIteration(step1.id, 2, 'build_fix', 'claude', 'codex');
+      db.updateIteration(failedIteration.id, { status: 'failed' });
+      db.close();
+
+      mockClaudeRunnerInstance.run = vi
+        .fn()
+        .mockResolvedValueOnce({ success: true, commitSha: 'def456' })
+        .mockResolvedValueOnce({ success: true, commitSha: 'step2' });
+
+      mockGitHubCheckerInstance.getLatestCommitSha = vi
+        .fn()
+        .mockReturnValueOnce('abc123')
+        .mockReturnValueOnce('def456')
+        .mockReturnValue('step2');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi
+        .fn()
+        .mockReturnValueOnce('abc123')
+        .mockReturnValueOnce('def456')
+        .mockReturnValue('step2');
+
+      mockGitHubCheckerInstance.waitForChecksToPass = vi
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true)
+        .mockResolvedValue(true);
+
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 5,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const iteration1Issues = db2.getIssues(iteration1.id);
+      expect(iteration1Issues.some(issue => issue.type === 'ci_failure')).toBe(true);
+      expect(db2.getIssues(failedIteration.id)).toHaveLength(0);
+
+      const buildFixPrompt = mockCodexRunnerInstance.run.mock.calls
+        .map(call => (call[0] as { prompt: string }).prompt)
+        .find(prompt => prompt.includes('fix the following build failures'));
+      expect(buildFixPrompt).toBeDefined();
+      expect(buildFixPrompt).toContain('Build checks failed.');
+
+      db2.close();
+    });
   });
 
   describe('merge conflict handling', () => {
