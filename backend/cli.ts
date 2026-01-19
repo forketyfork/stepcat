@@ -5,6 +5,7 @@ import { Orchestrator } from './orchestrator.js';
 import { OrchestratorEventEmitter } from './events.js';
 import { Database } from './database.js';
 import { WebSocketUIAdapter, TUIAdapter, UIAdapter } from './ui/index.js';
+import { PreflightRunner } from './preflight-runner.js';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { execSync } from 'child_process';
@@ -28,7 +29,50 @@ program
   .option('--no-auto-open', 'Do not automatically open browser when using --ui')
   .option('--implementation-agent <agent>', 'Agent to use for implementation (claude|codex)')
   .option('--review-agent <agent>', 'Agent to use for code review (claude|codex)')
+  .option('--preflight', 'Run preflight check to detect missing permissions')
   .action(async (options) => {
+    // Handle preflight check
+    if (options.preflight) {
+      if (!options.file || !options.dir) {
+        console.error('Preflight check requires both --file and --dir options.');
+        console.error('Usage: stepcat --preflight --file plan.md --dir /path/to/project');
+        process.exit(1);
+      }
+
+      const planFile = resolve(options.file);
+      const workDir = resolve(options.dir);
+
+      if (!existsSync(planFile)) {
+        console.error(`Plan file not found: ${planFile}`);
+        process.exit(1);
+      }
+
+      if (!existsSync(workDir)) {
+        console.error(`Work directory not found: ${workDir}`);
+        process.exit(1);
+      }
+
+      const preflightRunner = new PreflightRunner();
+      try {
+        const result = await preflightRunner.run({ planFile, workDir });
+        console.log(preflightRunner.formatOutput(result));
+
+        if (!result.success) {
+          process.exit(1);
+        }
+
+        // Exit with code 2 if there are missing permissions (needs action)
+        if (result.analysis && result.analysis.missing_permissions.length > 0) {
+          process.exit(2);
+        }
+
+        process.exit(0);
+      } catch (error) {
+        console.error('Preflight check failed:', error instanceof Error ? error.message : String(error));
+        process.exit(1);
+      }
+    }
+
     const startTime = Date.now();
     let uiAdapter: UIAdapter | null = null;
     let storage: Database | null = null;

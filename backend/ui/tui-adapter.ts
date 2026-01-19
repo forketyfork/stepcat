@@ -20,6 +20,8 @@ type ReactModule = typeof import('react');
 type InkInstance = { rerender: (node: ReactTypes.ReactNode) => void; unmount: () => void };
 type AppComponent = ReactTypes.FC<{ state: TUIState; onStateChange: () => void }>;
 
+const RERENDER_THROTTLE_MS = 33; // ~30fps max
+
 export class TUIAdapter implements UIAdapter {
   private state: TUIState;
   private inkInstance: InkInstance | null = null;
@@ -28,6 +30,8 @@ export class TUIAdapter implements UIAdapter {
   private React: ReactModule | null = null;
   private App: AppComponent | null = null;
   private resizeHandler: (() => void) | null = null;
+  private rerenderPending = false;
+  private rerenderTimer: ReturnType<typeof setTimeout> | null = null;
 
   private refreshIteration(iterationId: number): void {
     if (!this.storage) return;
@@ -215,7 +219,7 @@ export class TUIAdapter implements UIAdapter {
     this.rerender();
   }
 
-  private async displayLogWithMore(logContent: string): Promise<void> {
+  private async displayLogWithPager(logContent: string): Promise<void> {
     const tempFile = join(tmpdir(), `stepcat-log-${Date.now()}.txt`);
 
     try {
@@ -226,14 +230,12 @@ export class TUIAdapter implements UIAdapter {
         this.inkInstance = null;
       }
 
-      process.stdout.write('\x1Bc');
-
-      spawnSync('more', [tempFile], {
+      // Use less with alternate screen (-R preserves colors, less uses alternate screen by default)
+      spawnSync('less', ['-R', tempFile], {
         stdio: 'inherit',
       });
 
-      process.stdout.write('\x1Bc');
-
+      // Restore Ink UI after pager exits
       if (this.React && this.App) {
         this.inkInstance = this.ink!.render(
           this.React.createElement(this.App, {
@@ -259,12 +261,29 @@ export class TUIAdapter implements UIAdapter {
       this.state.pendingLogView = null;
       this.state.viewMode = 'log_viewer';
 
-      this.displayLogWithMore(logContent).catch(err => {
+      this.displayLogWithPager(logContent).catch(err => {
         console.error('Failed to display log:', err);
       });
       return;
     }
 
+    this.scheduleRerender();
+  }
+
+  private scheduleRerender(): void {
+    if (this.rerenderPending) {
+      return;
+    }
+
+    this.rerenderPending = true;
+    this.rerenderTimer = setTimeout(() => {
+      this.rerenderPending = false;
+      this.rerenderTimer = null;
+      this.doRerender();
+    }, RERENDER_THROTTLE_MS);
+  }
+
+  private doRerender(): void {
     if (this.inkInstance && this.React && this.App) {
       this.inkInstance.rerender(
         this.React.createElement(this.App, {
@@ -282,6 +301,12 @@ export class TUIAdapter implements UIAdapter {
   }
 
   async shutdown(): Promise<void> {
+    if (this.rerenderTimer) {
+      clearTimeout(this.rerenderTimer);
+      this.rerenderTimer = null;
+      this.rerenderPending = false;
+    }
+
     if (this.resizeHandler) {
       process.stdout.off('resize', this.resizeHandler);
       this.resizeHandler = null;

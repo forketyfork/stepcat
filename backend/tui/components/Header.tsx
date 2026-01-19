@@ -12,7 +12,7 @@ const createLine = (width: number, start: string, end: string, fill: string): st
   return start + fill.repeat(innerWidth) + end;
 };
 
-export const Header: React.FC<HeaderProps> = ({ state }) => {
+export const Header: React.FC<HeaderProps> = React.memo(({ state }) => {
   const sortedSteps = [...state.steps].sort((a, b) => a.stepNumber - b.stepNumber);
   const totalSteps = sortedSteps.length;
   const completedByStatus = sortedSteps.filter(s => s.status === 'completed').length;
@@ -72,4 +72,4 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
       </Box>
     </Box>
   );
-};
+});

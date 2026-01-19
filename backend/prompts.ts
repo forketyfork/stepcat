@@ -1,4 +1,78 @@
 export const PROMPTS = {
+  preflight: (
+    planContent: string,
+    claudeMdContent: string | null,
+    claudeSettingsContent: string | null,
+  ) => `You are performing a preflight check for an automated development workflow.
+
+The workflow will run Claude Code autonomously to implement a multi-step plan. Claude Code will need to execute various bash commands without user approval, so we need to ensure all required permissions are pre-configured.
+
+## Your Task
+
+Analyze the following plan and determine what bash commands Claude Code will likely need to execute. Then check if these commands are allowed in the current .claude/ configuration.
+
+## Plan Content
+---
+${planContent}
+---
+
+## Current CLAUDE.md Content
+---
+${claudeMdContent ?? '(No CLAUDE.md file found)'}
+---
+
+## Current .claude/settings.json Content
+---
+${claudeSettingsContent ?? '(No .claude/settings.json file found)'}
+---
+
+## Analysis Instructions
+
+1. Read the plan carefully and identify ALL bash commands that will be needed during implementation, including:
+   - Build commands (e.g., \`just build\`, \`zig build\`, \`npm run build\`, \`cargo build\`, \`make\`)
+   - Test commands (e.g., \`just test\`, \`npm test\`, \`pytest\`, \`cargo test\`)
+   - Lint commands (e.g., \`just lint\`, \`npm run lint\`, \`eslint\`)
+   - Format commands (e.g., \`just fmt\`, \`prettier\`, \`cargo fmt\`)
+   - Language-specific tools mentioned in the plan
+   - Any other commands mentioned or implied by the plan
+
+2. Check the current .claude/settings.json to see what's already allowed
+
+3. Determine what additional permissions are needed
+
+## Output Format
+
+Respond with ONLY a JSON object in this exact format (no other text or markdown):
+
+{
+  "analysis": {
+    "detected_commands": [
+      {"command": "zig build", "reason": "Plan mentions Zig language implementation"},
+      {"command": "just build", "reason": "Standard build command from plan"}
+    ],
+    "currently_allowed": ["git:*"],
+    "missing_permissions": ["zig build", "just build", "just test", "just lint"]
+  },
+  "recommendations": {
+    "settings_json": {
+      "path": ".claude/settings.json",
+      "content": {
+        "permissions": {
+          "allow": [
+            "Bash(git:*)",
+            "Bash(zig build:*)",
+            "Bash(just:*)"
+          ]
+        }
+      }
+    },
+    "explanation": "Add these permissions to allow Claude Code to run build and test commands autonomously."
+  }
+}
+
+CRITICAL: Output ONLY valid JSON, no additional text, markdown formatting, or code blocks.`,
+
+
   implementation: (
     stepNumber: number,
     planFilePath: string,
@@ -10,7 +84,9 @@ Before implementation:
 1. Verify that preconditions defined in the "Status Quo" section are implemented.
 
 After implementation:
-1. Run \`just build\`, \`just lint\` and \`just test\` on the project, fix issues if any
+1. Run the project's build, lint, and test commands to verify your changes work correctly
+   - Check CLAUDE.md, justfile, Makefile, package.json, or similar for the appropriate commands
+   - Fix any issues before proceeding
 2. Create a git commit for your changes with a clear commit message, e.g.:
 
 ---

@@ -9,7 +9,7 @@ interface LogViewerProps {
   terminalHeight: number;
 }
 
-export const LogViewer: React.FC<LogViewerProps> = ({
+export const LogViewer: React.FC<LogViewerProps> = React.memo(({
   items,
   selectedIndex,
   terminalWidth,
@@ -101,4 +101,4 @@ export const LogViewer: React.FC<LogViewerProps> = ({
       </Box>
     </Box>
   );
-};
+});

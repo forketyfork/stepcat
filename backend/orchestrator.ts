@@ -410,6 +410,105 @@ export class Orchestrator {
     return iterations.filter(iteration => iteration.commitSha !== null && iteration.status !== 'aborted').length;
   }
 
+  private getWorkingTreeStatus(): string | null {
+    try {
+      const status = execSync("git status --short", {
+        cwd: this.workDir,
+        encoding: "utf-8",
+      }).trim();
+      return status.length > 0 ? status : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async tryRecoverUncommittedChanges(): Promise<void> {
+    if (!this.plan) {
+      return;
+    }
+
+    const workingTreeStatus = this.getWorkingTreeStatus();
+    if (!workingTreeStatus) {
+      return;
+    }
+
+    this.log("─".repeat(80), "warn");
+    this.log("Detected uncommitted changes in working directory:", "warn");
+    this.log(workingTreeStatus, "warn");
+    this.log("─".repeat(80), "warn");
+
+    // Find the current step (in_progress or first pending)
+    const steps = this.storage.getSteps(this.plan.id);
+    const currentStep = steps.find(
+      (s) => s.status === 'in_progress' || s.status === 'pending'
+    );
+
+    if (!currentStep) {
+      this.log("No pending steps found, cannot recover uncommitted changes", "warn");
+      return;
+    }
+
+    // Find the last aborted iteration for this step
+    const iterations = this.storage.getIterations(currentStep.id);
+    const abortedIterations = iterations.filter(i => i.status === 'aborted');
+
+    if (abortedIterations.length === 0) {
+      this.log("No aborted iterations found, will start fresh implementation", "info");
+      return;
+    }
+
+    const lastAborted = abortedIterations[abortedIterations.length - 1];
+
+    this.log(`Found aborted iteration ${lastAborted.iterationNumber} for step ${currentStep.stepNumber}`, "info");
+    this.log("Attempting to resume Claude Code session to complete the work...", "info");
+
+    // Build a prompt to continue the interrupted work
+    const continuePrompt = `Your previous session was interrupted while implementing Step ${currentStep.stepNumber}: ${currentStep.title}.
+
+There are uncommitted changes in the working directory. Please:
+1. Review the current changes with \`git status\` and \`git diff\`
+2. If the implementation looks complete, run the project's build, lint, and test commands to verify
+   - Check CLAUDE.md, justfile, Makefile, package.json, or similar for the appropriate commands
+3. If tests pass, stage all changes and create a commit
+4. If the implementation is incomplete, complete it first, then test and commit
+
+CRITICAL REQUIREMENTS:
+- You MUST create a git commit for your changes - this is not optional
+- Do NOT ask for approval or confirmation - just create the commit
+- Do NOT use git commit --amend - create a NEW commit
+- Do NOT push to remote - the orchestrator will handle pushing`;
+
+    const result = await this.claudeRunner.runContinue({
+      workDir: this.workDir,
+      prompt: continuePrompt,
+      timeoutMinutes: this.agentTimeoutMinutes,
+      captureOutput: true,
+      eventEmitter: this.eventEmitter,
+    });
+
+    if (result.success && result.commitSha) {
+      this.log(`✓ Recovered interrupted session with commit ${result.commitSha}`, "success");
+
+      // Update the aborted iteration with the commit info
+      this.storage.updateIteration(lastAborted.id, {
+        status: 'completed',
+        commitSha: result.commitSha,
+        claudeLog: result.output ?? null,
+      });
+
+      this.emitEvent({
+        type: "iteration_complete",
+        timestamp: Date.now(),
+        stepId: currentStep.id,
+        iterationNumber: lastAborted.iterationNumber,
+        commitSha: result.commitSha,
+        status: 'completed',
+      });
+    } else {
+      this.log("Failed to recover interrupted session, will start fresh", "warn");
+    }
+  }
+
   private async initializeOrResumePlan(): Promise<void> {
     if (this.executionId) {
       this.log(`Resuming execution ID: ${this.executionId}`, "info");
@@ -422,6 +521,7 @@ export class Orchestrator {
 
       this.cleanupIncompleteIterations();
       this.tryRecoverManualCommit();
+      await this.tryRecoverUncommittedChanges();
     } else {
       this.log("Starting new execution", "info");
       this.plan = this.storage.createPlan(

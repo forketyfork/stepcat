@@ -475,4 +475,61 @@ export class ClaudeRunner {
   buildReviewFixPrompt(stepNumber: number, reviewComments: string): string {
     return PROMPTS.reviewFix(stepNumber, reviewComments);
   }
+
+  async runContinue(
+    options: ClaudeRunOptions,
+  ): Promise<{
+    success: boolean;
+    commitSha: string | null;
+    output?: string;
+  }> {
+    const claudePath = this.getClaudePath();
+
+    this.emitLog("─".repeat(80), options.eventEmitter);
+    this.emitLog(`Resuming Claude Code session in ${options.workDir}`, options.eventEmitter);
+    this.emitLog(`Binary: ${claudePath}`, options.eventEmitter);
+    this.emitLog("─".repeat(80), options.eventEmitter);
+
+    const headBefore = this.tryGetHeadCommit(options.workDir);
+    this.emitLog(`HEAD before: ${headBefore ?? "(no commit yet)"}`, options.eventEmitter);
+    this.emitLog("─".repeat(80), options.eventEmitter);
+
+    const result = await this.runWithContinue({
+      workDir: options.workDir,
+      prompt: options.prompt,
+      timeoutMinutes: options.timeoutMinutes,
+      captureOutput: options.captureOutput,
+      eventEmitter: options.eventEmitter,
+    });
+
+    if (!result.success) {
+      return {
+        success: false,
+        commitSha: null,
+        output: result.output,
+      };
+    }
+
+    const headAfter = this.tryGetHeadCommit(options.workDir);
+    this.emitLog(`HEAD after: ${headAfter ?? "(no commit yet)"}`, options.eventEmitter);
+
+    if (headAfter && headAfter !== headBefore) {
+      this.emitLog("✓ Claude Code --continue created a commit", options.eventEmitter);
+      this.emitLog(`Commit SHA: ${headAfter}`, options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      return {
+        success: true,
+        commitSha: headAfter,
+        output: result.output,
+      };
+    }
+
+    this.emitLog("✓ Claude Code --continue completed (no commit created)", options.eventEmitter);
+    this.emitLog("─".repeat(80), options.eventEmitter);
+    return {
+      success: true,
+      commitSha: null,
+      output: result.output,
+    };
+  }
 }
