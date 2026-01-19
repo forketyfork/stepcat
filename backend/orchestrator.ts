@@ -897,15 +897,16 @@ export class Orchestrator {
         const previousIteration = this.storage.getIterations(step.id)[iterationNumber - 2];
         const promptType = this.determineCodexPromptType(previousIteration);
 
+        const commitSha = previousIteration.commitSha || 'HEAD';
         let codexPrompt: string;
         if (promptType === 'implementation') {
-          codexPrompt = PROMPTS.codexReviewImplementation(step.stepNumber, step.title, this.planContent);
+          codexPrompt = PROMPTS.codexReviewImplementation(step.stepNumber, step.title, this.planContent, commitSha);
         } else if (promptType === 'build_fix') {
           const buildErrors = this.storage.getIssues(previousIteration.id)
             .filter(i => i.type === 'ci_failure')
             .map(i => i.description)
             .join('\n');
-          codexPrompt = PROMPTS.codexReviewBuildFix(buildErrors);
+          codexPrompt = PROMPTS.codexReviewBuildFix(buildErrors, commitSha);
         } else {
           const openIssues = this.storage.getOpenIssues(step.id)
             .filter(i => i.type === 'codex_review')
@@ -915,7 +916,7 @@ export class Orchestrator {
               severity: i.severity || 'error',
               description: i.description,
             }));
-          codexPrompt = PROMPTS.codexReviewCodeFixes(openIssues);
+          codexPrompt = PROMPTS.codexReviewCodeFixes(openIssues, commitSha);
         }
 
         this.storage.updateIteration(previousIteration.id, { reviewStatus: 'in_progress' });

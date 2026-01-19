@@ -38,7 +38,7 @@ CRITICAL REQUIREMENTS:
 ${buildErrors}
 ---
 
-Please fix these errors, then create a git commit for your changes with a clear commit message, e.g.:
+Please analyze and fix these errors, then create a git commit with a clear message, e.g.:
 
 ---
 Plan: docs/plans/PLAN.md
@@ -49,7 +49,9 @@ Stage: build fix
 ---
 
 CRITICAL REQUIREMENTS:
-- You MUST create a git commit for your changes - this is not optional
+- You MUST create a git commit - this is not optional
+- If the errors are already fixed or were flaky (no changes needed), create an EMPTY commit:
+  git commit --allow-empty -m "No changes needed: <brief explanation>"
 - Do NOT ask for approval or confirmation - just create the commit
 - Do NOT use git commit --amend - create a NEW commit
 - Do NOT push to remote - the orchestrator will handle pushing
@@ -64,18 +66,24 @@ CRITICAL REQUIREMENTS:
 ${reviewComments}
 ---
 
-Please review these comments and fix any legitimate issues, then create a git commit for your changes with a clear commit message, e.g.:
+Please review these comments carefully. For each issue:
+1. If it's a legitimate issue, fix it
+2. If it's a false positive (the code is already correct), note why
+
+After your analysis, create a git commit with a clear message, e.g.:
 
 ---
 Plan: docs/plans/PLAN.md
 Step: ${stepNumber}
 Stage: code review fix
 
-<summary of your changes>
+<summary of your changes or explanation of why issues are false positives>
 ---
 
 CRITICAL REQUIREMENTS:
-- You MUST create a git commit for your changes - this is not optional
+- You MUST create a git commit - this is not optional
+- If all issues are false positives and no changes are needed, create an EMPTY commit:
+  git commit --allow-empty -m "No changes needed: <brief explanation>"
 - Do NOT ask for approval or confirmation - just create the commit
 - Do NOT use git commit --amend - create a NEW commit
 - Do NOT push to remote - the orchestrator will handle pushing
@@ -86,13 +94,15 @@ CRITICAL REQUIREMENTS:
     stepNumber: number,
     stepTitle: string,
     planContent: string,
+    commitSha: string,
   ) => `This is the initial implementation of Step ${stepNumber}: ${stepTitle} from the following plan:
 
 ---
 ${planContent}
 ---
 
-Review the last commit for code quality, correctness, and adherence to the plan.
+Review commit ${commitSha} for code quality, correctness, and adherence to the plan.
+Use \`git show ${commitSha}\` to see the exact changes in this commit.
 
 Respond with a JSON object in the following format:
 {
@@ -121,13 +131,15 @@ IMPORTANT:
 
   codexReviewBuildFix: (
     buildErrors: string,
+    commitSha: string,
   ) => `This commit attempts to fix the following build failures:
 
 ---
 ${buildErrors}
 ---
 
-Review the last commit to verify it properly addresses the build issues.
+Review commit ${commitSha} to verify it properly addresses the build issues.
+Use \`git show ${commitSha}\` to see the exact changes in this commit.
 
 Respond with a JSON object in the following format:
 {
@@ -162,13 +174,15 @@ IMPORTANT:
       severity: string;
       description: string;
     }>,
+    commitSha: string,
   ) => `This commit attempts to fix the following code review issues from the previous iteration:
 
 ---
 ${JSON.stringify(issues, null, 2)}
 ---
 
-Review the last commit to verify it properly addresses these concerns.
+Review commit ${commitSha} to verify it properly addresses these concerns.
+Use \`git show ${commitSha}\` to see the exact changes in this commit.
 
 Respond with a JSON object in the following format:
 {
