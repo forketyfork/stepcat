@@ -45,6 +45,7 @@ type AgentRunResult = {
 type PermissionHandlingResult = "applied" | "declined" | "noop";
 
 export class Orchestrator {
+  private static readonly MAX_PERMISSION_REQUEST_ATTEMPTS = 3;
   private parser: StepParser;
   private claudeRunner: ClaudeRunner;
   private codexRunner: CodexRunner;
@@ -214,6 +215,15 @@ export class Orchestrator {
       permissionsList || "- (none provided)",
       reasonLine,
     ].join("\n");
+  }
+
+  private buildPermissionRequestError(outcome: PermissionHandlingResult): string {
+    if (outcome === "declined") {
+      return "Permission update was not approved. Update .claude/settings.local.json and resume the execution.";
+    }
+
+    return "Requested permissions were already present but the agent still could not proceed. " +
+      "Verify permissions in .claude/settings.local.json and resume the execution.";
   }
 
   private async confirmPermissionUpdate(
@@ -391,7 +401,7 @@ export class Orchestrator {
       return initialResult;
     }
 
-    const maxPermissionAttempts = 3;
+    const maxPermissionAttempts = Orchestrator.MAX_PERMISSION_REQUEST_ATTEMPTS;
     let attempts = 0;
     let combinedOutput = initialResult.output ?? "";
     let latestOutput = initialResult.output;
@@ -413,14 +423,7 @@ export class Orchestrator {
           status: "failed",
           claudeLog: failureLog ?? null,
         });
-        const message =
-          outcome === "declined"
-            ? "Permission update was not approved. Update .claude/settings.local.json and resume the execution."
-            : "Requested permissions were already present but the agent still could not proceed. " +
-              "Verify permissions in .claude/settings.local.json and resume the execution.";
-        throw new Error(
-          message,
-        );
+        throw new Error(this.buildPermissionRequestError(outcome));
       }
 
       const continueResult = await this.claudeRunner.runContinue({
@@ -472,9 +475,8 @@ export class Orchestrator {
       return reviewRun;
     }
 
-    const maxPermissionAttempts = 3;
+    const maxPermissionAttempts = Orchestrator.MAX_PERMISSION_REQUEST_ATTEMPTS;
     let attempts = 0;
-    let combinedOutput = reviewRun.output;
     let latestOutput: string | undefined = reviewRun.output;
 
     while (attempts < maxPermissionAttempts) {
@@ -482,18 +484,13 @@ export class Orchestrator {
       if (!request) {
         return {
           success: reviewRun.success,
-          output: combinedOutput,
+          output: latestOutput ?? reviewRun.output,
         };
       }
 
       const outcome = await this.handlePermissionRequest(iteration, stepNumber, request);
       if (outcome !== "applied") {
-        const message =
-          outcome === "declined"
-            ? "Permission update was not approved. Update .claude/settings.local.json and resume the execution."
-            : "Requested permissions were already present but the agent still could not proceed. " +
-              "Verify permissions in .claude/settings.local.json and resume the execution.";
-        throw new Error(message);
+        throw new Error(this.buildPermissionRequestError(outcome));
       }
 
       const continueResult = await this.claudeRunner.runContinue({
@@ -509,15 +506,13 @@ export class Orchestrator {
       }
 
       latestOutput = continueResult.output;
-      if (continueResult.output) {
-        combinedOutput = combinedOutput
-          ? `${combinedOutput}\n\n--- Continue session ---\n\n${continueResult.output}`
-          : continueResult.output;
+      if (!latestOutput) {
+        throw new Error("Claude Code --continue completed without review output.");
       }
 
       reviewRun = {
         success: continueResult.success,
-        output: combinedOutput,
+        output: latestOutput,
       };
 
       attempts += 1;

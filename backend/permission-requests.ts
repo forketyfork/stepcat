@@ -151,7 +151,7 @@ export class PermissionRequestParser {
   }
 }
 
-const normalizeAllowList = (value: unknown): string[] => {
+const normalizePermissionAllowList = (value: unknown): string[] => {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -168,7 +168,7 @@ export const mergePermissionAllows = (
   const permissions = settings.permissions;
   const permissionsObject = isRecord(permissions) ? { ...permissions } : {};
 
-  const currentAllow = normalizeAllowList(permissionsObject.allow);
+  const currentAllow = normalizePermissionAllowList(permissionsObject.allow);
   const allowSet = new Set(currentAllow);
   const added: string[] = [];
 
