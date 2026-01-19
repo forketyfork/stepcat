@@ -10,6 +10,8 @@ import { Plan, DbStep, Iteration } from "./models.js";
 import { PROMPTS } from "./prompts.js";
 import { UIAdapter } from "./ui/ui-adapter.js";
 import { ReviewParser } from "./review-parser.js";
+import { Logger, getLogger, LogLevel } from "./logger.js";
+import type { StopController } from "./stop-controller.js";
 
 export interface OrchestratorConfig {
   planFile: string;
@@ -26,6 +28,7 @@ export interface OrchestratorConfig {
   storage?: Storage;
   implementationAgent?: 'claude' | 'codex';
   reviewAgent?: 'claude' | 'codex';
+  stopController?: StopController;
 }
 
 export class Orchestrator {
@@ -48,14 +51,18 @@ export class Orchestrator {
   private planContent: string;
   private implementationAgent: 'claude' | 'codex';
   private reviewAgent: 'claude' | 'codex';
+  private stopController?: StopController;
 
   constructor(config: OrchestratorConfig) {
+    this.workDir = config.workDir;
+
+    Logger.initialize({ workDir: config.workDir });
+
     this.parser = new StepParser(config.planFile);
     this.planFile = config.planFile;
     this.planContent = this.parser.getContent();
     this.claudeRunner = new ClaudeRunner();
     this.codexRunner = new CodexRunner();
-    this.workDir = config.workDir;
     this.buildTimeoutMinutes = config.buildTimeoutMinutes ?? 30;
     this.agentTimeoutMinutes = config.agentTimeoutMinutes ?? 30;
     this.eventEmitter = config.eventEmitter ?? new OrchestratorEventEmitter();
@@ -65,6 +72,7 @@ export class Orchestrator {
     this.maxIterationsPerStep = config.maxIterationsPerStep ?? 3;
     this.implementationAgent = config.implementationAgent ?? 'claude';
     this.reviewAgent = config.reviewAgent ?? 'codex';
+    this.stopController = config.stopController;
 
     this.storage = config.storage ?? new Database(config.workDir, config.databasePath);
     this.storageOwned = !config.storage;
@@ -98,9 +106,12 @@ export class Orchestrator {
   ) {
     const lines = message.split(/\r?\n/);
     const baseTimestamp = Date.now();
+    const logLevel: LogLevel = level === "success" ? "info" : level;
 
     lines.forEach((line, index) => {
       const lineTimestamp = lines.length === 1 ? baseTimestamp : baseTimestamp + index;
+
+      getLogger()?.log(logLevel, "Orchestrator", line);
 
       if (!this.silent) {
         console.log(line);
@@ -321,9 +332,219 @@ export class Orchestrator {
     }
   }
 
+  private tryGetHeadCommit(): string | null {
+    try {
+      return execSync("git rev-parse HEAD", {
+        cwd: this.workDir,
+        encoding: "utf-8",
+      }).trim();
+    } catch {
+      return null;
+    }
+  }
+
+  private tryRecoverManualCommit(): void {
+    if (!this.plan) {
+      return;
+    }
+
+    const currentHead = this.tryGetHeadCommit();
+    if (!currentHead) {
+      return;
+    }
+
+    // Collect all known commit SHAs from this execution
+    const steps = this.storage.getSteps(this.plan.id);
+    const knownCommits = new Set<string>();
+
+    for (const step of steps) {
+      const iterations = this.storage.getIterations(step.id);
+      for (const iteration of iterations) {
+        if (iteration.commitSha) {
+          knownCommits.add(iteration.commitSha);
+        }
+      }
+    }
+
+    // If current HEAD is already known, nothing to recover
+    if (knownCommits.has(currentHead)) {
+      return;
+    }
+
+    // Look for in_progress steps with failed/aborted iterations that have no commit
+    for (const step of steps) {
+      if (step.status !== 'in_progress') {
+        continue;
+      }
+
+      const iterations = this.storage.getIterations(step.id);
+      if (iterations.length === 0) {
+        continue;
+      }
+
+      // Get the latest iteration for this step
+      const latestIteration = iterations[iterations.length - 1];
+
+      // Check if it's a failed/aborted iteration without a commit
+      if (
+        (latestIteration.status === 'failed' || latestIteration.status === 'aborted') &&
+        !latestIteration.commitSha
+      ) {
+        this.log(
+          `Detected manual commit ${currentHead.substring(0, 7)} for step ${step.stepNumber}, recovering iteration ${latestIteration.iterationNumber}`,
+          "info"
+        );
+
+        // Update the iteration with the manual commit
+        this.storage.updateIteration(latestIteration.id, {
+          commitSha: currentHead,
+          status: 'completed',
+        });
+
+        this.emitEvent({
+          type: "iteration_complete",
+          timestamp: Date.now(),
+          stepId: step.id,
+          iterationNumber: latestIteration.iterationNumber,
+          commitSha: currentHead,
+          status: 'completed',
+        });
+
+        // Only recover one iteration (the current step)
+        return;
+      }
+    }
+  }
+
   private countIterationsWithCommits(stepId: number): number {
     const iterations = this.storage.getIterations(stepId);
     return iterations.filter(iteration => iteration.commitSha !== null && iteration.status !== 'aborted').length;
+  }
+
+  private getWorkingTreeStatus(): string | null {
+    try {
+      const status = execSync("git status --short", {
+        cwd: this.workDir,
+        encoding: "utf-8",
+      }).trim();
+      return status.length > 0 ? status : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async tryRecoverUncommittedChanges(): Promise<void> {
+    if (!this.plan) {
+      return;
+    }
+
+    const workingTreeStatus = this.getWorkingTreeStatus();
+    if (!workingTreeStatus) {
+      return;
+    }
+
+    this.log("─".repeat(80), "warn");
+    this.log("Detected uncommitted changes in working directory:", "warn");
+    this.log(workingTreeStatus, "warn");
+    this.log("─".repeat(80), "warn");
+
+    // Find the current step (in_progress or first pending)
+    const steps = this.storage.getSteps(this.plan.id);
+    const currentStep = steps.find(
+      (s) => s.status === 'in_progress' || s.status === 'pending'
+    );
+
+    if (!currentStep) {
+      this.log("No pending steps found, cannot recover uncommitted changes", "warn");
+      return;
+    }
+
+    // Find the last aborted iteration for this step
+    const iterations = this.storage.getIterations(currentStep.id);
+    const abortedIterations = iterations.filter(i => i.status === 'aborted');
+
+    if (abortedIterations.length === 0) {
+      this.log("No aborted iterations found, will start fresh implementation", "info");
+      return;
+    }
+
+    const lastAborted = abortedIterations[abortedIterations.length - 1];
+
+    this.log(`Found aborted iteration ${lastAborted.iterationNumber} for step ${currentStep.stepNumber}`, "info");
+    this.log("Attempting to resume Claude Code session to complete the work...", "info");
+
+    // Build a prompt to continue the interrupted work
+    const continuePrompt = `Your previous session was interrupted while implementing Step ${currentStep.stepNumber}: ${currentStep.title}.
+
+There are uncommitted changes in the working directory. Please:
+1. Review the current changes with \`git status\` and \`git diff\`
+2. If the implementation looks complete, run the project's build, lint, and test commands to verify
+   - Check CLAUDE.md, justfile, Makefile, package.json, or similar for the appropriate commands
+3. If tests pass, stage all changes and create a commit
+4. If the implementation is incomplete, complete it first, then test and commit
+
+CRITICAL REQUIREMENTS:
+- You MUST create a git commit for your changes - this is not optional
+- Do NOT ask for approval or confirmation - just create the commit
+- Do NOT use git commit --amend - create a NEW commit
+- Do NOT push to remote - the orchestrator will handle pushing`;
+
+    const result = await this.claudeRunner.runContinue({
+      workDir: this.workDir,
+      prompt: continuePrompt,
+      timeoutMinutes: this.agentTimeoutMinutes,
+      captureOutput: true,
+      eventEmitter: this.eventEmitter,
+    });
+
+    if (result.success && result.commitSha) {
+      this.log(`✓ Recovered interrupted session with commit ${result.commitSha}`, "success");
+
+      // Update the aborted iteration with the commit info
+      this.storage.updateIteration(lastAborted.id, {
+        status: 'completed',
+        commitSha: result.commitSha,
+        claudeLog: result.output ?? null,
+      });
+
+      // Push the recovered commit to GitHub
+      await this.pushCommit();
+
+      this.emitEvent({
+        type: "iteration_complete",
+        timestamp: Date.now(),
+        stepId: currentStep.id,
+        iterationNumber: lastAborted.iterationNumber,
+        commitSha: result.commitSha,
+        status: 'completed',
+      });
+    } else {
+      this.log("Failed to recover interrupted session, will start fresh", "warn");
+    }
+  }
+
+  private emitInitialState(): void {
+    if (!this.plan) return;
+
+    const allSteps = this.storage.getSteps(this.plan.id);
+    const allIterations = allSteps.flatMap((s) => this.storage.getIterations(s.id));
+    const allIssues = allIterations.flatMap((i) => this.storage.getIssues(i.id));
+
+    this.emitEvent({
+      type: "execution_started",
+      timestamp: Date.now(),
+      executionId: this.plan.id,
+      isResume: !!this.executionId,
+    });
+
+    this.emitEvent({
+      type: "state_sync",
+      timestamp: Date.now(),
+      plan: this.plan,
+      steps: allSteps,
+      iterations: allIterations,
+      issues: allIssues,
+    });
   }
 
   private async initializeOrResumePlan(): Promise<void> {
@@ -336,7 +557,15 @@ export class Orchestrator {
       this.plan = plan;
       this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
 
+      // Emit initial state so UI updates immediately
+      this.emitInitialState();
+
       this.cleanupIncompleteIterations();
+      this.tryRecoverManualCommit();
+      await this.tryRecoverUncommittedChanges();
+
+      // Emit updated state after recovery
+      this.emitInitialState();
     } else {
       this.log("Starting new execution", "info");
       this.plan = this.storage.createPlan(
@@ -352,6 +581,9 @@ export class Orchestrator {
         this.storage.createStep(this.plan.id, step.number, step.title);
       }
       this.log(`Initialized ${parsedSteps.length} steps in database`, "info");
+
+      // Emit initial state for new execution
+      this.emitInitialState();
     }
   }
 
@@ -370,16 +602,18 @@ export class Orchestrator {
 
   private async pushCommit(): Promise<void> {
     try {
-      execSync("git push", {
+      const output = execSync("git push", {
         cwd: this.workDir,
-        stdio: "inherit",
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
       });
+      if (output && output.trim()) {
+        this.log(output.trim());
+      }
       this.log("✓ Pushed commit to GitHub", "success");
     } catch (error) {
-      this.log(
-        `⚠ Failed to push commit: ${error instanceof Error ? error.message : String(error)}`,
-        "warn",
-      );
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.log(`⚠ Failed to push commit: ${errorMessage}`, "warn");
       throw new Error("Failed to push commit to GitHub");
     }
   }
@@ -433,31 +667,13 @@ export class Orchestrator {
   async run(): Promise<number> {
     const startTime = Date.now();
     await this.initializeOrResumePlan();
+    let stoppedEarly = false;
 
     if (!this.plan) {
       throw new Error("Plan not initialized");
     }
 
-    this.emitEvent({
-      type: "execution_started",
-      timestamp: Date.now(),
-      executionId: this.plan.id,
-      isResume: !!this.executionId,
-    });
-
     const allSteps = this.storage.getSteps(this.plan.id);
-    const allIterations = allSteps.flatMap((s) => this.storage.getIterations(s.id));
-    const allIssues = allIterations.flatMap((i) => this.storage.getIssues(i.id));
-
-    this.emitEvent({
-      type: "state_sync",
-      timestamp: Date.now(),
-      plan: this.plan,
-      steps: allSteps,
-      iterations: allIterations,
-      issues: allIssues,
-    });
-
     const pendingSteps = allSteps.filter((s) => s.status === 'pending' || s.status === 'in_progress');
 
     this.log("═".repeat(80));
@@ -812,15 +1028,16 @@ export class Orchestrator {
         const previousIteration = this.storage.getIterations(step.id)[iterationNumber - 2];
         const promptType = this.determineCodexPromptType(previousIteration);
 
+        const commitSha = previousIteration.commitSha || 'HEAD';
         let codexPrompt: string;
         if (promptType === 'implementation') {
-          codexPrompt = PROMPTS.codexReviewImplementation(step.stepNumber, step.title, this.planContent);
+          codexPrompt = PROMPTS.codexReviewImplementation(step.stepNumber, step.title, this.planContent, commitSha);
         } else if (promptType === 'build_fix') {
           const buildErrors = this.storage.getIssues(previousIteration.id)
             .filter(i => i.type === 'ci_failure')
             .map(i => i.description)
             .join('\n');
-          codexPrompt = PROMPTS.codexReviewBuildFix(buildErrors);
+          codexPrompt = PROMPTS.codexReviewBuildFix(buildErrors, commitSha);
         } else {
           const openIssues = this.storage.getOpenIssues(step.id)
             .filter(i => i.type === 'codex_review')
@@ -830,7 +1047,7 @@ export class Orchestrator {
               severity: i.severity || 'error',
               description: i.description,
             }));
-          codexPrompt = PROMPTS.codexReviewCodeFixes(openIssues);
+          codexPrompt = PROMPTS.codexReviewCodeFixes(openIssues, commitSha);
         }
 
         this.storage.updateIteration(previousIteration.id, { reviewStatus: 'in_progress' });
@@ -845,7 +1062,34 @@ export class Orchestrator {
 
         this.log(`\nRunning ${this.getAgentDisplayName(this.reviewAgent)} code review (${promptType})...`);
 
-        const reviewRun = await this.runReviewAgent(codexPrompt);
+        let reviewRun: { success: boolean; output: string };
+        try {
+          reviewRun = await this.runReviewAgent(codexPrompt);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          const diagnosticLog = [
+            `Review agent failed with error: ${errorMessage}`,
+            errorStack ? `\nStack trace:\n${errorStack}` : '',
+            `\nReview agent: ${this.reviewAgent}`,
+            `Prompt type: ${promptType}`,
+          ].join('');
+
+          this.storage.updateIteration(previousIteration.id, {
+            codexLog: diagnosticLog,
+            reviewStatus: 'failed',
+          });
+
+          this.emitEvent({
+            type: "error",
+            timestamp: Date.now(),
+            error: `Review agent failed: ${errorMessage}`,
+            stepNumber: step.stepNumber,
+          });
+
+          this.log(`✗ Review agent failed: ${errorMessage}`, "error");
+          throw error;
+        }
 
         const reviewParser = new ReviewParser();
         const reviewResult = reviewParser.parseReviewOutput(reviewRun.output);
@@ -990,6 +1234,14 @@ export class Orchestrator {
             stepNumber: step.stepNumber,
             stepTitle: step.title,
           });
+          if (this.stopController?.isStopAfterStepRequested()) {
+            this.stopController.markStopAfterStepTriggered();
+            this.log(
+              `Stop requested. Exiting after completing step ${step.stepNumber}.`,
+              "warn"
+            );
+            stoppedEarly = true;
+          }
 
           break;
         }
@@ -999,7 +1251,20 @@ export class Orchestrator {
         this.handleMaxIterationsExceeded(step);
       }
 
+      if (stoppedEarly) {
+        break;
+      }
+
       step = this.getCurrentStep();
+    }
+
+    if (stoppedEarly) {
+      if (this.storageOwned) {
+        this.storage.close();
+      }
+
+      getLogger()?.close();
+      return this.plan.id;
     }
 
     const totalTime = Date.now() - startTime;
@@ -1017,6 +1282,8 @@ export class Orchestrator {
     if (this.storageOwned) {
       this.storage.close();
     }
+
+    getLogger()?.close();
 
     return this.plan.id;
   }

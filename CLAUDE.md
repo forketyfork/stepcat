@@ -93,6 +93,65 @@ stepcat --execution-id 123 --ui
 stepcat --file plan.md --dir /path/to/project --ui --port 8080 --no-auto-open
 ```
 
+### Preflight Check
+
+Before running a full execution, use the preflight check to verify that Claude Code has all the required permissions configured in the target project. This prevents execution failures due to unapproved commands.
+
+```bash
+# Run preflight check
+stepcat --preflight --file plan.md --dir /path/to/project
+```
+
+**What it does:**
+1. Reads the plan file to identify all bash commands that will be needed
+2. Reads the project's `.claude/settings.json` and `.claude/settings.local.json` (if they exist)
+3. Reads the project's `CLAUDE.md` file (if it exists)
+4. Runs Claude Code to analyze required permissions vs. configured permissions
+5. Outputs recommendations for missing permissions
+
+**Exit codes:**
+- `0` - All required permissions are configured
+- `1` - Error occurred during preflight check
+- `2` - Missing permissions detected (action needed)
+
+**Example output:**
+```
+════════════════════════════════════════════════════════════════════════════════
+PREFLIGHT CHECK RESULTS
+════════════════════════════════════════════════════════════════════════════════
+
+📋 DETECTED COMMANDS
+────────────────────────────────────────────────────────────────────────────────
+  • zig build
+    └─ Plan mentions Zig language implementation
+  • just build
+    └─ Standard build command from plan
+
+⚠️  MISSING PERMISSIONS
+────────────────────────────────────────────────────────────────────────────────
+  • zig build
+  • just build
+
+📝 RECOMMENDED CONFIGURATION
+════════════════════════════════════════════════════════════════════════════════
+
+Add the following to .claude/settings.json:
+
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(zig build:*)",
+      "Bash(just:*)"
+    ]
+  }
+}
+```
+
+**Configuring permissions:**
+
+Add the recommended permissions to `.claude/settings.json` or `.claude/settings.local.json` in the target project directory. The `settings.local.json` file is typically used for user-specific settings that shouldn't be committed to version control.
+
 ## Architecture
 
 ### Project Structure
@@ -226,7 +285,17 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Expects format: `github.com[:/]owner/repo`
 - Returns true if all checks pass/skip, false otherwise
 
+**PreflightRunner** (`backend/preflight-runner.ts`): Analyzes required permissions before execution
+- Reads plan file, CLAUDE.md, and `.claude/settings.json` / `.claude/settings.local.json`
+- Runs Claude Code with a specialized prompt to analyze required bash commands
+- Compares detected commands against configured permissions
+- Returns structured JSON with detected commands, currently allowed permissions, and missing permissions
+- Outputs formatted recommendations for `.claude/settings.json` configuration
+- Used via `--preflight` CLI flag before starting a full execution
+
 **Prompts** (`backend/prompts.ts`): All agent prompts with explicit instructions to create new commits
+- **Preflight prompt**:
+  - `preflight(planContent, claudeMdContent, claudeSettingsContent)`: Analyzes plan and configuration to detect required permissions
 - **Claude Code prompts** (all explicitly instruct NOT to use `git commit --amend` and NOT to push):
   - `implementation(stepNumber, planFilePath)`: Initial implementation task pointing to plan file path, creates new commit
   - `buildFix(buildErrors)`: Fix build failures, creates new commit
@@ -582,6 +651,21 @@ const calculateStepHeight = (step: any, iterations: any[], issues: Map<number, a
 1. **First choice**: Use existing types from `models.ts` or other type definition files
 2. **Second choice**: Define a specific interface or type for your use case
 3. **Last resort**: Use `unknown` (not `any`) if the type is truly dynamic, then narrow it with type guards
+
+**Use descriptive variable names in callbacks.** Avoid single-letter abbreviations when the context makes a full name natural.
+
+**DO:**
+```typescript
+const activeStep = state.steps.find(step => step.status === 'in_progress');
+const openIssues = issues.filter(issue => issue.status === 'open');
+```
+
+**DON'T:**
+```typescript
+// ❌ Abbreviated names when full names are clearer
+const activeStep = state.steps.find(s => s.status === 'in_progress');
+const openIssues = issues.filter(i => i.status === 'open');
+```
 
 ### Debugging Path Issues
 

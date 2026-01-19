@@ -1,3 +1,4 @@
+import { useEffect, useRef, useMemo } from 'react';
 import { Step, Iteration, Issue } from '../types/events';
 import { StepCard } from './StepCard';
 import './StepsContainer.css';
@@ -25,6 +26,27 @@ export function StepsContainer({
   owner,
   repo,
 }: StepsContainerProps) {
+  const stepRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  const stepsArray = useMemo(
+    () => Array.from(steps.values()).sort((a, b) => a.stepNumber - b.stepNumber),
+    [steps]
+  );
+
+  const activeStepId = useMemo(() => {
+    const activeStep = stepsArray.find((step) => step.status === 'in_progress');
+    return activeStep?.id ?? null;
+  }, [stepsArray]);
+
+  useEffect(() => {
+    if (activeStepId !== null) {
+      const element = stepRefs.current.get(activeStepId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [activeStepId]);
+
   if (steps.size === 0) {
     return (
       <div className="steps-container">
@@ -36,13 +58,18 @@ export function StepsContainer({
     );
   }
 
-  const stepsArray = Array.from(steps.values()).sort((a, b) => a.stepNumber - b.stepNumber);
-
   return (
     <div className="steps-container">
       {stepsArray.map((step) => (
         <StepCard
           key={step.id}
+          ref={(el) => {
+            if (el) {
+              stepRefs.current.set(step.id, el);
+            } else {
+              stepRefs.current.delete(step.id);
+            }
+          }}
           step={step}
           iterations={iterations}
           issues={issues}

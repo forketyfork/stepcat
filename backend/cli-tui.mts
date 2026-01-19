@@ -5,9 +5,9 @@ import { Orchestrator } from './orchestrator.js';
 import { OrchestratorEventEmitter, OrchestratorEvent } from './events.js';
 import { Database } from './database.js';
 import { WebSocketUIAdapter, TUIAdapter, UIAdapter } from './ui/index.js';
+import { StopController } from './stop-controller.js';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
-import { execSync } from 'child_process';
 
 const program = new Command();
 
@@ -114,36 +114,9 @@ program
           );
         }
 
-        try {
-          const gitStatus = execSync('git status --porcelain', {
-            cwd: workDir,
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe']
-          }).trim();
-
-          if (gitStatus) {
-            throw new Error(
-              'Git working directory is not clean. Please commit or stash your changes before resuming.\n' +
-              'Uncommitted changes:\n' + gitStatus
-            );
-          }
-        } catch (error) {
-          if (error instanceof Error) {
-            if (error.message.includes('working directory is not clean')) {
-              throw error;
-            }
-            if ('code' in error || error.message.toLowerCase().includes('git')) {
-              throw new Error(
-                'Failed to check git status. Ensure:\n' +
-                '  1. You are in a git repository\n' +
-                '  2. git is installed and available\n' +
-                `  3. The work directory is correct: ${workDir}\n` +
-                `Original error: ${error.message}`
-              );
-            }
-          }
-          throw error;
-        }
+        // Note: We no longer block on uncommitted changes here.
+        // The Orchestrator's tryRecoverUncommittedChanges() will handle
+        // resuming interrupted sessions with uncommitted changes.
 
         if (!options.ui && !options.tui) {
           console.log('═'.repeat(80));
@@ -194,6 +167,7 @@ program
 
       const eventEmitter = new OrchestratorEventEmitter();
       storage = new Database(workDir);
+      const stopController = options.tui ? new StopController() : undefined;
 
       if (options.ui) {
         uiAdapter = new WebSocketUIAdapter({
@@ -207,7 +181,7 @@ program
       }
 
       if (options.tui) {
-        const tuiAdapter = new TUIAdapter({ storage });
+        const tuiAdapter = new TUIAdapter({ storage, stopController });
         await tuiAdapter.initialize();
         uiAdapters.push(tuiAdapter);
       }
@@ -223,7 +197,8 @@ program
         silent: options.ui || options.tui,
         executionId,
         storage,
-        maxIterationsPerStep
+        maxIterationsPerStep,
+        stopController
       });
 
       eventEmitter.on('event', (event: OrchestratorEvent) => {
@@ -250,6 +225,7 @@ program
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
+      const stoppedAfterStep = stopController?.wasStopAfterStepTriggered() ?? false;
 
       if (!options.ui && !options.tui) {
         console.log('\n' + '═'.repeat(80));
@@ -268,6 +244,16 @@ program
         }
 
         console.log('═'.repeat(80));
+      }
+
+      if (stoppedAfterStep) {
+        for (const adapter of uiAdapters) {
+          await adapter.shutdown();
+        }
+        if (storage) {
+          storage.close();
+        }
+        process.exit(0);
       }
 
       if (uiAdapter) {

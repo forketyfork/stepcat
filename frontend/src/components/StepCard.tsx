@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { forwardRef } from 'react';
 import { Step, Iteration, Issue } from '../types/events';
 import { IterationsContainer } from './IterationsContainer';
 import './StepCard.css';
@@ -16,18 +16,21 @@ interface StepCardProps {
   repo: string;
 }
 
-export function StepCard({
-  step,
-  iterations,
-  issues,
-  isExpanded,
-  expandedIterations,
-  onToggle,
-  onToggleIteration,
-  animationDelay,
-  owner,
-  repo,
-}: StepCardProps) {
+export const StepCard = forwardRef<HTMLDivElement, StepCardProps>(function StepCard(
+  {
+    step,
+    iterations,
+    issues,
+    isExpanded,
+    expandedIterations,
+    onToggle,
+    onToggleIteration,
+    animationDelay,
+    owner,
+    repo,
+  },
+  ref
+) {
   const isActive = step.status === 'in_progress';
   const isCompleted = step.status === 'completed';
   const isFailed = step.status === 'failed';
@@ -48,6 +51,7 @@ export function StepCard({
 
   return (
     <div
+      ref={ref}
       className={`step-card ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
       style={{ animationDelay: `${animationDelay}s` }}
     >
@@ -79,4 +83,4 @@ export function StepCard({
       />
     </div>
   );
-}
+});

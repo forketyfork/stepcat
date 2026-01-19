@@ -1,3 +1,5 @@
+import { getLogger } from "./logger.js";
+
 export interface ReviewResult {
   result: 'PASS' | 'FAIL';
   issues: Array<{
@@ -28,7 +30,7 @@ export class ReviewParser {
       if (result) return result;
     }
 
-    console.warn('Failed to parse review output as JSON');
+    getLogger()?.warn("ReviewParser", `Failed to parse review output as JSON. Raw output (first 200 chars): ${rawOutput.substring(0, 200)}`);
 
     return {
       result: 'FAIL',

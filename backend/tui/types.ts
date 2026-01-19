@@ -26,6 +26,7 @@ export interface TUIState {
   selectedLogIndex: number;
   logViewerItems: LogViewerItem[];
   pendingLogView: string | null;
+  stopRequested: boolean;
 }
 
 export const initialState: TUIState = {
@@ -43,5 +44,6 @@ export const initialState: TUIState = {
   viewMode: 'normal',
   selectedLogIndex: 0,
   logViewerItems: [],
-  pendingLogView: null
+  pendingLogView: null,
+  stopRequested: false
 };

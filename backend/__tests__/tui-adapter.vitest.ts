@@ -17,10 +17,21 @@ vi.mock('ink', () => ({
   Text: 'Text',
 }));
 
-vi.mock('react', () => ({
-  createElement: vi.fn((component, props) => ({ component, props })),
-  Fragment: 'Fragment',
-}));
+vi.mock('react', () => {
+  const reactMock = {
+    createElement: vi.fn((component, props) => ({ component, props })),
+    Fragment: 'Fragment',
+    memo: vi.fn((component) => component),
+    useState: vi.fn((initial) => [initial, vi.fn()]),
+    useEffect: vi.fn(),
+    useMemo: vi.fn((fn) => fn()),
+    useCallback: vi.fn((fn) => fn),
+  };
+  return {
+    ...reactMock,
+    default: reactMock,
+  };
+});
 
 describe('TUIAdapter', () => {
   let tempDir: string;

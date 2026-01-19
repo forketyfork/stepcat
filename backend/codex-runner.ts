@@ -4,6 +4,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { ReviewParser, ReviewResult } from "./review-parser.js";
 import { OrchestratorEventEmitter } from "./events.js";
+import { getLogger, LogLevel } from "./logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,11 +27,14 @@ export class CodexRunner {
     level: "info" | "warn" | "error" | "success" = "info",
   ): void {
     const lines = message.split(/\r?\n/);
+    const logLevel: LogLevel = level === "success" ? "info" : level;
 
     for (const line of lines) {
       if (!line.trim()) {
         continue;
       }
+
+      getLogger()?.log(logLevel, "CodexRunner", line);
 
       if (eventEmitter) {
         eventEmitter.emit("event", {
@@ -112,7 +116,8 @@ export class CodexRunner {
 
     const result = await new Promise<{
       exitCode: number | null;
-      output: string;
+      stdout: string;
+      stderr: string;
       error?: Error;
     }>((resolve) => {
       const child = spawn(codexPath, ["exec", "--cd", options.workDir], {
@@ -121,6 +126,7 @@ export class CodexRunner {
       });
 
       let stdoutData = "";
+      let stderrData = "";
       let timeoutId: NodeJS.Timeout | undefined;
 
       if (timeout > 0) {
@@ -128,7 +134,8 @@ export class CodexRunner {
           child.kill("SIGTERM");
           resolve({
             exitCode: null,
-            output: stdoutData,
+            stdout: stdoutData,
+            stderr: stderrData,
             error: new Error("Codex execution timed out"),
           });
         }, timeout);
@@ -153,6 +160,7 @@ export class CodexRunner {
 
       child.stderr?.on("data", (chunk) => {
         const text = chunk.toString();
+        stderrData += text;
         if (options.eventEmitter) {
           this.emitLog(text, options.eventEmitter, "warn");
         } else {
@@ -162,27 +170,38 @@ export class CodexRunner {
 
       child.on("error", (error) => {
         if (timeoutId) clearTimeout(timeoutId);
-        resolve({ exitCode: null, output: stdoutData, error });
+        resolve({ exitCode: null, stdout: stdoutData, stderr: stderrData, error });
       });
 
       child.on("close", (code) => {
         if (timeoutId) clearTimeout(timeoutId);
-        resolve({ exitCode: code, output: stdoutData });
+        resolve({ exitCode: code, stdout: stdoutData, stderr: stderrData });
       });
     });
+
+    const combinedOutput = [
+      result.stdout,
+      result.stderr ? `\n--- stderr ---\n${result.stderr}` : '',
+    ].join('');
 
     if (result.error) {
       this.emitLog("─".repeat(80), options.eventEmitter);
       this.emitLog("✗ Error running Codex", options.eventEmitter);
       this.emitLog("─".repeat(80), options.eventEmitter);
-      throw result.error;
+      const errorWithOutput = new Error(
+        `${result.error.message}\n\n--- Codex output ---\n${combinedOutput || '(no output)'}`
+      );
+      errorWithOutput.stack = result.error.stack;
+      throw errorWithOutput;
     }
 
     if (result.exitCode !== 0) {
       this.emitLog("─".repeat(80), options.eventEmitter);
       this.emitLog(`✗ Codex exited with status ${result.exitCode}`, options.eventEmitter);
       this.emitLog("─".repeat(80), options.eventEmitter);
-      throw new Error(`Codex failed with exit code ${result.exitCode}`);
+      throw new Error(
+        `Codex failed with exit code ${result.exitCode}\n\n--- Codex output ---\n${combinedOutput || '(no output)'}`
+      );
     }
 
     let commitSha: string | null | undefined = undefined;
@@ -214,7 +233,7 @@ export class CodexRunner {
       this.emitLog("─".repeat(80), options.eventEmitter);
     }
 
-    return { success: true, output: result.output, commitSha };
+    return { success: true, output: result.stdout, commitSha };
   }
 
   parseCodexOutput(rawOutput: string): CodexReviewResult {

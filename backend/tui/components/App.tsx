@@ -3,18 +3,18 @@ import { Box, Text, useInput } from 'ink';
 import { TUIState, LogViewerItem } from '../types.js';
 import { Header } from './Header.js';
 import { LogViewer } from './LogViewer.js';
+import { LogPanel } from './LogPanel.js';
 import { DbStep, Iteration } from '../../models.js';
 
 interface AppProps {
   state: TUIState;
   onStateChange: () => void;
+  onRequestStopAfterStep: () => void;
 }
 
-const LOG_LINES_TO_DISPLAY = 5;
-const LOG_PANEL_HEIGHT = LOG_LINES_TO_DISPLAY + 2;
+const LOG_PANEL_HEIGHT = 7; // 5 lines + 2 borders
 const HEADER_BASE_HEIGHT = 5;
 const STEP_PANEL_LABEL = 'Steps';
-const LOG_PANEL_LABEL = 'Recent logs';
 
 type GradientHighlight = {
   word: string;
@@ -31,14 +31,6 @@ type StepLine = {
   commitHash?: string;
 };
 
-type LogRow = {
-  key: string;
-  message: string;
-  level: 'info' | 'warn' | 'error' | 'success';
-  timestamp?: number;
-  showPrefix: boolean;
-  dim?: boolean;
-};
 
 const getStepStatusIcon = (status: DbStep['status']): string => {
   switch (status) {
@@ -171,7 +163,7 @@ const createGradientSegments = (
   });
 };
 
-export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
+export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAfterStep }) => {
   const [gradientOffset, setGradientOffset] = React.useState(0);
 
   React.useEffect(() => {
@@ -218,6 +210,13 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
   }, [state.steps, state.iterations]);
 
   useInput((input, key) => {
+    if ((key.ctrl || key.meta) && input.toLowerCase() === 's') {
+      if (!state.stopRequested) {
+        onRequestStopAfterStep();
+      }
+      return;
+    }
+
     if (state.viewMode === 'normal') {
       if ((key.meta && input.toLowerCase() === 'l') || (key.ctrl && input.toLowerCase() === 'l')) {
         state.logViewerItems = buildLogViewerItems();
@@ -416,8 +415,51 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
   }, [state.steps, state.iterations, state.issues, state.stateVersion]);
 
   const stepsInnerHeight = Math.max(0, stepsAreaHeight - 2);
-  let stepLinesToRender =
-    stepsInnerHeight > 0 ? allStepLines.slice(-stepsInnerHeight) : ([] as StepLine[]);
+
+  const activeStepLineIndex = React.useMemo(() => {
+    const activeStep = state.steps.find(step => step.status === 'in_progress');
+    if (!activeStep) return -1;
+    return allStepLines.findIndex(line => line.key === `step-${activeStep.id}`);
+  }, [allStepLines, state.steps]);
+
+  let stepLinesToRender: StepLine[];
+  if (stepsInnerHeight <= 0) {
+    stepLinesToRender = [];
+  } else if (allStepLines.length <= stepsInnerHeight) {
+    stepLinesToRender = allStepLines;
+  } else if (activeStepLineIndex === -1) {
+    stepLinesToRender = allStepLines.slice(0, stepsInnerHeight);
+  } else {
+    const activeStepLines: number[] = [];
+    const activeStep = state.steps.find(step => step.status === 'in_progress');
+    if (activeStep) {
+      for (let i = 0; i < allStepLines.length; i++) {
+        const line = allStepLines[i];
+        if (line.key.startsWith(`step-${activeStep.id}`) ||
+            line.key.startsWith(`iteration-`)) {
+          const iterations = state.iterations.get(activeStep.id) || [];
+          const isActiveStepIteration = iterations.some(it => line.key.startsWith(`iteration-${it.id}`));
+          if (line.key.startsWith(`step-${activeStep.id}`) || isActiveStepIteration) {
+            activeStepLines.push(i);
+          }
+        }
+      }
+    }
+
+    const lastActiveLineIndex = activeStepLines.length > 0
+      ? activeStepLines[activeStepLines.length - 1]
+      : activeStepLineIndex;
+
+    let endIndex = Math.min(allStepLines.length, lastActiveLineIndex + 1);
+    let startIndex = Math.max(0, endIndex - stepsInnerHeight);
+
+    if (activeStepLineIndex < startIndex) {
+      startIndex = activeStepLineIndex;
+      endIndex = Math.min(allStepLines.length, startIndex + stepsInnerHeight);
+    }
+
+    stepLinesToRender = allStepLines.slice(startIndex, endIndex);
+  }
 
   if (stepLinesToRender.length < stepsInnerHeight) {
     const padCount = stepsInnerHeight - stepLinesToRender.length;
@@ -426,7 +468,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
       text: '',
       dim: true,
     }));
-    stepLinesToRender = [...padding, ...stepLinesToRender];
+    stepLinesToRender = [...stepLinesToRender, ...padding];
   }
 
   const stepsRows = stepLinesToRender.map((line, idx) => {
@@ -514,126 +556,6 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
     );
   });
 
-  const logPanelWidth = Math.max(4, state.terminalWidth);
-  const logInnerWidth = Math.max(0, logPanelWidth - 2);
-  const logLabelCapacity = Math.max(0, logInnerWidth - 1);
-
-  let logLabel = LOG_PANEL_LABEL;
-  if (logLabel.length > logLabelCapacity) {
-    logLabel = logLabel.slice(0, logLabelCapacity);
-  }
-  const logLabelPad = Math.max(0, logInnerWidth - 1 - logLabel.length);
-
-  const logTopLine =
-    logInnerWidth > 0
-      ? `┌─${logLabel}${logLabelPad > 0 ? '─'.repeat(logLabelPad) : ''}┐`
-      : '┌┐';
-  const logBottomLine =
-    logInnerWidth > 0
-      ? `└${'─'.repeat(logInnerWidth)}┘`
-      : '└┘';
-
-  const recentLogs = state.logs.slice(-LOG_LINES_TO_DISPLAY);
-
-  const rows: LogRow[] =
-    recentLogs.length > 0
-      ? recentLogs.map((log, idx) => {
-          const sanitizedMessage = (log.message ?? '').replace(/[\r\n]+/g, ' ');
-          const hasContent = sanitizedMessage.trim().length > 0;
-          return {
-            key: `${log.timestamp}-${idx}`,
-            message: hasContent ? sanitizedMessage : '',
-            level: (log.level as LogRow['level']) ?? 'info',
-            timestamp: log.timestamp,
-            showPrefix: hasContent,
-            dim: !hasContent,
-          };
-        })
-      : [
-          {
-            key: 'log-empty',
-            message: 'No logs yet',
-            level: 'info',
-            showPrefix: false,
-            dim: true,
-          },
-        ];
-
-  while (rows.length < LOG_LINES_TO_DISPLAY) {
-    rows.push({
-      key: `log-placeholder-${rows.length}`,
-      message: '',
-      level: 'info',
-      showPrefix: false,
-      dim: true,
-    });
-  }
-
-  const prefixTemplate = '[00:00:00 AM] ';
-  const maxPrefixLength = Math.max(
-    0,
-    Math.min(prefixTemplate.length, logInnerWidth - 2)
-  );
-
-  const logRows = rows.slice(0, LOG_LINES_TO_DISPLAY).map(row => {
-    const hasMessage = (row.message ?? '').trim().length > 0;
-    const shouldShowPrefix = row.showPrefix && row.timestamp && hasMessage;
-
-    let prefix: string;
-    if (shouldShowPrefix && row.timestamp) {
-      prefix = `[${new Date(row.timestamp).toLocaleTimeString()}] `;
-    } else {
-      prefix = ''.padEnd(maxPrefixLength, ' ');
-    }
-
-    if (maxPrefixLength === 0) {
-      prefix = '';
-    } else if (prefix.length > maxPrefixLength) {
-      prefix = prefix.slice(prefix.length - maxPrefixLength);
-    } else if (prefix.length < maxPrefixLength) {
-      prefix = prefix.padEnd(maxPrefixLength, ' ');
-    }
-
-    const availableForMessage = Math.max(0, logInnerWidth - 1 - prefix.length);
-
-    let messageText = (row.message ?? '').replace(/[\r\n]+/g, ' ');
-    if (messageText.length > availableForMessage) {
-      if (availableForMessage <= 0) {
-        messageText = '';
-      } else if (availableForMessage === 1) {
-        messageText = '…';
-      } else {
-        messageText = `${messageText.slice(0, availableForMessage - 1)}…`;
-      }
-    }
-
-    const padding = ' '.repeat(Math.max(0, availableForMessage - messageText.length));
-
-    const messageColor =
-      row.dim || (!row.showPrefix && row.message === '')
-        ? undefined
-        : row.level === 'error'
-        ? 'red'
-        : row.level === 'warn'
-        ? 'yellow'
-        : row.level === 'success'
-        ? 'green'
-        : 'white';
-
-    return (
-      <Box key={row.key} width={logPanelWidth}>
-        <Text>│</Text>
-        <Text> </Text>
-        <Text dimColor>{prefix}</Text>
-        <Text color={messageColor} dimColor={row.dim && row.message.length > 0}>
-          {messageText}
-        </Text>
-        <Text>{padding}</Text>
-        <Text>│</Text>
-      </Box>
-    );
-  });
-
   if (state.viewMode === 'log_viewer') {
     return (
       <LogViewer
@@ -681,11 +603,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
         <Text>{stepsBottomLine}</Text>
       </Box>
 
-      <Box flexDirection="column" flexShrink={0} width={logPanelWidth}>
-        <Text>{logTopLine}</Text>
-        {logRows}
-        <Text>{logBottomLine}</Text>
-      </Box>
+      <LogPanel logs={state.logs} terminalWidth={state.terminalWidth} />
     </Box>
   );
 };
