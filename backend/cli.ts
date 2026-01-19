@@ -6,6 +6,7 @@ import { OrchestratorEventEmitter } from './events.js';
 import { Database } from './database.js';
 import { WebSocketUIAdapter, TUIAdapter, UIAdapter } from './ui/index.js';
 import { PreflightRunner } from './preflight-runner.js';
+import { StopController } from './stop-controller.js';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 
@@ -234,6 +235,7 @@ program
       storage = new Database(workDir);
 
       const uiAdapters: UIAdapter[] = [];
+      const stopController = options.tui ? new StopController() : undefined;
 
       if (options.ui) {
         uiAdapter = new WebSocketUIAdapter({
@@ -247,7 +249,7 @@ program
       }
 
       if (options.tui) {
-        const tuiAdapter = new TUIAdapter({ storage });
+        const tuiAdapter = new TUIAdapter({ storage, stopController });
         await tuiAdapter.initialize();
         uiAdapters.push(tuiAdapter);
       }
@@ -266,6 +268,7 @@ program
         implementationAgent,
         reviewAgent,
         maxIterationsPerStep,
+        stopController,
       });
 
       eventEmitter.on('event', (event) => {
@@ -291,6 +294,7 @@ program
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
+      const stoppedAfterStep = stopController?.wasStopAfterStepTriggered() ?? false;
 
       if (!options.ui && !options.tui) {
         console.log('\n' + '═'.repeat(80));
@@ -312,6 +316,16 @@ program
       }
 
       if (options.ui || options.tui) {
+        if (stoppedAfterStep) {
+          for (const adapter of uiAdapters) {
+            await adapter.shutdown();
+          }
+          if (storage) {
+            storage.close();
+          }
+          process.exit(0);
+        }
+
         if (options.ui) {
           console.log('\n' + '═'.repeat(80));
           console.log('All steps completed! Web UI will remain open for viewing.');

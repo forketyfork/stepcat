@@ -23,6 +23,9 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
   const planFileName = state.plan?.planFilePath ? basename(state.plan.planFilePath) : 'N/A';
   const showCurrentPhase = Boolean(state.currentPhase && !state.isComplete && !state.error);
   const currentPhaseText = showCurrentPhase && state.currentPhase ? state.currentPhase : '';
+  const hotkeyBase = 'Ctrl+L: logs  Ctrl+S: stop';
+  const stopIndicator = state.stopRequested ? 'STOPPING AFTER STEP' : '';
+  const hotkeyText = stopIndicator ? `${hotkeyBase}  ${stopIndicator}` : hotkeyBase;
 
   const topLine = createLine(width, '╔', '╗', '═');
   const middleLine = createLine(width, '╠', '╣', '═');
@@ -31,9 +34,10 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
   const title = 'STEPCAT - Step-by-step Agent Orchestration';
   const executionId = state.plan?.id || 'N/A';
   const statsBaseContent = `Execution ID: ${executionId}  │  Steps: ${completedSteps}/${totalSteps}  │  Plan: ${planFileName}`;
-  const statsContent = showCurrentPhase
+  let statsContent = showCurrentPhase
     ? `${statsBaseContent}  │  Current: ${currentPhaseText}`
     : statsBaseContent;
+  statsContent = `${statsContent}  │  ${hotkeyText}`;
   const statsPadding = ' '.repeat(Math.max(0, width - statsContent.length - 4));
 
   return (
@@ -63,6 +67,14 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
           <>
             <Text>  │  Current: </Text>
             <Text bold color="cyan">{currentPhaseText}</Text>
+          </>
+        )}
+        <Text>  │  </Text>
+        <Text dimColor>{hotkeyBase}</Text>
+        {stopIndicator && (
+          <>
+            <Text>  </Text>
+            <Text bold color="yellow">{stopIndicator}</Text>
           </>
         )}
         <Text bold color="magenta">{statsPadding} ║</Text>

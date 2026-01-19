@@ -11,6 +11,7 @@ import { PROMPTS } from "./prompts.js";
 import { UIAdapter } from "./ui/ui-adapter.js";
 import { ReviewParser } from "./review-parser.js";
 import { Logger, getLogger, LogLevel } from "./logger.js";
+import type { StopController } from "./stop-controller.js";
 
 export interface OrchestratorConfig {
   planFile: string;
@@ -27,6 +28,7 @@ export interface OrchestratorConfig {
   storage?: Storage;
   implementationAgent?: 'claude' | 'codex';
   reviewAgent?: 'claude' | 'codex';
+  stopController?: StopController;
 }
 
 export class Orchestrator {
@@ -49,6 +51,7 @@ export class Orchestrator {
   private planContent: string;
   private implementationAgent: 'claude' | 'codex';
   private reviewAgent: 'claude' | 'codex';
+  private stopController?: StopController;
 
   constructor(config: OrchestratorConfig) {
     this.workDir = config.workDir;
@@ -69,6 +72,7 @@ export class Orchestrator {
     this.maxIterationsPerStep = config.maxIterationsPerStep ?? 3;
     this.implementationAgent = config.implementationAgent ?? 'claude';
     this.reviewAgent = config.reviewAgent ?? 'codex';
+    this.stopController = config.stopController;
 
     this.storage = config.storage ?? new Database(config.workDir, config.databasePath);
     this.storageOwned = !config.storage;
@@ -663,6 +667,7 @@ CRITICAL REQUIREMENTS:
   async run(): Promise<number> {
     const startTime = Date.now();
     await this.initializeOrResumePlan();
+    let stoppedEarly = false;
 
     if (!this.plan) {
       throw new Error("Plan not initialized");
@@ -1229,6 +1234,14 @@ CRITICAL REQUIREMENTS:
             stepNumber: step.stepNumber,
             stepTitle: step.title,
           });
+          if (this.stopController?.isStopAfterStepRequested()) {
+            this.stopController.markStopAfterStepTriggered();
+            this.log(
+              `Stop requested. Exiting after completing step ${step.stepNumber}.`,
+              "warn"
+            );
+            stoppedEarly = true;
+          }
 
           break;
         }
@@ -1238,7 +1251,20 @@ CRITICAL REQUIREMENTS:
         this.handleMaxIterationsExceeded(step);
       }
 
+      if (stoppedEarly) {
+        break;
+      }
+
       step = this.getCurrentStep();
+    }
+
+    if (stoppedEarly) {
+      if (this.storageOwned) {
+        this.storage.close();
+      }
+
+      getLogger()?.close();
+      return this.plan.id;
     }
 
     const totalTime = Date.now() - startTime;

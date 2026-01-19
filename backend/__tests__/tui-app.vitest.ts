@@ -23,7 +23,13 @@ describe('TUI App log rendering', () => {
       issues: new Map(),
     };
 
-    const { lastFrame, unmount } = render(React.createElement(App, { state }));
+    const { lastFrame, unmount } = render(
+      React.createElement(App, {
+        state,
+        onStateChange: () => {},
+        onRequestStopAfterStep: () => {},
+      })
+    );
 
     try {
       expect(lastFrame()).toContain('Test log entry for display');

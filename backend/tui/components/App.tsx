@@ -9,6 +9,7 @@ import { DbStep, Iteration } from '../../models.js';
 interface AppProps {
   state: TUIState;
   onStateChange: () => void;
+  onRequestStopAfterStep: () => void;
 }
 
 const LOG_PANEL_HEIGHT = 7; // 5 lines + 2 borders
@@ -162,7 +163,7 @@ const createGradientSegments = (
   });
 };
 
-export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
+export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAfterStep }) => {
   const [gradientOffset, setGradientOffset] = React.useState(0);
 
   React.useEffect(() => {
@@ -209,6 +210,13 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
   }, [state.steps, state.iterations]);
 
   useInput((input, key) => {
+    if ((key.ctrl || key.meta) && input.toLowerCase() === 's') {
+      if (!state.stopRequested) {
+        onRequestStopAfterStep();
+      }
+      return;
+    }
+
     if (state.viewMode === 'normal') {
       if ((key.meta && input.toLowerCase() === 'l') || (key.ctrl && input.toLowerCase() === 'l')) {
         state.logViewerItems = buildLogViewerItems();
