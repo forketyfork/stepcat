@@ -117,7 +117,7 @@ export interface IssueFoundEvent extends StepCatEvent {
   type: 'issue_found';
   issueId: number;
   iterationId: number;
-  issueType: 'ci_failure' | 'codex_review' | 'merge_conflict';
+  issueType: 'ci_failure' | 'codex_review' | 'merge_conflict' | 'permission_request';
   description: string;
   filePath?: string;
   lineNumber?: number;

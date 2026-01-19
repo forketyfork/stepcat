@@ -147,7 +147,7 @@ describe('Database', () => {
       const migrationCount = (db as any).db
         .prepare('SELECT COUNT(*) as count FROM schema_migrations')
         .get().count;
-      expect(migrationCount).toBeGreaterThanOrEqual(3);
+      expect(migrationCount).toBeGreaterThanOrEqual(4);
 
       const legacyIterations = db.getIterations(1);
       expect(legacyIterations).toHaveLength(1);

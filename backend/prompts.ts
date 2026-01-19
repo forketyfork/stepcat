@@ -1,3 +1,21 @@
+export const PERMISSION_REQUEST_INSTRUCTIONS = `
+If you are blocked by missing permissions (for example you see "requested permissions" or "PermissionDenied"):
+1. STOP immediately and do not continue executing the task.
+2. Output ONLY the JSON object below (no extra text or markdown).
+3. Do NOT create a commit in this case.
+
+{
+  "result": "PERMISSION_REQUEST",
+  "permissions_to_add": ["Read(/path/to/file)", "Bash(tool command:*)"],
+  "reason": "why the permission is needed",
+  "settings_local_json": {
+    "permissions": {
+      "allow": ["Read(/path/to/file)", "Bash(tool command:*)"]
+    }
+  }
+}
+`;
+
 export const PROMPTS = {
   preflight: (
     planContent: string,
@@ -103,7 +121,8 @@ CRITICAL REQUIREMENTS:
 - Do NOT use git commit --amend - create a NEW commit
 - Do NOT push to remote - the orchestrator will handle pushing
 - Do not modify the plan file yourself - the orchestrator will update phase markers
-- Creating a commit is a required part of completing this task`,
+- Creating a commit is a required part of completing this task
+${PERMISSION_REQUEST_INSTRUCTIONS}`,
 
   buildFix: (
     stepNumber: number,
@@ -132,6 +151,7 @@ CRITICAL REQUIREMENTS:
 - Do NOT use git commit --amend - create a NEW commit
 - Do NOT push to remote - the orchestrator will handle pushing
 - Creating a commit is a required part of completing this task
+${PERMISSION_REQUEST_INSTRUCTIONS}
 `,
   reviewFix: (
     stepNumber: number,
@@ -164,6 +184,7 @@ CRITICAL REQUIREMENTS:
 - Do NOT use git commit --amend - create a NEW commit
 - Do NOT push to remote - the orchestrator will handle pushing
 - Creating a commit is a required part of completing this task
+${PERMISSION_REQUEST_INSTRUCTIONS}
 `,
 
   codexReviewImplementation: (

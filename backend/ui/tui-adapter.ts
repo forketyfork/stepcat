@@ -2,6 +2,7 @@ import { UIAdapter, UIAdapterConfig } from './ui-adapter.js';
 import { OrchestratorEvent } from '../events.js';
 import { TUIState, initialState } from '../tui/types.js';
 import { Storage } from '../storage.js';
+import { PermissionRequest } from '../permission-requests.js';
 import type * as ReactTypes from 'react';
 import type { RenderOptions } from 'ink';
 import { pathToFileURL, fileURLToPath } from 'url';
@@ -10,6 +11,7 @@ import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
+import { format } from 'util';
 import { getLogger } from '../logger.js';
 import type { StopController } from '../stop-controller.js';
 
@@ -26,12 +28,15 @@ type AppComponent = ReactTypes.FC<{
   onStateChange: () => void;
   onRequestStopAfterStep: () => void;
 }>;
+type ConsoleMethodName = 'log' | 'info' | 'warn' | 'error' | 'debug';
+type ConsoleMethod = (...args: unknown[]) => void;
 
 const RERENDER_THROTTLE_MS = 33; // ~30fps max
 const DEFAULT_TUI_MAX_FPS = 20;
 const RENDER_LOG_INTERVAL_MS = 2000;
 const TUI_INCREMENTAL_RENDERING = process.env.STEPCAT_TUI_INCREMENTAL !== 'false';
 const TUI_RENDER_DEBUG = process.env.STEPCAT_TUI_RENDER_DEBUG === '1';
+const TUI_CAPTURE_CONSOLE = process.env.STEPCAT_TUI_CAPTURE_CONSOLE !== 'false';
 
 type RenderMetrics = Parameters<NonNullable<RenderOptions['onRender']>>[0];
 
@@ -69,6 +74,7 @@ export class TUIAdapter implements UIAdapter {
   private renderLogState:
     | { lastLogAt: number; renderCount: number; totalRenderTime: number }
     | null = null;
+  private originalConsoleMethods: Partial<Record<ConsoleMethodName, ConsoleMethod>> | null = null;
 
   private refreshIteration(iterationId: number): void {
     if (!this.storage) return;
@@ -96,6 +102,10 @@ export class TUIAdapter implements UIAdapter {
     this.ink = await import('ink');
     this.React = await import('react');
 
+    if (TUI_CAPTURE_CONSOLE) {
+      this.captureConsoleOutput();
+    }
+
     const isDev = process.env.NODE_ENV !== 'production' && !isBuiltArtifact;
     const fileName = isDev ? 'App.tsx' : 'App.js';
     const componentPath = resolve(moduleDir, '../tui/components', fileName);
@@ -116,7 +126,7 @@ export class TUIAdapter implements UIAdapter {
       stdout: process.stdout,
       stdin: process.stdin,
       stderr: process.stderr,
-      patchConsole: true,
+      patchConsole: !TUI_CAPTURE_CONSOLE,
       maxFps,
       incrementalRendering: TUI_INCREMENTAL_RENDERING,
     };
@@ -410,9 +420,39 @@ export class TUIAdapter implements UIAdapter {
   }
 
   private handleResize(): void {
-    this.state.terminalWidth = process.stdout.columns || 80;
-    this.state.terminalHeight = process.stdout.rows || 24;
+    const nextWidth = process.stdout.columns || 80;
+    const nextHeight = process.stdout.rows || 24;
+    if (nextWidth === this.state.terminalWidth && nextHeight === this.state.terminalHeight) {
+      return;
+    }
+    this.state.terminalWidth = nextWidth;
+    this.state.terminalHeight = nextHeight;
     this.rerender();
+  }
+
+  async requestPermissionApproval(
+    request: PermissionRequest,
+    stepNumber: number,
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      const previousViewMode = this.state.viewMode;
+      this.state.permissionPrompt = {
+        stepNumber,
+        permissions: request.permissions,
+        reason: request.reason,
+        previousViewMode,
+        onDecision: (approved: boolean) => {
+          this.state.permissionPrompt = null;
+          this.state.viewMode = previousViewMode;
+          this.state.stateVersion++;
+          this.rerender();
+          resolve(approved);
+        },
+      };
+      this.state.viewMode = 'permission_prompt';
+      this.state.stateVersion++;
+      this.rerender();
+    });
   }
 
   async shutdown(): Promise<void> {
@@ -431,5 +471,53 @@ export class TUIAdapter implements UIAdapter {
       this.inkInstance.unmount();
       this.inkInstance = null;
     }
+
+    if (this.originalConsoleMethods) {
+      this.restoreConsoleOutput();
+    }
+  }
+
+  private captureConsoleOutput(): void {
+    if (this.originalConsoleMethods) {
+      return;
+    }
+
+    this.originalConsoleMethods = {
+      log: console.log,
+      info: console.info,
+      warn: console.warn,
+      error: console.error,
+      debug: console.debug,
+    };
+
+    const forward = (level: 'info' | 'warn' | 'error', args: unknown[]): void => {
+      const message = stripAnsi(format(...args));
+      getLogger()?.log(level === 'info' ? 'info' : level, 'Console', message);
+      this.appendLog({
+        level,
+        message,
+        timestamp: Date.now(),
+      });
+      this.scheduleRerender();
+    };
+
+    console.log = (...args: unknown[]) => forward('info', args);
+    console.info = (...args: unknown[]) => forward('info', args);
+    console.warn = (...args: unknown[]) => forward('warn', args);
+    console.error = (...args: unknown[]) => forward('error', args);
+    console.debug = (...args: unknown[]) => forward('info', args);
+  }
+
+  private restoreConsoleOutput(): void {
+    if (!this.originalConsoleMethods) {
+      return;
+    }
+
+    console.log = this.originalConsoleMethods.log ?? console.log;
+    console.info = this.originalConsoleMethods.info ?? console.info;
+    console.warn = this.originalConsoleMethods.warn ?? console.warn;
+    console.error = this.originalConsoleMethods.error ?? console.error;
+    console.debug = this.originalConsoleMethods.debug ?? console.debug;
+    this.originalConsoleMethods = null;
   }
 }

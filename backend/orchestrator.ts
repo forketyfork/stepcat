@@ -3,14 +3,17 @@ import { ClaudeRunner } from "./claude-runner.js";
 import { CodexRunner } from "./codex-runner.js";
 import { GitHubChecker, MergeConflictError } from "./github-checker.js";
 import { execSync } from "child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname, resolve } from "path";
 import { OrchestratorEventEmitter, OrchestratorEvent } from "./events.js";
 import { Database } from "./database.js";
 import { Storage } from "./storage.js";
 import { Plan, DbStep, Iteration } from "./models.js";
-import { PROMPTS } from "./prompts.js";
+import { PERMISSION_REQUEST_INSTRUCTIONS, PROMPTS } from "./prompts.js";
 import { UIAdapter } from "./ui/ui-adapter.js";
 import { ReviewParser } from "./review-parser.js";
 import { Logger, getLogger, LogLevel } from "./logger.js";
+import { PermissionRequest, PermissionRequestParser, mergePermissionAllows } from "./permission-requests.js";
 import type { StopController } from "./stop-controller.js";
 
 export interface OrchestratorConfig {
@@ -31,7 +34,46 @@ export interface OrchestratorConfig {
   stopController?: StopController;
 }
 
+type AgentRunResult = {
+  success: boolean;
+  commitSha: string | null;
+  output?: string;
+  workingTreeStatus?: string | null;
+};
+
+type PermissionHandlingResult = "applied" | "declined" | "noop";
+
+type CheckRunOutput = {
+  title?: string | null;
+  summary?: string | null;
+  text?: string | null;
+};
+
+type CheckRunSummary = {
+  id: number;
+  name: string;
+  status?: string | null;
+  conclusion?: string | null;
+  output?: CheckRunOutput | null;
+  details_url?: string | null;
+};
+
+type CheckRunAnnotation = {
+  path: string;
+  start_line?: number | null;
+  end_line?: number | null;
+  annotation_level?: string | null;
+  message: string;
+  title?: string | null;
+  raw_details?: string | null;
+};
+
+
 export class Orchestrator {
+  private static readonly MAX_PERMISSION_REQUEST_ATTEMPTS = 3;
+  private static readonly MAX_BUILD_OUTPUT_CHARS = 8000;
+  private static readonly MAX_ANNOTATIONS = 20;
+  private static readonly MAX_ANNOTATION_CHARS = 500;
   private parser: StepParser;
   private claudeRunner: ClaudeRunner;
   private codexRunner: CodexRunner;
@@ -187,6 +229,329 @@ export class Orchestrator {
     return segments.join("\n");
   }
 
+  private parsePermissionRequest(output?: string): PermissionRequest | null {
+    const parser = new PermissionRequestParser();
+    return parser.parse(output);
+  }
+
+  private formatPermissionRequestDescription(request: PermissionRequest): string {
+    const permissionsList = request.permissions.map((permission) => `- ${permission}`).join("\n");
+    const reasonLine = request.reason ? `Reason: ${request.reason}` : "Reason: (not provided)";
+
+    return [
+      "Claude Code requested additional permissions:",
+      permissionsList || "- (none provided)",
+      reasonLine,
+    ].join("\n");
+  }
+
+  private buildPermissionRequestError(outcome: PermissionHandlingResult): string {
+    if (outcome === "declined") {
+      return "Permission update was not approved. Update .claude/settings.local.json and resume the execution.";
+    }
+
+    return "Requested permissions were already present but the agent still could not proceed. " +
+      "Verify permissions in .claude/settings.local.json and resume the execution.";
+  }
+
+  private async confirmPermissionUpdate(
+    permissions: string[],
+    reason: string | undefined,
+    stepNumber: number,
+  ): Promise<boolean> {
+    const permissionsList = permissions.map((permission) => `- ${permission}`).join("\n");
+    const reasonLine = reason ? `Reason: ${reason}` : "Reason: (not provided)";
+    const message = [
+      "Claude Code cannot continue without additional permissions.",
+      "Requested permissions:",
+      permissionsList || "- (none provided)",
+      reasonLine,
+      "Approve updating .claude/settings.local.json? [y/N]",
+    ].join("\n");
+
+    this.log(message, "warn", stepNumber);
+
+    if (!process.stdin.isTTY) {
+      this.log(
+        "Cannot prompt for permission approval without a TTY. " +
+          "Run with --tui to approve permissions.",
+        "warn",
+        stepNumber,
+      );
+      throw new Error("Permission approval requires a TTY.");
+    }
+
+    const adapter = this.uiAdapters.find(
+      (candidate) => typeof candidate.requestPermissionApproval === "function",
+    );
+
+    if (!adapter || !adapter.requestPermissionApproval) {
+      throw new Error("Permission approval requires the TUI. Re-run with --tui.");
+    }
+
+    return adapter.requestPermissionApproval({ permissions, reason }, stepNumber);
+  }
+
+  private loadSettingsLocal(settingsPath: string): Record<string, unknown> {
+    if (!existsSync(settingsPath)) {
+      return {};
+    }
+
+    const content = readFileSync(settingsPath, "utf-8").trim();
+    if (!content) {
+      return {};
+    }
+
+    const parsed = JSON.parse(content);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error(`Invalid JSON object in ${settingsPath}`);
+    }
+
+    return parsed as Record<string, unknown>;
+  }
+
+  private writeSettingsLocal(
+    settingsPath: string,
+    settings: Record<string, unknown>,
+  ): void {
+    const settingsDir = dirname(settingsPath);
+    if (!existsSync(settingsDir)) {
+      mkdirSync(settingsDir, { recursive: true });
+    }
+
+    const content = JSON.stringify(settings, null, 2);
+    writeFileSync(settingsPath, `${content}\n`, "utf-8");
+  }
+
+  private applyPermissionUpdate(
+    permissionsToAdd: string[],
+    stepNumber: number,
+  ): { settingsPath: string; added: string[] } {
+    const settingsPath = resolve(this.workDir, ".claude", "settings.local.json");
+    const currentSettings = this.loadSettingsLocal(settingsPath);
+    const merged = mergePermissionAllows(currentSettings, permissionsToAdd);
+
+    if (merged.added.length === 0) {
+      this.log(
+        "Requested permissions are already present in .claude/settings.local.json. " +
+          "No changes were made.",
+        "warn",
+        stepNumber,
+      );
+    } else {
+      this.writeSettingsLocal(settingsPath, merged.settings);
+      this.log(
+        `Updated .claude/settings.local.json with: ${merged.added.join(", ")}`,
+        "success",
+        stepNumber,
+      );
+    }
+
+    return { settingsPath, added: merged.added };
+  }
+
+  private async handlePermissionRequest(
+    iteration: Iteration,
+    stepNumber: number,
+    request: PermissionRequest,
+  ): Promise<PermissionHandlingResult> {
+    const description = this.formatPermissionRequestDescription(request);
+    const issue = this.storage.createIssue(
+      iteration.id,
+      "permission_request",
+      description,
+      null,
+      null,
+      "error",
+      "open",
+    );
+
+    this.emitEvent({
+      type: "issue_found",
+      timestamp: Date.now(),
+      issueId: issue.id,
+      iterationId: iteration.id,
+      issueType: "permission_request",
+      description: issue.description,
+      severity: issue.severity ?? "error",
+    });
+
+    const approved = await this.confirmPermissionUpdate(
+      request.permissions,
+      request.reason,
+      stepNumber,
+    );
+
+    if (!approved) {
+      return "declined";
+    }
+
+    const applied = this.applyPermissionUpdate(request.permissions, stepNumber);
+    if (applied.added.length > 0) {
+      this.storage.updateIssueStatus(issue.id, "fixed", new Date().toISOString());
+      this.emitEvent({
+        type: "issue_resolved",
+        timestamp: Date.now(),
+        issueId: issue.id,
+      });
+    }
+
+    return applied.added.length > 0 ? "applied" : "noop";
+  }
+
+  private buildPermissionContinuePrompt(stepNumber: number): string {
+    return [
+      `Permissions were updated for Step ${stepNumber}.`,
+      "Please continue the previous task from where you left off.",
+      "Do NOT ask for approval or confirmation.",
+      "Do NOT use git commit --amend - create a NEW commit if needed.",
+      "Do NOT push to remote - the orchestrator will handle pushing.",
+      PERMISSION_REQUEST_INSTRUCTIONS.trim(),
+    ].join("\n");
+  }
+
+  private buildReviewContinuePrompt(stepNumber: number): string {
+    return [
+      `Permissions were updated while reviewing Step ${stepNumber}.`,
+      "Please continue the code review and output ONLY the required JSON result.",
+      "Do NOT ask for approval or confirmation.",
+      PERMISSION_REQUEST_INSTRUCTIONS.trim(),
+    ].join("\n");
+  }
+
+  private async runImplementationAgentWithPermissions(
+    iteration: Iteration,
+    stepNumber: number,
+    prompt: string,
+  ): Promise<AgentRunResult> {
+    const initialResult = await this.runImplementationAgent(prompt);
+
+    if (this.implementationAgent !== "claude") {
+      return initialResult;
+    }
+
+    const maxPermissionAttempts = Orchestrator.MAX_PERMISSION_REQUEST_ATTEMPTS;
+    let attempts = 0;
+    let combinedOutput = initialResult.output ?? "";
+    let latestOutput = initialResult.output;
+    let currentResult: AgentRunResult = initialResult;
+
+    while (attempts < maxPermissionAttempts) {
+      const request = this.parsePermissionRequest(latestOutput);
+      if (!request) {
+        return {
+          ...currentResult,
+          output: combinedOutput || currentResult.output,
+        };
+      }
+
+      const outcome = await this.handlePermissionRequest(iteration, stepNumber, request);
+      if (outcome !== "applied") {
+        const failureLog = this.buildAgentLog(combinedOutput, currentResult.workingTreeStatus);
+        this.storage.updateIteration(iteration.id, {
+          status: "failed",
+          claudeLog: failureLog ?? null,
+        });
+        throw new Error(this.buildPermissionRequestError(outcome));
+      }
+
+      const continueResult = await this.claudeRunner.runContinue({
+        workDir: this.workDir,
+        prompt: this.buildPermissionContinuePrompt(stepNumber),
+        timeoutMinutes: this.agentTimeoutMinutes,
+        captureOutput: true,
+        eventEmitter: this.eventEmitter,
+      });
+
+      if (!continueResult.success) {
+        const failureLog = this.buildAgentLog(combinedOutput, currentResult.workingTreeStatus);
+        this.storage.updateIteration(iteration.id, {
+          status: "failed",
+          claudeLog: failureLog ?? null,
+        });
+        throw new Error("Claude Code --continue failed after updating permissions.");
+      }
+
+      latestOutput = continueResult.output;
+      if (continueResult.output) {
+        combinedOutput = combinedOutput
+          ? `${combinedOutput}\n\n--- Continue session ---\n\n${continueResult.output}`
+          : continueResult.output;
+      }
+
+      currentResult = {
+        success: continueResult.success,
+        commitSha: continueResult.commitSha ?? null,
+        output: combinedOutput,
+      };
+
+      attempts += 1;
+    }
+
+    throw new Error(
+      `Exceeded ${maxPermissionAttempts} permission request attempts for Step ${stepNumber}.`,
+    );
+  }
+
+  private async runReviewAgentWithPermissions(
+    iteration: Iteration,
+    stepNumber: number,
+    prompt: string,
+  ): Promise<{ success: boolean; output: string }> {
+    let reviewRun = await this.runReviewAgent(prompt);
+
+    if (this.reviewAgent !== "claude") {
+      return reviewRun;
+    }
+
+    const maxPermissionAttempts = Orchestrator.MAX_PERMISSION_REQUEST_ATTEMPTS;
+    let attempts = 0;
+    let latestOutput: string | undefined = reviewRun.output;
+
+    while (attempts < maxPermissionAttempts) {
+      const request = this.parsePermissionRequest(latestOutput);
+      if (!request) {
+        return {
+          success: reviewRun.success,
+          output: latestOutput ?? reviewRun.output,
+        };
+      }
+
+      const outcome = await this.handlePermissionRequest(iteration, stepNumber, request);
+      if (outcome !== "applied") {
+        throw new Error(this.buildPermissionRequestError(outcome));
+      }
+
+      const continueResult = await this.claudeRunner.runContinue({
+        workDir: this.workDir,
+        prompt: this.buildReviewContinuePrompt(stepNumber),
+        timeoutMinutes: this.agentTimeoutMinutes,
+        captureOutput: true,
+        eventEmitter: this.eventEmitter,
+      });
+
+      if (!continueResult.success) {
+        throw new Error("Claude Code --continue failed while resuming the review.");
+      }
+
+      latestOutput = continueResult.output;
+      if (!latestOutput) {
+        throw new Error("Claude Code --continue completed without review output.");
+      }
+
+      reviewRun = {
+        success: continueResult.success,
+        output: latestOutput,
+      };
+
+      attempts += 1;
+    }
+
+    throw new Error(
+      `Exceeded ${maxPermissionAttempts} permission request attempts while reviewing Step ${stepNumber}.`,
+    );
+  }
+
   private logWorkingTreeStatusAfterAgent(
     workingTreeStatus: string | null | undefined,
     stepNumber: number,
@@ -285,9 +650,10 @@ export class Orchestrator {
       };
     }
 
+    const promptWithPermissions = `${prompt}\n\n${PERMISSION_REQUEST_INSTRUCTIONS.trim()}`;
     const result = await this.claudeRunner.run({
       workDir: this.workDir,
-      prompt,
+      prompt: promptWithPermissions,
       timeoutMinutes: this.agentTimeoutMinutes,
       captureOutput: true,
       eventEmitter: this.eventEmitter,
@@ -618,13 +984,82 @@ CRITICAL REQUIREMENTS:
     }
   }
 
+  private truncateLog(log: string, maxChars: number): string {
+    if (log.length <= maxChars) {
+      return log;
+    }
+    const truncatedCount = log.length - maxChars;
+    return `... (truncated ${truncatedCount} chars)\n${log.slice(truncatedCount)}`;
+  }
+
+  private singleLine(text: string): string {
+    return text.replace(/\s+/g, " ").trim();
+  }
+
+  private formatAnnotations(annotations: CheckRunAnnotation[]): string | null {
+    if (annotations.length === 0) {
+      return null;
+    }
+
+    const limitedAnnotations = annotations.slice(0, Orchestrator.MAX_ANNOTATIONS);
+    const lines = limitedAnnotations.map((annotation) => {
+      const lineSuffix = annotation.start_line != null ? `:${annotation.start_line}` : "";
+      const location = `${annotation.path}${lineSuffix}`;
+      const level = annotation.annotation_level ?? "failure";
+      const message = this.singleLine(
+        this.truncateLog(annotation.message, Orchestrator.MAX_ANNOTATION_CHARS),
+      );
+      const detailParts: string[] = [];
+      if (annotation.title) {
+        detailParts.push(this.singleLine(annotation.title));
+      }
+      if (annotation.raw_details) {
+        detailParts.push(
+          this.singleLine(
+            this.truncateLog(annotation.raw_details, Orchestrator.MAX_ANNOTATION_CHARS),
+          ),
+        );
+      }
+      const details = detailParts.length > 0 ? ` (${detailParts.join(" - ")})` : "";
+      return `- ${location}: ${level}: ${message}${details}`;
+    });
+
+    if (annotations.length > limitedAnnotations.length) {
+      lines.push(`... ${annotations.length - limitedAnnotations.length} more annotations omitted`);
+    }
+
+    return lines.join("\n");
+  }
+
+  private async fetchCheckRunAnnotations(checkRunId: number): Promise<CheckRunAnnotation[]> {
+    try {
+      const response = await this.githubChecker.getOctokit().request(
+        "GET /repos/{owner}/{repo}/check-runs/{check_run_id}/annotations",
+        {
+          owner: this.githubChecker.getOwner(),
+          repo: this.githubChecker.getRepo(),
+          check_run_id: checkRunId,
+          per_page: Orchestrator.MAX_ANNOTATIONS,
+        },
+      );
+      return response.data as CheckRunAnnotation[];
+    } catch (error) {
+      this.log(
+        `Warning: Could not fetch check run annotations: ${error instanceof Error ? error.message : String(error)}`,
+        "warn",
+      );
+      return [];
+    }
+  }
+
   private async extractBuildErrors(sha: string): Promise<string> {
     try {
-      const { data: checkRuns } = await this.githubChecker.getOctokit().checks.listForRef({
+      const response = await this.githubChecker.getOctokit().checks.listForRef({
         owner: this.githubChecker.getOwner(),
         repo: this.githubChecker.getRepo(),
         ref: sha,
       });
+      const checkRuns = response.data as { check_runs: CheckRunSummary[] };
 
       const failedChecks = checkRuns.check_runs.filter(
         run => run.status === 'completed' && run.conclusion !== 'success' && run.conclusion !== 'skipped'
@@ -639,10 +1074,19 @@ CRITICAL REQUIREMENTS:
         let message = `Check: ${check.name}\n`;
         message += `Conclusion: ${check.conclusion}\n`;
         if (check.output?.title) {
-          message += `Title: ${check.output.title}\n`;
+          message += `Title: ${this.singleLine(check.output.title)}\n`;
         }
         if (check.output?.summary) {
-          message += `Summary: ${check.output.summary}\n`;
+          message += `Summary:\n${this.truncateLog(check.output.summary, Orchestrator.MAX_BUILD_OUTPUT_CHARS)}\n`;
+        }
+        if (check.output?.text) {
+          message += `Output:\n${this.truncateLog(check.output.text, Orchestrator.MAX_BUILD_OUTPUT_CHARS)}\n`;
+        }
+
+        const annotations = await this.fetchCheckRunAnnotations(check.id);
+        const formattedAnnotations = this.formatAnnotations(annotations);
+        if (formattedAnnotations) {
+          message += `Annotations:\n${formattedAnnotations}\n`;
         }
         if (check.details_url) {
           message += `Details: ${check.details_url}\n`;
@@ -757,7 +1201,11 @@ CRITICAL REQUIREMENTS:
         this.log("─".repeat(80));
 
         const prompt = PROMPTS.implementation(step.stepNumber, this.planFile);
-        const result = await this.runImplementationAgent(prompt);
+        const result = await this.runImplementationAgentWithPermissions(
+          iteration,
+          step.stepNumber,
+          prompt,
+        );
 
         if (!result || !result.commitSha) {
           const failureLog = this.buildAgentLog(result?.output, result?.workingTreeStatus);
@@ -953,7 +1401,11 @@ CRITICAL REQUIREMENTS:
           this.log("─".repeat(80));
 
           const prompt = PROMPTS.buildFix(step.stepNumber, buildErrors);
-          const result = await this.runImplementationAgent(prompt);
+          const result = await this.runImplementationAgentWithPermissions(
+            iteration,
+            step.stepNumber,
+            prompt,
+          );
 
           if (!result || !result.commitSha) {
             const failureLog = this.buildAgentLog(result?.output, result?.workingTreeStatus);
@@ -1064,7 +1516,11 @@ CRITICAL REQUIREMENTS:
 
         let reviewRun: { success: boolean; output: string };
         try {
-          reviewRun = await this.runReviewAgent(codexPrompt);
+          reviewRun = await this.runReviewAgentWithPermissions(
+            previousIteration,
+            step.stepNumber,
+            codexPrompt,
+          );
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
           const errorStack = error instanceof Error ? error.stack : undefined;
@@ -1160,7 +1616,11 @@ CRITICAL REQUIREMENTS:
           this.log("─".repeat(80));
 
           const prompt = PROMPTS.reviewFix(step.stepNumber, JSON.stringify(reviewResult.issues, null, 2));
-          const result = await this.runImplementationAgent(prompt);
+          const result = await this.runImplementationAgentWithPermissions(
+            iteration,
+            step.stepNumber,
+            prompt,
+          );
 
           if (!result || !result.commitSha) {
             const failureLog = this.buildAgentLog(result?.output, result?.workingTreeStatus);

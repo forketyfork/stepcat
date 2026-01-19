@@ -10,6 +10,16 @@ export type LogViewerItem = {
   iteration: Iteration;
 };
 
+export type ViewMode = 'normal' | 'log_viewer' | 'permission_prompt';
+
+export type PermissionPrompt = {
+  stepNumber: number;
+  permissions: string[];
+  reason?: string;
+  previousViewMode: ViewMode;
+  onDecision: (approved: boolean) => void;
+};
+
 export interface TUIState {
   plan: Plan | null;
   steps: DbStep[];
@@ -22,7 +32,8 @@ export interface TUIState {
   terminalWidth: number;
   terminalHeight: number;
   stateVersion: number;
-  viewMode: 'normal' | 'log_viewer';
+  viewMode: ViewMode;
+  permissionPrompt: PermissionPrompt | null;
   selectedLogIndex: number;
   logViewerItems: LogViewerItem[];
   pendingLogView: string | null;
@@ -42,6 +53,7 @@ export const initialState: TUIState = {
   terminalHeight: process.stdout.rows || 24,
   stateVersion: 0,
   viewMode: 'normal',
+  permissionPrompt: null,
   selectedLogIndex: 0,
   logViewerItems: [],
   pendingLogView: null,

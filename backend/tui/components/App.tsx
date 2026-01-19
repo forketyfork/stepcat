@@ -15,6 +15,10 @@ interface AppProps {
 const LOG_PANEL_HEIGHT = 7; // 5 lines + 2 borders
 const HEADER_BASE_HEIGHT = 5;
 const STEP_PANEL_LABEL = 'Steps';
+const TUI_ANIMATE_HIGHLIGHTS = process.env.STEPCAT_TUI_ANIMATE !== 'false';
+const HIGHLIGHT_ANIMATION_INTERVAL_MS = 100;
+const PROMPT_MIN_WIDTH = 50;
+const PROMPT_MAX_WIDTH = 84;
 
 type GradientHighlight = {
   word: string;
@@ -29,6 +33,53 @@ type StepLine = {
   dim?: boolean;
   highlight?: GradientHighlight;
   commitHash?: string;
+};
+
+const wrapLine = (line: string, width: number): string[] => {
+  if (width <= 0) {
+    return [''];
+  }
+
+  if (line.length <= width) {
+    return [line];
+  }
+
+  const words = line.split(' ');
+  const lines: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    if (!current) {
+      current = word;
+      continue;
+    }
+
+    if (current.length + 1 + word.length <= width) {
+      current = `${current} ${word}`;
+      continue;
+    }
+
+    lines.push(current);
+    current = word;
+  }
+
+  if (current) {
+    lines.push(current);
+  }
+
+  return lines;
+};
+
+const wrapLines = (lines: string[], width: number): string[] => {
+  const wrapped: string[] = [];
+  lines.forEach(line => {
+    if (line.trim().length === 0) {
+      wrapped.push('');
+      return;
+    }
+    wrapped.push(...wrapLine(line, width));
+  });
+  return wrapped;
 };
 
 
@@ -166,14 +217,6 @@ const createGradientSegments = (
 export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAfterStep }) => {
   const [gradientOffset, setGradientOffset] = React.useState(0);
 
-  React.useEffect(() => {
-    const interval = setInterval(() => {
-      setGradientOffset(prev => (prev + 0.05) % 1);
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, []);
-
   const buildLogViewerItems = React.useCallback((): LogViewerItem[] => {
     const items: LogViewerItem[] = [];
 
@@ -210,6 +253,18 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
   }, [state.steps, state.iterations]);
 
   useInput((input, key) => {
+    if (state.viewMode === 'permission_prompt' && state.permissionPrompt) {
+      const lowered = input.toLowerCase();
+      if (lowered === 'y') {
+        state.permissionPrompt.onDecision(true);
+        return;
+      }
+      if (lowered === 'n' || key.escape) {
+        state.permissionPrompt.onDecision(false);
+      }
+      return;
+    }
+
     if ((key.ctrl || key.meta) && input.toLowerCase() === 's') {
       if (!state.stopRequested) {
         onRequestStopAfterStep();
@@ -414,6 +469,26 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
     return lines;
   }, [state.steps, state.iterations, state.issues, state.stateVersion]);
 
+  const hasAnimatedHighlights = React.useMemo(() => {
+    if (!TUI_ANIMATE_HIGHLIGHTS) {
+      return false;
+    }
+    return allStepLines.some(line => Boolean(line.highlight));
+  }, [allStepLines]);
+
+  React.useEffect(() => {
+    if (!hasAnimatedHighlights) {
+      setGradientOffset(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setGradientOffset(prev => (prev + 0.05) % 1);
+    }, HIGHLIGHT_ANIMATION_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+  }, [hasAnimatedHighlights]);
+
   const stepsInnerHeight = Math.max(0, stepsAreaHeight - 2);
 
   const activeStepLineIndex = React.useMemo(() => {
@@ -564,6 +639,48 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
         terminalWidth={state.terminalWidth}
         terminalHeight={state.terminalHeight}
       />
+    );
+  }
+
+  if (state.viewMode === 'permission_prompt' && state.permissionPrompt) {
+    const promptWidth = Math.max(
+      PROMPT_MIN_WIDTH,
+      Math.min(PROMPT_MAX_WIDTH, state.terminalWidth - 4),
+    );
+    const innerWidth = Math.max(10, promptWidth - 4);
+    const promptLines = wrapLines(
+      [
+        `Permission request for Step ${state.permissionPrompt.stepNumber}`,
+        '',
+        'Requested permissions:',
+        ...state.permissionPrompt.permissions.map(permission => `- ${permission}`),
+        '',
+        `Reason: ${state.permissionPrompt.reason ?? '(not provided)'}`,
+        '',
+        'Approve this permission update?',
+      ],
+      innerWidth,
+    );
+
+    return (
+      <Box
+        flexDirection="column"
+        width={state.terminalWidth}
+        height={state.terminalHeight}
+        alignItems="center"
+        justifyContent="center"
+      >
+        <Box borderStyle="double" borderColor="yellow" paddingX={2} paddingY={1} width={promptWidth}>
+          <Box flexDirection="column">
+            {promptLines.map((line, index) => (
+              <Text key={`prompt-line-${index}`}>{line}</Text>
+            ))}
+            <Text>
+              Press <Text bold color="green">Y</Text> to approve, <Text bold color="red">N</Text> to decline.
+            </Text>
+          </Box>
+        </Box>
+      </Box>
     );
   }
 
