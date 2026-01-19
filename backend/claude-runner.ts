@@ -17,6 +17,14 @@ export interface ClaudeRunOptions {
   eventEmitter?: OrchestratorEventEmitter;
 }
 
+interface ContinueOptions {
+  workDir: string;
+  prompt: string;
+  timeoutMinutes?: number;
+  captureOutput?: boolean;
+  eventEmitter?: OrchestratorEventEmitter;
+}
+
 export class ClaudeRunner {
   private emitLog(message: string, eventEmitter?: OrchestratorEventEmitter): void {
     if (eventEmitter) {
@@ -86,6 +94,123 @@ export class ClaudeRunner {
     }
   }
 
+  private async runWithContinue(
+    options: ContinueOptions,
+  ): Promise<{
+    success: boolean;
+    output?: string;
+  }> {
+    const claudePath = this.getClaudePath();
+    const timeout = (options.timeoutMinutes ?? 5) * 60 * 1000;
+    const captureOutput = options.captureOutput ?? false;
+    const shouldPipeStdout = captureOutput || !!options.eventEmitter;
+
+    this.emitLog("─".repeat(80), options.eventEmitter);
+    this.emitLog("Retrying with --continue to complete the commit...", options.eventEmitter);
+    this.emitLog("─".repeat(80), options.eventEmitter);
+
+    const result = await new Promise<{
+      exitCode: number | null;
+      error?: Error;
+      stdout?: string;
+    }>((resolve) => {
+      const child = spawn(
+        claudePath,
+        [
+          "--print",
+          "--verbose",
+          "--continue",
+          "--add-dir",
+          options.workDir,
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          "Bash(git:*)",
+        ],
+        {
+          cwd: options.workDir,
+          stdio: [
+            "pipe",
+            shouldPipeStdout ? "pipe" : "inherit",
+            "inherit",
+          ],
+        },
+      );
+
+      let timeoutId: NodeJS.Timeout | undefined;
+      let stdoutData = "";
+
+      if (timeout > 0) {
+        timeoutId = setTimeout(() => {
+          child.kill("SIGTERM");
+          resolve({
+            exitCode: null,
+            error: new Error("Claude Code --continue execution timed out"),
+          });
+        }, timeout);
+      }
+
+      if (!child.stdin) {
+        throw new Error('Claude Code process did not provide stdin stream');
+      }
+
+      child.stdin.write(options.prompt);
+      child.stdin.end();
+
+      if (shouldPipeStdout && child.stdout) {
+        child.stdout.on("data", (chunk) => {
+          const text = chunk.toString();
+          if (captureOutput) {
+            stdoutData += text;
+          }
+          if (options.eventEmitter) {
+            const lines = text.split('\n');
+            for (const line of lines) {
+              if (line.trim()) {
+                this.emitLog(line, options.eventEmitter);
+              }
+            }
+          } else {
+            process.stdout.write(text);
+          }
+        });
+      }
+
+      child.on("error", (error) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        resolve({ exitCode: null, error });
+      });
+
+      child.on("close", (code) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        resolve({ exitCode: code, stdout: captureOutput ? stdoutData : undefined });
+      });
+    });
+
+    if (result.error) {
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      this.emitLog("✗ Error running Claude Code --continue", options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      return { success: false, output: result.stdout };
+    }
+
+    if (result.exitCode !== 0) {
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      this.emitLog(`✗ Claude Code --continue exited with status ${result.exitCode}`, options.eventEmitter);
+      this.emitLog("─".repeat(80), options.eventEmitter);
+      return { success: false, output: result.stdout };
+    }
+
+    this.emitLog("─".repeat(80), options.eventEmitter);
+    this.emitLog("✓ Claude Code --continue completed", options.eventEmitter);
+    this.emitLog("─".repeat(80), options.eventEmitter);
+
+    return {
+      success: true,
+      output: captureOutput ? result.stdout : undefined,
+    };
+  }
+
   async run(
     options: ClaudeRunOptions,
   ): Promise<{
@@ -125,6 +250,8 @@ export class ClaudeRunner {
           options.workDir,
           "--permission-mode",
           "acceptEdits",
+          "--allowedTools",
+          "Bash(git:*)",
         ],
         {
           cwd: options.workDir,
@@ -252,6 +379,58 @@ export class ClaudeRunner {
             options.eventEmitter,
           );
           this.emitLog(workingTreeStatus, options.eventEmitter);
+
+          // Retry with --continue to let Claude finish creating the commit
+          const continuePrompt =
+            "Your previous session made changes but did not create a commit. " +
+            "Please stage all your changes with `git add` and create a commit using `git commit`. " +
+            "Do NOT use `git commit --amend`. Create a NEW commit.";
+
+          const continueResult = await this.runWithContinue({
+            workDir: options.workDir,
+            prompt: continuePrompt,
+            timeoutMinutes: 5,
+            captureOutput: options.captureOutput,
+            eventEmitter: options.eventEmitter,
+          });
+
+          const headAfterRetry = this.tryGetHeadCommit(options.workDir);
+          this.emitLog(`HEAD after retry: ${headAfterRetry ?? "(no commit yet)"}`, options.eventEmitter);
+
+          if (headAfterRetry && headAfterRetry !== headBefore) {
+            this.emitLog("✓ Claude Code created a commit after retry", options.eventEmitter);
+            this.emitLog(`Commit SHA: ${headAfterRetry}`, options.eventEmitter);
+            this.emitLog("─".repeat(80), options.eventEmitter);
+
+            const combinedOutput = [capturedOutput, continueResult.output]
+              .filter(Boolean)
+              .join("\n\n--- Continue session ---\n\n");
+
+            return {
+              success: true,
+              commitSha: headAfterRetry,
+              output: combinedOutput || undefined,
+            };
+          }
+
+          // Retry didn't create a commit either
+          const workingTreeAfterRetry = this.getWorkingTreeStatus(
+            options.workDir,
+            options.eventEmitter,
+          );
+          this.emitLog("✓ Claude Code completed (no commit created after retry)", options.eventEmitter);
+          this.emitLog("─".repeat(80), options.eventEmitter);
+
+          const combinedOutput = [capturedOutput, continueResult.output]
+            .filter(Boolean)
+            .join("\n\n--- Continue session ---\n\n");
+
+          return {
+            success: true,
+            commitSha: null,
+            output: combinedOutput || undefined,
+            workingTreeStatus: workingTreeAfterRetry,
+          };
         } else {
           this.emitLog(
             "Working tree clean after Claude Code run",

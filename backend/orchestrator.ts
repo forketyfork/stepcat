@@ -321,6 +321,90 @@ export class Orchestrator {
     }
   }
 
+  private tryGetHeadCommit(): string | null {
+    try {
+      return execSync("git rev-parse HEAD", {
+        cwd: this.workDir,
+        encoding: "utf-8",
+      }).trim();
+    } catch {
+      return null;
+    }
+  }
+
+  private tryRecoverManualCommit(): void {
+    if (!this.plan) {
+      return;
+    }
+
+    const currentHead = this.tryGetHeadCommit();
+    if (!currentHead) {
+      return;
+    }
+
+    // Collect all known commit SHAs from this execution
+    const steps = this.storage.getSteps(this.plan.id);
+    const knownCommits = new Set<string>();
+
+    for (const step of steps) {
+      const iterations = this.storage.getIterations(step.id);
+      for (const iteration of iterations) {
+        if (iteration.commitSha) {
+          knownCommits.add(iteration.commitSha);
+        }
+      }
+    }
+
+    // If current HEAD is already known, nothing to recover
+    if (knownCommits.has(currentHead)) {
+      return;
+    }
+
+    // Look for in_progress steps with failed/aborted iterations that have no commit
+    for (const step of steps) {
+      if (step.status !== 'in_progress') {
+        continue;
+      }
+
+      const iterations = this.storage.getIterations(step.id);
+      if (iterations.length === 0) {
+        continue;
+      }
+
+      // Get the latest iteration for this step
+      const latestIteration = iterations[iterations.length - 1];
+
+      // Check if it's a failed/aborted iteration without a commit
+      if (
+        (latestIteration.status === 'failed' || latestIteration.status === 'aborted') &&
+        !latestIteration.commitSha
+      ) {
+        this.log(
+          `Detected manual commit ${currentHead.substring(0, 7)} for step ${step.stepNumber}, recovering iteration ${latestIteration.iterationNumber}`,
+          "info"
+        );
+
+        // Update the iteration with the manual commit
+        this.storage.updateIteration(latestIteration.id, {
+          commitSha: currentHead,
+          status: 'completed',
+        });
+
+        this.emitEvent({
+          type: "iteration_complete",
+          timestamp: Date.now(),
+          stepId: step.id,
+          iterationNumber: latestIteration.iterationNumber,
+          commitSha: currentHead,
+          status: 'completed',
+        });
+
+        // Only recover one iteration (the current step)
+        return;
+      }
+    }
+  }
+
   private countIterationsWithCommits(stepId: number): number {
     const iterations = this.storage.getIterations(stepId);
     return iterations.filter(iteration => iteration.commitSha !== null && iteration.status !== 'aborted').length;
@@ -337,6 +421,7 @@ export class Orchestrator {
       this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
 
       this.cleanupIncompleteIterations();
+      this.tryRecoverManualCommit();
     } else {
       this.log("Starting new execution", "info");
       this.plan = this.storage.createPlan(
@@ -845,7 +930,34 @@ export class Orchestrator {
 
         this.log(`\nRunning ${this.getAgentDisplayName(this.reviewAgent)} code review (${promptType})...`);
 
-        const reviewRun = await this.runReviewAgent(codexPrompt);
+        let reviewRun: { success: boolean; output: string };
+        try {
+          reviewRun = await this.runReviewAgent(codexPrompt);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          const diagnosticLog = [
+            `Review agent failed with error: ${errorMessage}`,
+            errorStack ? `\nStack trace:\n${errorStack}` : '',
+            `\nReview agent: ${this.reviewAgent}`,
+            `Prompt type: ${promptType}`,
+          ].join('');
+
+          this.storage.updateIteration(previousIteration.id, {
+            codexLog: diagnosticLog,
+            reviewStatus: 'failed',
+          });
+
+          this.emitEvent({
+            type: "error",
+            timestamp: Date.now(),
+            error: `Review agent failed: ${errorMessage}`,
+            stepNumber: step.stepNumber,
+          });
+
+          this.log(`✗ Review agent failed: ${errorMessage}`, "error");
+          throw error;
+        }
 
         const reviewParser = new ReviewParser();
         const reviewResult = reviewParser.parseReviewOutput(reviewRun.output);

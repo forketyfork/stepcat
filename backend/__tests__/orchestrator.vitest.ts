@@ -305,6 +305,145 @@ Implement the feature
 
       db2.close();
     });
+
+    it('should recover manual commit when resuming with failed iteration', async () => {
+      const manualCommitSha = 'manual123abc';
+
+      // Setup: create a failed iteration without commit SHA
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      db.createStep(plan.id, 2, 'Implementation');
+      db.updateStepStatus(step1.id, 'in_progress');
+      const iteration1 = db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      db.updateIteration(iteration1.id, { status: 'failed', commitSha: null });
+      db.close();
+
+      // Mock execSync to return the manual commit SHA for git rev-parse HEAD
+      const mockedExecSync = vi.mocked(execSync);
+      mockedExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('git rev-parse HEAD')) {
+          return manualCommitSha;
+        }
+        if (typeof cmd === 'string' && cmd.includes('git push')) {
+          return '';
+        }
+        return '';
+      });
+
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue(manualCommitSha);
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue(manualCommitSha);
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'step2commit' });
+
+      const eventEmitter = new OrchestratorEventEmitter();
+      const events: any[] = [];
+      eventEmitter.on('event', (event) => events.push(event));
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+        eventEmitter,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const iterations = db2.getIterations(step1.id);
+
+      // The failed iteration should now have the manual commit SHA and be completed
+      const recoveredIteration = iterations.find(i => i.id === iteration1.id);
+      expect(recoveredIteration?.commitSha).toBe(manualCommitSha);
+      expect(recoveredIteration?.status).toBe('completed');
+
+      // Should only have one iteration for step 1 (the recovered one)
+      expect(iterations).toHaveLength(1);
+
+      // Step 1 should be completed
+      const steps = db2.getSteps(plan.id);
+      expect(steps[0].status).toBe('completed');
+
+      // Check that iteration_complete event was emitted for the recovered iteration
+      const iterationCompleteEvents = events.filter((e) => e.type === 'iteration_complete');
+      const recoveredEvent = iterationCompleteEvents.find(e => e.commitSha === manualCommitSha);
+      expect(recoveredEvent).toBeDefined();
+
+      db2.close();
+    });
+
+    it('should not recover if HEAD is already a known commit', async () => {
+      const knownCommitSha = 'known123abc';
+
+      // Setup: create a failed iteration with no commit SHA
+      // HEAD points to a commit that's already known from a different source
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      db.createStep(plan.id, 2, 'Implementation');
+      db.updateStepStatus(step1.id, 'in_progress');
+
+      // Create iteration1 as completed with the known commit SHA
+      const iteration1 = db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      db.updateIteration(iteration1.id, { status: 'completed', commitSha: knownCommitSha });
+
+      // Create iteration2 as failed with no commit SHA
+      const iteration2 = db.createIteration(step1.id, 2, 'review_fix', 'claude', 'codex');
+      db.updateIteration(iteration2.id, { status: 'failed', commitSha: null });
+      db.close();
+
+      // Mock execSync to return the known commit SHA (HEAD hasn't changed)
+      const mockedExecSync = vi.mocked(execSync);
+      mockedExecSync.mockImplementation((cmd: string) => {
+        if (typeof cmd === 'string' && cmd.includes('git rev-parse HEAD')) {
+          return knownCommitSha;
+        }
+        if (typeof cmd === 'string' && cmd.includes('git push')) {
+          return '';
+        }
+        return '';
+      });
+
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'newcommit456' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue(knownCommitSha);
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue(knownCommitSha);
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 5,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const iterations = db2.getIterations(step1.id);
+
+      // The failed iteration should NOT be recovered (HEAD was a known commit)
+      const failedIteration = iterations.find(i => i.id === iteration2.id);
+      expect(failedIteration?.commitSha).toBeNull();
+      expect(failedIteration?.status).toBe('failed');
+
+      // Step should still complete because there's a completed iteration with a commit
+      // and the review passes
+      const steps = db2.getSteps(plan.id);
+      expect(steps[0].status).toBe('completed');
+
+      db2.close();
+    });
   });
 
   describe('build failure handling', () => {

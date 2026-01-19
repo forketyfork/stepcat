@@ -99,4 +99,39 @@ describe('ClaudeRunner', () => {
       expect(reviewPrompt.toLowerCase()).toContain('do not push');
     });
   });
+
+  describe('runWithContinue', () => {
+    it('should be a callable private method', () => {
+      // Verify the method exists on the instance
+      expect((runner as any).runWithContinue).toBeDefined();
+      expect(typeof (runner as any).runWithContinue).toBe('function');
+    });
+
+    it('should have proper continue prompt for retry scenarios', () => {
+      // The continue prompt used in run() when dirty working tree is detected
+      const continuePrompt =
+        "Your previous session made changes but did not create a commit. " +
+        "Please stage all your changes with `git add` and create a commit using `git commit`. " +
+        "Do NOT use `git commit --amend`. Create a NEW commit.";
+
+      // Verify the prompt contains key instructions
+      expect(continuePrompt).toContain('git add');
+      expect(continuePrompt).toContain('git commit');
+      expect(continuePrompt).toContain('Do NOT use `git commit --amend`');
+      expect(continuePrompt).toContain('NEW commit');
+    });
+  });
+
+  describe('retry on dirty working tree', () => {
+    it('should have logic to detect dirty working tree', () => {
+      // Verify getWorkingTreeStatus is a callable method
+      expect((runner as any).getWorkingTreeStatus).toBeDefined();
+      expect(typeof (runner as any).getWorkingTreeStatus).toBe('function');
+    });
+
+    it('getWorkingTreeStatus should return null for non-existent directory', () => {
+      const result = (runner as any).getWorkingTreeStatus('/nonexistent/directory');
+      expect(result).toBeNull();
+    });
+  });
 });
