@@ -418,7 +418,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
   const stepsInnerHeight = Math.max(0, stepsAreaHeight - 2);
 
   const activeStepLineIndex = React.useMemo(() => {
-    const activeStep = state.steps.find(s => s.status === 'in_progress');
+    const activeStep = state.steps.find(step => step.status === 'in_progress');
     if (!activeStep) return -1;
     return allStepLines.findIndex(line => line.key === `step-${activeStep.id}`);
   }, [allStepLines, state.steps]);
@@ -432,7 +432,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
     stepLinesToRender = allStepLines.slice(0, stepsInnerHeight);
   } else {
     const activeStepLines: number[] = [];
-    const activeStep = state.steps.find(s => s.status === 'in_progress');
+    const activeStep = state.steps.find(step => step.status === 'in_progress');
     if (activeStep) {
       for (let i = 0; i < allStepLines.length; i++) {
         const line = allStepLines[i];

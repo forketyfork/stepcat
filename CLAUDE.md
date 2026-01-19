@@ -583,6 +583,21 @@ const calculateStepHeight = (step: any, iterations: any[], issues: Map<number, a
 2. **Second choice**: Define a specific interface or type for your use case
 3. **Last resort**: Use `unknown` (not `any`) if the type is truly dynamic, then narrow it with type guards
 
+**Use descriptive variable names in callbacks.** Avoid single-letter abbreviations when the context makes a full name natural.
+
+**DO:**
+```typescript
+const activeStep = state.steps.find(step => step.status === 'in_progress');
+const openIssues = issues.filter(issue => issue.status === 'open');
+```
+
+**DON'T:**
+```typescript
+// ❌ Abbreviated names when full names are clearer
+const activeStep = state.steps.find(s => s.status === 'in_progress');
+const openIssues = issues.filter(i => i.status === 'open');
+```
+
 ### Debugging Path Issues
 
 If you see errors like `Cannot find module '/wrong/path/to/file'`:
