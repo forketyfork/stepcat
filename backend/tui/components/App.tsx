@@ -416,8 +416,51 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
   }, [state.steps, state.iterations, state.issues, state.stateVersion]);
 
   const stepsInnerHeight = Math.max(0, stepsAreaHeight - 2);
-  let stepLinesToRender =
-    stepsInnerHeight > 0 ? allStepLines.slice(-stepsInnerHeight) : ([] as StepLine[]);
+
+  const activeStepLineIndex = React.useMemo(() => {
+    const activeStep = state.steps.find(s => s.status === 'in_progress');
+    if (!activeStep) return -1;
+    return allStepLines.findIndex(line => line.key === `step-${activeStep.id}`);
+  }, [allStepLines, state.steps]);
+
+  let stepLinesToRender: StepLine[];
+  if (stepsInnerHeight <= 0) {
+    stepLinesToRender = [];
+  } else if (allStepLines.length <= stepsInnerHeight) {
+    stepLinesToRender = allStepLines;
+  } else if (activeStepLineIndex === -1) {
+    stepLinesToRender = allStepLines.slice(0, stepsInnerHeight);
+  } else {
+    const activeStepLines: number[] = [];
+    const activeStep = state.steps.find(s => s.status === 'in_progress');
+    if (activeStep) {
+      for (let i = 0; i < allStepLines.length; i++) {
+        const line = allStepLines[i];
+        if (line.key.startsWith(`step-${activeStep.id}`) ||
+            line.key.startsWith(`iteration-`)) {
+          const iterations = state.iterations.get(activeStep.id) || [];
+          const isActiveStepIteration = iterations.some(it => line.key.startsWith(`iteration-${it.id}`));
+          if (line.key.startsWith(`step-${activeStep.id}`) || isActiveStepIteration) {
+            activeStepLines.push(i);
+          }
+        }
+      }
+    }
+
+    const lastActiveLineIndex = activeStepLines.length > 0
+      ? activeStepLines[activeStepLines.length - 1]
+      : activeStepLineIndex;
+
+    let endIndex = Math.min(allStepLines.length, lastActiveLineIndex + 1);
+    let startIndex = Math.max(0, endIndex - stepsInnerHeight);
+
+    if (activeStepLineIndex < startIndex) {
+      startIndex = activeStepLineIndex;
+      endIndex = Math.min(allStepLines.length, startIndex + stepsInnerHeight);
+    }
+
+    stepLinesToRender = allStepLines.slice(startIndex, endIndex);
+  }
 
   if (stepLinesToRender.length < stepsInnerHeight) {
     const padCount = stepsInnerHeight - stepLinesToRender.length;
@@ -426,7 +469,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange }) => {
       text: '',
       dim: true,
     }));
-    stepLinesToRender = [...padding, ...stepLinesToRender];
+    stepLinesToRender = [...stepLinesToRender, ...padding];
   }
 
   const stepsRows = stepLinesToRender.map((line, idx) => {
