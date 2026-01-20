@@ -707,7 +707,9 @@ export class Orchestrator {
         cwd: this.workDir,
         encoding: "utf-8",
       }).trim();
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger()?.debug("Orchestrator", `Failed to read HEAD commit: ${message}`);
       return null;
     }
   }

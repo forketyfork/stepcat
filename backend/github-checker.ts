@@ -305,7 +305,12 @@ export class GitHubChecker {
         stdio: 'ignore',
       });
       return true;
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger()?.debug(
+        'GitHubChecker',
+        `Failed ancestor check for ${potentialAncestor} -> ${commit}: ${message}`,
+      );
       return false;
     }
   }
@@ -316,7 +321,9 @@ export class GitHubChecker {
         cwd: this.workDir,
         encoding: 'utf-8',
       }).trim();
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      getLogger()?.debug('GitHubChecker', `Failed to read current branch: ${message}`);
       return null;
     }
   }
