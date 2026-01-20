@@ -27,6 +27,7 @@ program
   .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseInt)
   .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseInt)
   .option('--max-iterations <count>', 'Maximum iterations per step (default: 3)', parseInt)
+  .option('--keep-open', 'Keep the TUI open after execution completes')
   .option('--implementation-agent <agent>', 'Agent to use for implementation (claude|codex)')
   .option('--review-agent <agent>', 'Agent to use for code review (claude|codex)')
   .option('--preflight', 'Run preflight check to detect missing permissions')
@@ -254,7 +255,17 @@ program
         process.exit(0);
       }
 
-      await new Promise(() => {});
+      if (options.keepOpen) {
+        await new Promise(() => {});
+      }
+
+      for (const adapter of uiAdapters) {
+        await adapter.shutdown();
+      }
+
+      if (storage) {
+        storage.close();
+      }
 
       process.exit(0);
     } catch (error) {
