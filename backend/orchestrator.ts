@@ -41,6 +41,28 @@ type AgentRunResult = {
   workingTreeStatus?: string | null;
 };
 
+type ImplementationAgentStrategy =
+  | {
+      supportsPermissionRequests: false;
+      run: (prompt: string) => Promise<AgentRunResult>;
+    }
+  | {
+      supportsPermissionRequests: true;
+      run: (prompt: string) => Promise<AgentRunResult>;
+      runContinue: (prompt: string) => Promise<AgentRunResult>;
+    };
+
+type ReviewAgentStrategy =
+  | {
+      supportsPermissionRequests: false;
+      run: (prompt: string) => Promise<{ success: boolean; output: string }>;
+    }
+  | {
+      supportsPermissionRequests: true;
+      run: (prompt: string) => Promise<{ success: boolean; output: string }>;
+      runContinue: (prompt: string) => Promise<{ success: boolean; output?: string }>;
+    };
+
 type PermissionHandlingResult = "applied" | "declined" | "noop";
 
 type CheckRunOutput = {
@@ -419,14 +441,116 @@ export class Orchestrator {
     ].join("\n");
   }
 
+  private getImplementationStrategy(): ImplementationAgentStrategy {
+    if (this.implementationAgent === 'claude') {
+      return {
+        supportsPermissionRequests: true,
+        run: (prompt: string) => this.claudeRunner.run({
+          workDir: this.workDir,
+          prompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          captureOutput: true,
+          eventEmitter: this.eventEmitter,
+        }),
+        runContinue: (prompt: string) => this.claudeRunner.runContinue({
+          workDir: this.workDir,
+          prompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          captureOutput: true,
+          eventEmitter: this.eventEmitter,
+        }),
+      };
+    }
+
+    return {
+      supportsPermissionRequests: false,
+      run: async (prompt: string) => {
+        const result = await this.codexRunner.run({
+          workDir: this.workDir,
+          prompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          expectCommit: true,
+          eventEmitter: this.eventEmitter,
+        });
+
+        return {
+          success: result.success,
+          commitSha: result.commitSha ?? null,
+          output: result.output,
+        };
+      },
+    };
+  }
+
+  private getReviewStrategy(): ReviewAgentStrategy {
+    if (this.reviewAgent === 'codex') {
+      return {
+        supportsPermissionRequests: false,
+        run: async (prompt: string) => {
+          const result = await this.codexRunner.run({
+            workDir: this.workDir,
+            prompt,
+            timeoutMinutes: this.agentTimeoutMinutes,
+            eventEmitter: this.eventEmitter,
+          });
+
+          return {
+            success: result.success,
+            output: result.output,
+          };
+        },
+      };
+    }
+
+    return {
+      supportsPermissionRequests: true,
+      run: async (prompt: string) => {
+        const promptWithPermissions = `${prompt}\n\n${PERMISSION_REQUEST_INSTRUCTIONS.trim()}`;
+        const result = await this.claudeRunner.run({
+          workDir: this.workDir,
+          prompt: promptWithPermissions,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          captureOutput: true,
+          eventEmitter: this.eventEmitter,
+        });
+
+        const output = result.output;
+
+        if (!output) {
+          throw new Error('Claude Code did not produce any review output');
+        }
+
+        return {
+          success: result.success,
+          output,
+        };
+      },
+      runContinue: async (prompt: string) => {
+        const result = await this.claudeRunner.runContinue({
+          workDir: this.workDir,
+          prompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          captureOutput: true,
+          eventEmitter: this.eventEmitter,
+        });
+
+        return {
+          success: result.success,
+          output: result.output,
+        };
+      },
+    };
+  }
+
   private async runImplementationAgentWithPermissions(
     iteration: Iteration,
     stepNumber: number,
     prompt: string,
   ): Promise<AgentRunResult> {
-    const initialResult = await this.runImplementationAgent(prompt);
+    const strategy = this.getImplementationStrategy();
+    const initialResult = await strategy.run(prompt);
 
-    if (this.implementationAgent !== "claude") {
+    if (!strategy.supportsPermissionRequests) {
       return initialResult;
     }
 
@@ -455,13 +579,9 @@ export class Orchestrator {
         throw new Error(this.buildPermissionRequestError(outcome));
       }
 
-      const continueResult = await this.claudeRunner.runContinue({
-        workDir: this.workDir,
-        prompt: this.buildPermissionContinuePrompt(stepNumber),
-        timeoutMinutes: this.agentTimeoutMinutes,
-        captureOutput: true,
-        eventEmitter: this.eventEmitter,
-      });
+      const continueResult = await strategy.runContinue(
+        this.buildPermissionContinuePrompt(stepNumber),
+      );
 
       if (!continueResult.success) {
         const failureLog = this.buildAgentLog(combinedOutput, currentResult.workingTreeStatus);
@@ -498,9 +618,10 @@ export class Orchestrator {
     stepNumber: number,
     prompt: string,
   ): Promise<{ success: boolean; output: string }> {
-    let reviewRun = await this.runReviewAgent(prompt);
+    const strategy = this.getReviewStrategy();
+    let reviewRun = await strategy.run(prompt);
 
-    if (this.reviewAgent !== "claude") {
+    if (!strategy.supportsPermissionRequests) {
       return reviewRun;
     }
 
@@ -522,13 +643,9 @@ export class Orchestrator {
         throw new Error(this.buildPermissionRequestError(outcome));
       }
 
-      const continueResult = await this.claudeRunner.runContinue({
-        workDir: this.workDir,
-        prompt: this.buildReviewContinuePrompt(stepNumber),
-        timeoutMinutes: this.agentTimeoutMinutes,
-        captureOutput: true,
-        eventEmitter: this.eventEmitter,
-      });
+      const continueResult = await strategy.runContinue(
+        this.buildReviewContinuePrompt(stepNumber),
+      );
 
       if (!continueResult.success) {
         throw new Error("Claude Code --continue failed while resuming the review.");
@@ -608,67 +725,15 @@ export class Orchestrator {
     output?: string;
     workingTreeStatus?: string | null;
   }> {
-    if (this.implementationAgent === 'claude') {
-      return this.claudeRunner.run({
-        workDir: this.workDir,
-        prompt,
-        timeoutMinutes: this.agentTimeoutMinutes,
-        captureOutput: true,
-        eventEmitter: this.eventEmitter,
-      });
-    }
-
-    const result = await this.codexRunner.run({
-      workDir: this.workDir,
-      prompt,
-      timeoutMinutes: this.agentTimeoutMinutes,
-      expectCommit: true,
-      eventEmitter: this.eventEmitter,
-    });
-
-    return {
-      success: result.success,
-      commitSha: result.commitSha ?? null,
-      output: result.output,
-    };
+    const strategy = this.getImplementationStrategy();
+    return strategy.run(prompt);
   }
 
   private async runReviewAgent(
     prompt: string,
   ): Promise<{ success: boolean; output: string }> {
-    if (this.reviewAgent === 'codex') {
-      const result = await this.codexRunner.run({
-        workDir: this.workDir,
-        prompt,
-        timeoutMinutes: this.agentTimeoutMinutes,
-        eventEmitter: this.eventEmitter,
-      });
-
-      return {
-        success: result.success,
-        output: result.output,
-      };
-    }
-
-    const promptWithPermissions = `${prompt}\n\n${PERMISSION_REQUEST_INSTRUCTIONS.trim()}`;
-    const result = await this.claudeRunner.run({
-      workDir: this.workDir,
-      prompt: promptWithPermissions,
-      timeoutMinutes: this.agentTimeoutMinutes,
-      captureOutput: true,
-      eventEmitter: this.eventEmitter,
-    });
-
-    const output = result.output;
-
-    if (!output) {
-      throw new Error('Claude Code did not produce any review output');
-    }
-
-    return {
-      success: result.success,
-      output,
-    };
+    const strategy = this.getReviewStrategy();
+    return strategy.run(prompt);
   }
 
   private cleanupIncompleteIterations(): void {
