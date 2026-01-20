@@ -2,7 +2,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
 import { Plan, DbStep, Iteration, Issue } from './models.js';
-import { Storage, IterationUpdate } from './storage.js';
+import { Storage, IterationUpdate, ExecutionState } from './storage.js';
 import { migrations } from './migrations.js';
 
 export class Database implements Storage {
@@ -149,6 +149,17 @@ export class Database implements Storage {
     return stmt.all(stepId) as Iteration[];
   }
 
+  getIterationsForPlan(planId: number): Iteration[] {
+    const stmt = this.db.prepare(`
+      SELECT iterations.*
+      FROM iterations
+      JOIN steps ON iterations.stepId = steps.id
+      WHERE steps.planId = ?
+      ORDER BY steps.stepNumber, iterations.iterationNumber
+    `);
+    return stmt.all(planId) as Iteration[];
+  }
+
   updateIteration(iterationId: number, updates: IterationUpdate): void {
     const updatedAt = new Date().toISOString();
     const fields: string[] = [];
@@ -224,6 +235,17 @@ export class Database implements Storage {
     return stmt.all(iterationId) as Issue[];
   }
 
+  getIssuesForStepByType(stepId: number, issueType: Issue['type']): Issue[] {
+    const stmt = this.db.prepare(`
+      SELECT issues.*
+      FROM issues
+      JOIN iterations ON issues.iterationId = iterations.id
+      WHERE iterations.stepId = ? AND issues.type = ?
+      ORDER BY iterations.iterationNumber DESC, issues.id
+    `);
+    return stmt.all(stepId, issueType) as Issue[];
+  }
+
   updateIssueStatus(issueId: number, status: Issue['status'], resolvedAt?: string): void {
     const stmt = this.db.prepare('UPDATE issues SET status = ?, resolvedAt = ? WHERE id = ?');
     stmt.run(status, resolvedAt || null, issueId);
@@ -238,6 +260,41 @@ export class Database implements Storage {
       ORDER BY issues.id
     `);
     return stmt.all(stepId) as Issue[];
+  }
+
+  getExecutionState(planId: number): ExecutionState {
+    const readState = this.db.transaction((): ExecutionState => {
+      const steps = this.getSteps(planId);
+
+      const iterations = this.db
+        .prepare(
+          `
+          SELECT iterations.*
+          FROM iterations
+          JOIN steps ON iterations.stepId = steps.id
+          WHERE steps.planId = ?
+          ORDER BY steps.stepNumber, iterations.iterationNumber
+        `
+        )
+        .all(planId) as Iteration[];
+
+      const issues = this.db
+        .prepare(
+          `
+          SELECT issues.*
+          FROM issues
+          JOIN iterations ON issues.iterationId = iterations.id
+          JOIN steps ON iterations.stepId = steps.id
+          WHERE steps.planId = ?
+          ORDER BY steps.stepNumber, iterations.iterationNumber, issues.id
+        `
+        )
+        .all(planId) as Issue[];
+
+      return { steps, iterations, issues };
+    });
+
+    return readState();
   }
 
   close(): void {

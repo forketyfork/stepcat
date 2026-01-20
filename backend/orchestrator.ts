@@ -677,19 +677,22 @@ export class Orchestrator {
     }
 
     const steps = this.storage.getSteps(this.plan.id);
+    const iterations = this.storage.getIterationsForPlan(this.plan.id);
+    const stepNumbersById = new Map<number, number>();
+    for (const step of steps) {
+      stepNumbersById.set(step.id, step.stepNumber);
+    }
     let cleanedCount = 0;
 
-    for (const step of steps) {
-      const iterations = this.storage.getIterations(step.id);
-      for (const iteration of iterations) {
-        if (iteration.status === 'in_progress') {
-          this.log(
-            `Found incomplete iteration ${iteration.iterationNumber} for step ${step.stepNumber}, marking as aborted`,
-            "warn"
-          );
-          this.storage.updateIteration(iteration.id, { status: 'aborted' });
-          cleanedCount++;
-        }
+    for (const iteration of iterations) {
+      if (iteration.status === 'in_progress') {
+        const stepNumber = stepNumbersById.get(iteration.stepId) ?? iteration.stepId;
+        this.log(
+          `Found incomplete iteration ${iteration.iterationNumber} for step ${stepNumber}, marking as aborted`,
+          "warn"
+        );
+        this.storage.updateIteration(iteration.id, { status: 'aborted' });
+        cleanedCount++;
       }
     }
 
@@ -721,14 +724,19 @@ export class Orchestrator {
 
     // Collect all known commit SHAs from this execution
     const steps = this.storage.getSteps(this.plan.id);
+    const iterationsForPlan = this.storage.getIterationsForPlan(this.plan.id);
     const knownCommits = new Set<string>();
+    const iterationsByStep = new Map<number, Iteration[]>();
 
-    for (const step of steps) {
-      const iterations = this.storage.getIterations(step.id);
-      for (const iteration of iterations) {
-        if (iteration.commitSha) {
-          knownCommits.add(iteration.commitSha);
-        }
+    for (const iteration of iterationsForPlan) {
+      if (iteration.commitSha) {
+        knownCommits.add(iteration.commitSha);
+      }
+      const stepIterations = iterationsByStep.get(iteration.stepId);
+      if (stepIterations) {
+        stepIterations.push(iteration);
+      } else {
+        iterationsByStep.set(iteration.stepId, [iteration]);
       }
     }
 
@@ -743,7 +751,7 @@ export class Orchestrator {
         continue;
       }
 
-      const iterations = this.storage.getIterations(step.id);
+      const iterations = iterationsByStep.get(step.id) ?? [];
       if (iterations.length === 0) {
         continue;
       }
@@ -799,14 +807,12 @@ export class Orchestrator {
   }
 
   private getLatestIssuesForStep(stepId: number, issueType: Issue['type']): Issue[] {
-    const iterations = this.storage.getIterations(stepId);
-    for (let index = iterations.length - 1; index >= 0; index -= 1) {
-      const issues = this.storage.getIssues(iterations[index].id).filter(issue => issue.type === issueType);
-      if (issues.length > 0) {
-        return issues;
-      }
+    const issues = this.storage.getIssuesForStepByType(stepId, issueType);
+    if (issues.length === 0) {
+      return [];
     }
-    return [];
+    const latestIterationId = issues[0].iterationId;
+    return issues.filter(issue => issue.iterationId === latestIterationId);
   }
 
   private formatLatestBuildErrors(stepId: number): string {
@@ -922,9 +928,7 @@ CRITICAL REQUIREMENTS:
   private emitInitialState(): void {
     if (!this.plan) return;
 
-    const allSteps = this.storage.getSteps(this.plan.id);
-    const allIterations = allSteps.flatMap((s) => this.storage.getIterations(s.id));
-    const allIssues = allIterations.flatMap((i) => this.storage.getIssues(i.id));
+    const executionState = this.storage.getExecutionState(this.plan.id);
 
     this.emitEvent({
       type: "execution_started",
@@ -937,9 +941,9 @@ CRITICAL REQUIREMENTS:
       type: "state_sync",
       timestamp: Date.now(),
       plan: this.plan,
-      steps: allSteps,
-      iterations: allIterations,
-      issues: allIssues,
+      steps: executionState.steps,
+      iterations: executionState.iterations,
+      issues: executionState.issues,
     });
   }
 

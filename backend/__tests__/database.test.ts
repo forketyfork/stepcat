@@ -465,6 +465,86 @@ describe('Database', () => {
     });
   });
 
+  describe('execution state', () => {
+    it('should fetch steps, iterations, and issues for a plan in deterministic order', () => {
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
+      const otherPlan = db.createPlan('/path/to/other.md', '/path/to/workdir', 'other-owner', 'other-repo');
+
+      const stepSecond = db.createStep(plan.id, 2, 'Second');
+      const stepFirst = db.createStep(plan.id, 1, 'First');
+
+      const otherStep = db.createStep(otherPlan.id, 1, 'Other');
+      const otherIteration = db.createIteration(otherStep.id, 1, 'implementation', 'claude', 'codex');
+      db.createIssue(otherIteration.id, 'codex_review', 'Other plan issue');
+
+      const iterationSecond = db.createIteration(stepSecond.id, 1, 'implementation', 'claude', 'codex');
+      const iterationFirstTwo = db.createIteration(stepFirst.id, 2, 'build_fix', 'claude', 'codex');
+      const iterationFirstOne = db.createIteration(stepFirst.id, 1, 'implementation', 'claude', 'codex');
+
+      const issueStepSecond = db.createIssue(iterationSecond.id, 'codex_review', 'Second step issue');
+      const issueFirstTwo = db.createIssue(iterationFirstTwo.id, 'codex_review', 'First step iteration two issue');
+      const issueFirstOne = db.createIssue(iterationFirstOne.id, 'codex_review', 'First step iteration one issue');
+
+      const executionState = db.getExecutionState(plan.id);
+
+      expect(executionState.steps.map(step => step.stepNumber)).toEqual([1, 2]);
+      expect(executionState.iterations.map(iteration => iteration.id)).toEqual([
+        iterationFirstOne.id,
+        iterationFirstTwo.id,
+        iterationSecond.id,
+      ]);
+      expect(executionState.issues.map(issue => issue.id)).toEqual([
+        issueFirstOne.id,
+        issueFirstTwo.id,
+        issueStepSecond.id,
+      ]);
+    });
+  });
+
+  describe('plan-scoped queries', () => {
+    it('should return iterations for a plan ordered by step and iteration number', () => {
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
+      const otherPlan = db.createPlan('/path/to/other.md', '/path/to/workdir', 'other-owner', 'other-repo');
+
+      const stepTwo = db.createStep(plan.id, 2, 'Second');
+      const stepOne = db.createStep(plan.id, 1, 'First');
+      const otherStep = db.createStep(otherPlan.id, 1, 'Other');
+
+      const iterationSecond = db.createIteration(stepTwo.id, 1, 'implementation', 'claude', 'codex');
+      const iterationFirstTwo = db.createIteration(stepOne.id, 2, 'build_fix', 'claude', 'codex');
+      const iterationFirstOne = db.createIteration(stepOne.id, 1, 'implementation', 'claude', 'codex');
+      db.createIteration(otherStep.id, 1, 'implementation', 'claude', 'codex');
+
+      const iterations = db.getIterationsForPlan(plan.id);
+
+      expect(iterations.map(iteration => iteration.id)).toEqual([
+        iterationFirstOne.id,
+        iterationFirstTwo.id,
+        iterationSecond.id,
+      ]);
+    });
+
+    it('should return issues for a step filtered by type and ordered by latest iteration', () => {
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
+      const step = db.createStep(plan.id, 1, 'Setup');
+      const iterationOne = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
+      const iterationTwo = db.createIteration(step.id, 2, 'build_fix', 'claude', 'codex');
+
+      const issueOneA = db.createIssue(iterationOne.id, 'ci_failure', 'Iteration one issue A');
+      const issueOneB = db.createIssue(iterationOne.id, 'ci_failure', 'Iteration one issue B');
+      db.createIssue(iterationTwo.id, 'codex_review', 'Different type');
+      const issueTwoA = db.createIssue(iterationTwo.id, 'ci_failure', 'Iteration two issue');
+
+      const issues = db.getIssuesForStepByType(step.id, 'ci_failure');
+
+      expect(issues.map(issue => issue.id)).toEqual([
+        issueTwoA.id,
+        issueOneA.id,
+        issueOneB.id,
+      ]);
+    });
+  });
+
   describe('foreign key constraints', () => {
     it('should cascade delete steps when plan is deleted', () => {
       const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');

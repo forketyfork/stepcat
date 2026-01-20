@@ -241,7 +241,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Initializes database at `.stepcat/executions.db` in work directory
 - Creates schema with four tables: plan, step, iteration, issue
 - CRUD methods for all entities with proper type safety
-- Methods include: `createPlan()`, `getSteps()`, `updateStepStatus()`, `createIteration()`, `updateIteration()`, `createIssue()`, `getOpenIssues()`, etc.
+- Methods include: `createPlan()`, `getSteps()`, `getIterationsForPlan()`, `getIssuesForStepByType()`, `getExecutionState()`, `updateStepStatus()`, `createIteration()`, `updateIteration()`, `createIssue()`, `getOpenIssues()`, etc.
 - Handles foreign key constraints and transactions
 - Used by Orchestrator for all state persistence
 
@@ -682,6 +682,7 @@ If you see errors like `Cannot find module '/wrong/path/to/file'`:
 1. **Git Commit Policy**: Maintain "one commit per iteration" - each Claude execution creates a NEW commit (never use `git commit --amend`). All commits are separate for full audit trail. Orchestrator handles all pushes; agents are instructed NOT to push.
 
 2. **Database First**: All state is in the database. Plan file is never modified during execution. Use Database methods for all state operations. Database location: `.stepcat/executions.db` in work directory.
+3. **Prefer plan-scoped reads**: Use `getExecutionState()` and JOIN-based helpers (`getIterationsForPlan()`, `getIssuesForStepByType()`) to avoid N+1 queries and to read consistent snapshots within a transaction when syncing state.
 
 3. **Review Detection**: Use `ReviewParser` class in `backend/review-parser.ts` to parse JSON from review agent output (Claude Code or Codex). The parser is agent-agnostic and handles markdown-wrapped JSON and malformed output gracefully. Returns structured `ReviewResult` with `result` and `issues` fields. Both ClaudeRunner and CodexRunner use this parser for consistency.
 

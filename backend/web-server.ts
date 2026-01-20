@@ -3,7 +3,6 @@ import { createServer, Server as HTTPServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { OrchestratorEventEmitter, OrchestratorEvent } from './events.js';
 import { Storage } from './storage.js';
-import { Iteration, Issue } from './models.js';
 import open from 'open';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -69,26 +68,15 @@ export class WebServer {
       if (this.storage && this.latestStateSyncEvent) {
         const syncEvent = this.latestStateSyncEvent as { plan?: { id: number } };
         if (syncEvent.plan && syncEvent.plan.id) {
-          const steps = this.storage.getSteps(syncEvent.plan.id);
-          const allIterations: Iteration[] = [];
-          const allIssues: Issue[] = [];
-
-          steps.forEach(step => {
-            const iterations = this.storage!.getIterations(step.id);
-            allIterations.push(...iterations);
-            iterations.forEach(iteration => {
-              const issues = this.storage!.getIssues(iteration.id);
-              allIssues.push(...issues);
-            });
-          });
+          const executionState = this.storage.getExecutionState(syncEvent.plan.id);
 
           const freshStateSyncEvent = {
             type: 'state_sync',
             timestamp: Date.now(),
             plan: syncEvent.plan,
-            steps,
-            iterations: allIterations,
-            issues: allIssues
+            steps: executionState.steps,
+            iterations: executionState.iterations,
+            issues: executionState.issues
           };
 
           if (ws.readyState === WebSocket.OPEN) {

@@ -55,11 +55,14 @@ Create TypeScript interfaces for the database entities and implement the databas
   - `updateStepStatus(stepId, status)`: Update step status
   - `createIteration(stepId, iterationNumber, type)`: Create iteration, return Iteration
   - `getIterations(stepId)`: Get all iterations for a step
+  - `getIterationsForPlan(planId)`: Get all iterations for a plan (JOIN steps, ordered by step + iteration)
   - `updateIteration(iterationId, updates)`: Update iteration fields (commitSha, logs, status)
   - `createIssue(iterationId, type, description, ...)`: Create issue, return Issue
   - `getIssues(iterationId)`: Get all issues for an iteration
+  - `getIssuesForStepByType(stepId, issueType)`: Get issues of a type for a step (latest-first by iteration)
   - `updateIssueStatus(issueId, status, resolvedAt?)`: Mark issue as fixed
   - `getOpenIssues(stepId)`: Get all open issues for a step
+  - `getExecutionState(planId)`: Read steps, iterations, issues in one transaction for state sync
 - Initialize database at `.stepcat/executions.db` in the work directory
 - Proper error handling and transactions where needed
 
@@ -289,7 +292,7 @@ Complete refactor to use database for state tracking and implement an iteration 
 ```typescript
 async run() {
   await this.initializeOrResumePlan();
-  emit('init', { full state from DB });
+  emit('init', getExecutionState(plan.id));
 
   while (true) {
     const step = this.getCurrentStep();
@@ -347,7 +350,7 @@ async run() {
       if (promptType === 'implementation') {
         codexPrompt = prompts.codexReviewImplementation(step.stepNumber, step.title, planContent);
       } else if (promptType === 'build_fix') {
-        const buildErrors = getIssues(previousIteration.id).filter(i => i.type === 'ci_failure');
+        const buildErrors = getIssuesForStepByType(step.id, 'ci_failure');
         codexPrompt = prompts.codexReviewBuildFix(buildErrors);
       } else { // review_fix
         const openIssues = getOpenIssues(step.id).filter(i => i.type === 'codex_review');
