@@ -1014,6 +1014,56 @@ CRITICAL REQUIREMENTS:
     });
   }
 
+  private refreshPlanFromDisk(): void {
+    this.parser = new StepParser(this.planFile);
+    this.planContent = this.parser.getContent();
+  }
+
+  private syncPendingStepsFromPlan(): void {
+    if (!this.plan) {
+      return;
+    }
+
+    const steps = this.storage.getSteps(this.plan.id);
+    const currentStep = steps.find(
+      (step) => step.status === 'pending' || step.status === 'in_progress'
+    );
+
+    if (!currentStep) {
+      this.log("No pending steps found, skipping plan refresh", "info");
+      return;
+    }
+
+    const parsedSteps = this.parser.parseSteps();
+    const currentPlanStep = parsedSteps.find((step) => step.number === currentStep.stepNumber);
+    if (currentStep.status === 'pending' && currentPlanStep && currentPlanStep.title !== currentStep.title) {
+      this.storage.updateStepTitle(currentStep.id, currentPlanStep.title);
+      this.log(
+        `Updated pending step ${currentStep.stepNumber} title from plan`,
+        "info"
+      );
+    }
+
+    const startStepNumber = currentStep.stepNumber + 1;
+    const futureSteps = parsedSteps.filter((step) => step.number >= startStepNumber);
+
+    const { deletedCount, createdCount } = this.storage.replacePendingStepsFromPlan(
+      this.plan.id,
+      startStepNumber,
+      futureSteps.map((step) => ({
+        stepNumber: step.number,
+        title: step.title,
+      }))
+    );
+
+    if (deletedCount > 0 || createdCount > 0) {
+      this.log(
+        `Refreshed plan steps from step ${startStepNumber} (removed ${deletedCount}, added ${createdCount})`,
+        "info"
+      );
+    }
+  }
+
   private async initializeOrResumePlan(): Promise<void> {
     if (this.executionId) {
       this.log(`Resuming execution ID: ${this.executionId}`, "info");
@@ -1022,7 +1072,10 @@ CRITICAL REQUIREMENTS:
         throw new Error(`Execution ID ${this.executionId} not found in database`);
       }
       this.plan = plan;
+      this.planFile = plan.planFilePath;
+      this.refreshPlanFromDisk();
       this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
+      this.syncPendingStepsFromPlan();
 
       // Emit initial state so UI updates immediately
       this.emitInitialState();
