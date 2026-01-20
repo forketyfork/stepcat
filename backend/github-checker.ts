@@ -36,6 +36,7 @@ export interface GitHubConfig {
 }
 
 export class GitHubChecker {
+  private readonly pollIntervalMs = 5000;
   private octokit: Octokit;
   private owner: string;
   private repo: string;
@@ -147,7 +148,7 @@ export class GitHubChecker {
           } else {
             this.log(`[${elapsed}s] No checks found yet for ${targetSha}, waiting...`);
           }
-          await this.sleep(30000);
+          await this.sleep(this.pollIntervalMs);
           continue;
         }
 
@@ -177,7 +178,7 @@ export class GitHubChecker {
             this.log(`  - ${run.name}: ${status}`);
           });
 
-          await this.sleep(30000);
+          await this.sleep(this.pollIntervalMs);
           continue;
         }
 
@@ -206,8 +207,8 @@ export class GitHubChecker {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
         const message = error instanceof Error ? error.message : String(error);
         this.log(`[${elapsed}s] Error checking GitHub status: ${message}`, 'error');
-        this.log('Retrying in 30 seconds...', 'warn');
-        await this.sleep(30000);
+        this.log(`Retrying in ${this.pollIntervalMs / 1000} seconds...`, 'warn');
+        await this.sleep(this.pollIntervalMs);
       }
     }
 
