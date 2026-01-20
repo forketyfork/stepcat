@@ -22,6 +22,7 @@ export interface Storage {
   createStep(planId: number, stepNumber: number, title: string): DbStep;
   getSteps(planId: number): DbStep[];
   updateStepStatus(stepId: number, status: DbStep['status']): void;
+  updateStepTitle(stepId: number, title: string): void;
   replacePendingStepsFromPlan(
     planId: number,
     startStepNumber: number,

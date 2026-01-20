@@ -114,6 +114,12 @@ export class Database implements Storage {
     stmt.run(status, updatedAt, stepId);
   }
 
+  updateStepTitle(stepId: number, title: string): void {
+    const updatedAt = new Date().toISOString();
+    const stmt = this.db.prepare('UPDATE steps SET title = ?, updatedAt = ? WHERE id = ?');
+    stmt.run(title, updatedAt, stepId);
+  }
+
   replacePendingStepsFromPlan(
     planId: number,
     startStepNumber: number,

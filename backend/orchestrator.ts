@@ -1034,8 +1034,17 @@ CRITICAL REQUIREMENTS:
       return;
     }
 
-    const startStepNumber = currentStep.stepNumber + 1;
     const parsedSteps = this.parser.parseSteps();
+    const currentPlanStep = parsedSteps.find((step) => step.number === currentStep.stepNumber);
+    if (currentStep.status === 'pending' && currentPlanStep && currentPlanStep.title !== currentStep.title) {
+      this.storage.updateStepTitle(currentStep.id, currentPlanStep.title);
+      this.log(
+        `Updated pending step ${currentStep.stepNumber} title from plan`,
+        "info"
+      );
+    }
+
+    const startStepNumber = currentStep.stepNumber + 1;
     const futureSteps = parsedSteps.filter((step) => step.number >= startStepNumber);
 
     const { deletedCount, createdCount } = this.storage.replacePendingStepsFromPlan(

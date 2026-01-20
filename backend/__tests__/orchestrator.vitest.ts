@@ -226,7 +226,7 @@ More changes
       const db2 = new Database(tempDir);
       const steps = db2.getSteps(plan.id);
       expect(steps).toHaveLength(4);
-      expect(steps[1].title).toBe('Implementation');
+      expect(steps[1].title).toBe('Implementation Updated');
       expect(steps[2].title).toBe('New Future');
       expect(steps[3].title).toBe('Extra Step');
       db2.close();
