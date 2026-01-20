@@ -296,7 +296,7 @@ export class Orchestrator {
     if (!process.stdin.isTTY) {
       this.log(
         "Cannot prompt for permission approval without a TTY. " +
-          "Run with --tui to approve permissions.",
+          "Run in an interactive terminal to approve permissions.",
         "warn",
         stepNumber,
       );
@@ -308,7 +308,7 @@ export class Orchestrator {
     );
 
     if (!adapter || !adapter.requestPermissionApproval) {
-      throw new Error("Permission approval requires the TUI. Re-run with --tui.");
+      throw new Error("Permission approval requires the TUI.");
     }
 
     return adapter.requestPermissionApproval({ permissions, reason }, stepNumber);

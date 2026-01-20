@@ -18,14 +18,13 @@ This document provides a comprehensive checklist for manual integration testing 
 - [x] Ensure GitHub token is available via `GITHUB_TOKEN` env var or `--token` flag
 
 ### Execution
-- [ ] Run `npx ts-node src/cli.ts --file plan.md --dir /path/to/test-project --ui`
-- [ ] Verify execution ID is printed to console
-- [ ] Verify web UI opens automatically in browser
-- [ ] Verify web UI displays all 3 steps in hierarchical view
+- [ ] Run `npx ts-node backend/cli.ts --file plan.md --dir /path/to/test-project`
+- [ ] Verify execution ID is visible in the TUI
+- [ ] Verify the TUI displays all 3 steps in hierarchical view
 
 ### Step 1 - Normal Flow
-- [ ] Watch UI for real-time updates during implementation
-- [ ] Verify iteration 1 (implementation) appears in UI
+- [ ] Watch TUI for real-time updates during implementation
+- [ ] Verify iteration 1 (implementation) appears in the TUI
 - [ ] Verify commit SHA is displayed in iteration details
 - [ ] Verify GitHub Actions check status updates in real-time
 - [ ] Verify Codex review runs and displays result
@@ -34,7 +33,7 @@ This document provides a comprehensive checklist for manual integration testing 
 ### Step 2 - Build Failure Flow
 - [ ] Intentionally introduce a build failure in step 2 (before execution)
 - [ ] Verify iteration 1 (implementation) creates commit with build error
-- [ ] Verify CI failure is detected and displayed in UI
+- [ ] Verify CI failure is detected and displayed in the TUI
 - [ ] Verify build failure issues are created and displayed
 - [ ] Verify iteration 2 (build_fix) is created automatically
 - [ ] Verify Claude fixes the build issue and creates new commit
@@ -46,17 +45,17 @@ This document provides a comprehensive checklist for manual integration testing 
 ### Step 3 - Code Review Flow
 - [ ] Let step 3 implementation complete normally
 - [ ] Verify Codex review runs and finds issues (may need to introduce code issues)
-- [ ] Verify review issues are displayed in UI with details (file, line, severity, description)
+- [ ] Verify review issues are displayed in the TUI with details (file, line, severity, description)
 - [ ] Verify iteration 2 (review_fix) is created
 - [ ] Verify Claude addresses review feedback and creates new commit
 - [ ] Verify review fix commit is pushed to GitHub
 - [ ] Verify GitHub Actions check passes
 - [ ] Verify Codex review runs again with `review_fix` context
-- [ ] Verify issues are marked as fixed in UI
+- [ ] Verify issues are marked as fixed in the TUI
 - [ ] Verify step 3 completes successfully
 
 ### Verification
-- [ ] Verify all 3 steps show as completed in UI
+- [ ] Verify all 3 steps show as completed in the TUI
 - [ ] Verify "All steps completed successfully" message appears
 - [ ] Inspect database with `sqlite3 .stepcat/executions.db`
 - [ ] Verify plan record exists with correct fields
@@ -73,7 +72,7 @@ This document provides a comprehensive checklist for manual integration testing 
 - [ ] Ensure all preconditions (justfile, GitHub repo, etc.)
 
 ### Initial Execution
-- [ ] Run `stepcat --file plan.md --dir /path/to/test-project --ui`
+- [ ] Run `stepcat --file plan.md --dir /path/to/test-project`
 - [ ] Note the execution ID printed to console
 - [ ] Let step 1 and step 2 complete successfully
 - [ ] Stop execution (Ctrl+C) after step 2 completes
@@ -86,10 +85,9 @@ This document provides a comprehensive checklist for manual integration testing 
 - [ ] Verify iterations exist for steps 1-2 with commit SHAs
 
 ### Resume Execution
-- [ ] Run `stepcat --execution-id <id> --ui` (without --file or --dir)
-- [ ] Verify console shows "Resuming execution ID: <id>"
-- [ ] Verify UI opens and displays full state via `state_sync` event
-- [ ] Verify UI shows steps 1-2 as completed (collapsed)
+- [ ] Run `stepcat --execution-id <id>` (without --file or --dir)
+- [ ] Verify the TUI loads and displays full state
+- [ ] Verify the TUI shows steps 1-2 as completed (collapsed)
 - [ ] Verify execution continues from step 3
 - [ ] Let execution complete all remaining steps (3-5)
 - [ ] Verify all 5 steps complete successfully
@@ -135,83 +133,31 @@ This document provides a comprehensive checklist for manual integration testing 
 - [ ] Try to run without GitHub token
 - [ ] Verify appropriate error message during GitHub Actions check phase
 
-## 4. Web UI Validation
+## 4. TUI Validation
 
 ### Initial State
-- [ ] Start new execution with `--ui` flag
-- [ ] Verify browser opens automatically to correct URL (default: http://localhost:3742)
-- [ ] Verify page loads with Stepcat title and styling
+- [ ] Start a new execution in a terminal
+- [ ] Verify the TUI loads with Stepcat title and styling
 - [ ] Verify all steps are displayed in hierarchical list
 - [ ] Verify step status indicators show correct colors (gray for pending)
 
 ### Real-Time Updates
-- [ ] Watch UI as execution progresses
-- [ ] Verify step status changes appear immediately (no page refresh needed)
+- [ ] Watch the TUI as execution progresses
+- [ ] Verify step status changes appear immediately
 - [ ] Verify iteration appears when started (with spinner/loading indicator)
 - [ ] Verify commit SHA appears in iteration when complete
 - [ ] Verify issues appear in real-time when found
 - [ ] Verify issue status updates when fixed
-- [ ] Verify Codex review results appear in UI
+- [ ] Verify Codex review results appear in the TUI
 - [ ] Verify GitHub Actions check status updates
-
-### Hierarchical Display
-- [ ] Verify steps display as top-level items
-- [ ] Verify iterations display nested under steps
-- [ ] Verify issues display nested under iterations
-- [ ] Verify each level shows appropriate information:
-  - Step: number, title, status, iteration count
-  - Iteration: number, type, commit SHA, status
-  - Issue: severity, description, file:line, status
-
-### Collapsible Sections
-- [ ] Click on a step header to collapse it
-- [ ] Verify iterations are hidden when step is collapsed
-- [ ] Click again to expand
-- [ ] Verify iterations reappear
-- [ ] Click on an iteration header to collapse it
-- [ ] Verify issues are hidden when iteration is collapsed
-- [ ] Verify current in-progress step is expanded by default
-- [ ] Verify completed steps are collapsed by default
-
-### Progress Indicators
-- [ ] Verify progress information is displayed (e.g., "Iteration 2 of 5")
-- [ ] Verify issue resolution count (e.g., "Fixed 3 of 4 issues")
-- [ ] Verify loading spinners appear during long operations
-- [ ] Verify completion checkmarks appear when steps complete
-
-### State Synchronization
-- [ ] Start execution and let it run for a while
-- [ ] Open a new browser window to the same URL
-- [ ] Verify new window receives full state via `state_sync` event
-- [ ] Verify both windows show identical state
-- [ ] Verify both windows update in real-time as execution progresses
-- [ ] Close and reopen browser after execution completes
-- [ ] Verify completed state is still visible
-
-### Visual Styling
-- [ ] Verify color coding is correct:
-  - Pending: gray
-  - In Progress: blue (with animations/spinner)
-  - Completed: green
-  - Failed: red
-- [ ] Verify smooth animations when status changes
-- [ ] Verify page is visually appealing with purple/pastel theme
-- [ ] Verify layout is readable and not cluttered
-- [ ] Verify text is properly formatted (no HTML escaping issues visible)
 
 ### Security (XSS Prevention)
 - [ ] Create a test plan with step title containing HTML: `## Step 1: <script>alert('xss')</script>`
-- [ ] Run execution with UI
+- [ ] Run execution with the TUI
 - [ ] Verify HTML is escaped and displayed as text (not executed)
 - [ ] Verify no alert popup appears
 - [ ] Verify step title shows literal `<script>` tags as text
 - [ ] Test with other fields: issue descriptions, file paths, etc.
-
-### Custom Port and No Auto-Open
-- [ ] Run with `--port 8080 --no-auto-open`
-- [ ] Verify browser does NOT open automatically
-- [ ] Manually open browser to `http://localhost:8080`
-- [ ] Verify UI loads and works correctly on custom port
 
 ## 5. Documentation Validation
 

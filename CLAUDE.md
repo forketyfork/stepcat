@@ -15,7 +15,6 @@ Stepcat is a step-by-step agent orchestration solution that automates multi-step
 1. **Run Linting**: Execute formatting and linting checks
    ```bash
    just lint              # Backend ESLint
-   just lint-frontend     # Frontend ESLint (if frontend changes)
    ```
 
 2. **Run Tests**: Execute all relevant tests
@@ -43,24 +42,19 @@ Stepcat is a step-by-step agent orchestration solution that automates multi-step
 
 ### Development
 ```bash
-just build              # Build the entire project (frontend + backend)
-just build-frontend     # Build only frontend
+just build              # Build the entire project
 just build-backend      # Build only backend
 just lint               # Run backend ESLint
-just lint-frontend      # Run frontend ESLint
 just test               # Run all tests (Jest + Vitest)
 just dev --file plan.md --dir /path/to/project  # Run in dev mode with ts-node
-just dev --file plan.md --dir /path/to/project --ui  # Run with web UI
 just ci                 # Run full CI check (lint + test + build)
 ```
 
 ### npm Scripts
 ```bash
-npm run build           # Build entire project (frontend + backend)
-npm run build:frontend  # Build only frontend (React + Vite)
+npm run build           # Build entire project
 npm run build:backend   # Compile backend TypeScript to dist/
 npm run dev             # Run backend with ts-node
-npm run dev:frontend    # Run frontend dev server with hot reload
 npm run start           # Run from built dist/
 npm test                # Run all tests (Jest + Vitest)
 npm run test:jest       # Run only Jest tests
@@ -80,17 +74,8 @@ just uninstall-local    # Remove npm link
 # Start new execution (prints execution ID)
 stepcat --file plan.md --dir /path/to/project
 
-# Start with web UI (opens browser automatically)
-stepcat --file plan.md --dir /path/to/project --ui
-
 # Resume existing execution
 stepcat --execution-id 123
-
-# Resume with web UI
-stepcat --execution-id 123 --ui
-
-# Custom port without auto-open
-stepcat --file plan.md --dir /path/to/project --ui --port 8080 --no-auto-open
 ```
 
 ### Preflight Check
@@ -156,19 +141,12 @@ Add the recommended permissions to `.claude/settings.json` or `.claude/settings.
 
 ### Project Structure
 
-Stepcat is organized into two main components:
+Stepcat is organized into the backend and its terminal UI components:
 
 **Backend** (`backend/`): TypeScript + Node.js
-- Express server with WebSocket support
+- Terminal UI (Ink) with step/iteration/issue hierarchy
 - SQLite database for execution state
 - Claude Code and Codex integration
-- Serves built React frontend as static files
-
-**Frontend** (`frontend/`): React 18 + TypeScript + Vite
-- Beautiful purple/pastel UI with animations
-- WebSocket client for real-time updates
-- Component-based architecture
-- Separate dev server for frontend development
 
 ### Database Schema
 
@@ -234,7 +212,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
   5. **Completion**: When Codex passes and CI passes, mark step complete
 - Configuration: `OrchestratorConfig` includes executionId (for resume), maxIterationsPerStep (default 3), database path, timeouts, event emitter, silent mode
 - Emits granular events for iterations and issues via `OrchestratorEventEmitter` for real-time UI updates
-- Supports `silent` mode for web UI (suppresses console.log, only emits events)
+- Supports `silent` mode for the TUI (suppresses console.log, only emits events)
 - All pushes handled by orchestrator; agents never push
 
 **Database** (`backend/database.ts`): SQLite database management
@@ -314,33 +292,9 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
   - Issue events: `issue_found`, `issue_resolved`
   - Review events: `codex_review_start`, `codex_review_complete`
   - Build events: `github_check` (includes `iterationId` when available)
-  - State events: `state_sync` (full state on WebSocket connect), `all_complete`, `error`, `log`
+  - State events: `state_sync` (full state snapshot), `all_complete`, `error`, `log`
 - All events include timestamp and type discriminator
 - Events carry context like stepId, iterationId, issueId for precise UI updates
-
-**WebServer** (`backend/web-server.ts`): HTTP server with WebSocket support serving React frontend
-- Express server serving built React frontend as static files
-- WebSocket server for real-time event broadcasting
-- On new WebSocket connection, emits `state_sync` event with full current state from database
-- Serves React app from `frontend/dist/` directory
-- Auto-opens browser (configurable)
-- Default port: 3742 (configurable)
-
-**Frontend** (`frontend/`): React 18 + TypeScript + Vite application
-- Beautiful purple/pastel UI with smooth animations
-- **Hierarchical display**: Steps → Iterations → Issues with collapsible sections
-- Features: step tracking, iteration details (type, commit SHA), issue tracking (status, location), progress indicators
-- Color coding: pending (gray), in_progress (blue), completed (green), failed (red)
-- WebSocket client with automatic reconnection (`frontend/src/hooks/useWebSocket.ts`)
-- LocalStorage persistence for UI state (`frontend/src/hooks/useLocalStorage.ts`)
-- **Security**: All dynamic content is HTML-escaped in React to prevent XSS attacks
-- Component structure:
-  - `App.tsx`: Main application with state management
-  - `components/Header.tsx`: Title and subtitle
-  - `components/StatusBanner.tsx`: Execution stats and connection status
-  - `components/StepsContainer.tsx`, `StepCard.tsx`: Step display and management
-  - `components/IterationsContainer.tsx`, `Iteration.tsx`: Iteration tracking with badges
-  - `components/IssuesContainer.tsx`, `Issue.tsx`: Issue display
 
 ### Key Behaviors
 
@@ -437,15 +391,13 @@ The project uses native ECMAScript Modules (ESM) with `import.meta.url` for path
 
 **Integration testing**: See `docs/INTEGRATION_TEST_CHECKLIST.md` for comprehensive manual integration testing procedures and acceptance criteria.
 
-**Frontend testing**: Tests can be added to `frontend/src/` (not yet implemented).
-
 ## Development Best Practices
 
 ### Test Coverage Requirements
 
 **Always write tests for infrastructure and adapter code**, not just business logic. Critical areas that MUST have test coverage:
 
-1. **Adapters and UI Components**: TUI adapter, WebSocket adapter, Web Server
+1. **Adapters and UI Components**: TUI adapter
    - Test initialization and shutdown
    - Test path resolution with mocked `process.cwd()`
    - Test component loading in both dev and production modes
@@ -600,11 +552,10 @@ npm run build
 
 # 2. Test from a DIFFERENT directory
 cd /some/other/directory
-node /path/to/stepcat/dist/cli.js --file plan.md --dir . --tui
+node /path/to/stepcat/dist/cli.js --file plan.md --dir .
 
 # 3. Verify all features work
 # - TUI displays correctly
-# - Web UI serves correctly
 # - Paths resolve correctly
 # - All tests pass
 ```
@@ -698,18 +649,6 @@ If you see errors like `Cannot find module '/wrong/path/to/file'`:
 
 9. **GitHub token**: Must be provided via `--token` flag or `GITHUB_TOKEN` env var
 
-10. **Web UI Security**: All dynamic content in the React frontend is automatically escaped by React. No need for manual HTML escaping in JSX.
+10. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database, marks any in_progress iterations as 'aborted', and continues from first pending/in_progress step. Aborted iterations don't count toward max iterations limit.
 
-11. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database, marks any in_progress iterations as 'aborted', and continues from first pending/in_progress step. Aborted iterations don't count toward max iterations limit.
-
-12. **Build Process**: The build process is now two-stage:
-    - Frontend: React app built with Vite to `frontend/dist/`
-    - Backend: TypeScript compiled to `dist/`
-    - Backend serves frontend static files from `frontend/dist/`
-    - Use `npm run build` to build both, or `npm run build:frontend` / `npm run build:backend` individually
-
-13. **Frontend Development**: To work on the React UI:
-    - Run `cd frontend && npm run dev` for hot reload dev server
-    - Frontend dev server runs on port 5173
-    - Expects backend WebSocket on port 3742
-    - Make sure to run `npm run build:frontend` before deploying
+11. **Build Process**: The build process compiles the backend TypeScript to `dist/` via `npm run build` or `npm run build:backend`.

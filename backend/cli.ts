@@ -4,15 +4,11 @@ import { Command } from 'commander';
 import { Orchestrator } from './orchestrator.js';
 import { OrchestratorEventEmitter } from './events.js';
 import { Database } from './database.js';
-import { WebSocketUIAdapter, TUIAdapter, UIAdapter } from './ui/index.js';
+import { TUIAdapter, UIAdapter } from './ui/index.js';
 import { PreflightRunner } from './preflight-runner.js';
 import { StopController } from './stop-controller.js';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
-
-const writeLine = (line: string): void => {
-  process.stdout.write(`${line}\n`);
-};
 
 const writeErrorLine = (line: string): void => {
   process.stderr.write(`${line}\n`);
@@ -31,10 +27,6 @@ program
   .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseInt)
   .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseInt)
   .option('--max-iterations <count>', 'Maximum iterations per step (default: 3)', parseInt)
-  .option('--ui', 'Launch web UI (default: false)')
-  .option('--tui', 'Launch terminal UI (default: false)')
-  .option('--port <number>', 'Web UI port (default: 3742)', parseInt)
-  .option('--no-auto-open', 'Do not automatically open browser when using --ui')
   .option('--implementation-agent <agent>', 'Agent to use for implementation (claude|codex)')
   .option('--review-agent <agent>', 'Agent to use for code review (claude|codex)')
   .option('--preflight', 'Run preflight check to detect missing permissions')
@@ -82,8 +74,8 @@ program
     }
 
     const startTime = Date.now();
-    let uiAdapter: UIAdapter | null = null;
     let storage: Database | null = null;
+    let uiAdapters: UIAdapter[] = [];
 
     try {
       let planFile: string;
@@ -188,19 +180,6 @@ program
         // The Orchestrator's tryRecoverUncommittedChanges() will handle
         // resuming interrupted sessions with uncommitted changes.
 
-        if (!options.ui && !options.tui) {
-          writeLine('═'.repeat(80));
-          writeLine('STEPCAT - Resuming Execution');
-          writeLine('═'.repeat(80));
-          writeLine(`Execution ID:   ${executionId}`);
-          writeLine(`Plan file:      ${planFile}`);
-          writeLine(`Work directory: ${workDir}`);
-          writeLine(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
-          writeLine(`Implementation: ${implementationAgent ?? 'claude'}`);
-          writeLine(`Review agent:   ${reviewAgent ?? 'codex'}`);
-          writeLine(`Max iterations: ${maxIterationsPerStep ?? 3}`);
-          writeLine('═'.repeat(80));
-        }
       } else {
         if (!options.file || !options.dir) {
           throw new Error(
@@ -216,18 +195,6 @@ program
         planFile = resolve(options.file);
         workDir = resolve(options.dir);
 
-        if (!options.ui && !options.tui) {
-          writeLine('═'.repeat(80));
-          writeLine('STEPCAT - Step-by-step Agent Orchestration');
-          writeLine('═'.repeat(80));
-          writeLine(`Plan file:      ${planFile}`);
-          writeLine(`Work directory: ${workDir}`);
-          writeLine(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
-          writeLine(`Implementation: ${implementationAgent ?? 'claude'}`);
-          writeLine(`Review agent:   ${reviewAgent ?? 'codex'}`);
-          writeLine(`Max iterations: ${maxIterationsPerStep ?? 3}`);
-          writeLine('═'.repeat(80));
-        }
       }
 
       if (!options.token && !process.env.GITHUB_TOKEN) {
@@ -241,30 +208,11 @@ program
 
       const eventEmitter = new OrchestratorEventEmitter();
       storage = new Database(workDir);
-
-      const uiAdapters: UIAdapter[] = [];
-      const stopController = options.tui ? new StopController() : undefined;
-
-      if (options.ui) {
-        uiAdapter = new WebSocketUIAdapter({
-          port: options.port,
-          autoOpen: options.autoOpen,
-          storage
-        });
-
-        await uiAdapter.initialize();
-        const uiPort = options.port ?? 3742;
-        writeLine('═'.repeat(80));
-        writeLine(`🎨 Stepcat Web UI is running at: http://localhost:${uiPort}`);
-        writeLine('═'.repeat(80));
-        uiAdapters.push(uiAdapter);
-      }
-
-      if (options.tui) {
-        const tuiAdapter = new TUIAdapter({ storage, stopController });
-        await tuiAdapter.initialize();
-        uiAdapters.push(tuiAdapter);
-      }
+      uiAdapters = [];
+      const stopController = new StopController();
+      const tuiAdapter = new TUIAdapter({ storage, stopController });
+      await tuiAdapter.initialize();
+      uiAdapters.push(tuiAdapter);
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -274,7 +222,7 @@ program
         agentTimeoutMinutes: options.agentTimeout,
         eventEmitter,
         uiAdapters,
-        silent: options.ui || options.tui,
+        silent: true,
         executionId,
         storage,
         implementationAgent,
@@ -283,17 +231,8 @@ program
         stopController,
       });
 
-      eventEmitter.on('event', (event) => {
-        if (event.type === 'execution_started' && !options.ui && !options.tui) {
-          writeLine('═'.repeat(80));
-          writeLine(`Execution ID: ${event.executionId}`);
-          writeLine('═'.repeat(80));
-        }
-      });
-
-      let completedExecutionId: number;
       try {
-        completedExecutionId = await orchestrator.run();
+        await orchestrator.run();
       } catch (error) {
         eventEmitter.emit('event', {
           type: 'error',
@@ -303,52 +242,19 @@ program
         throw error;
       }
 
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const minutes = Math.floor(elapsed / 60);
-      const seconds = elapsed % 60;
       const stoppedAfterStep = stopController?.wasStopAfterStepTriggered() ?? false;
 
-      if (!options.ui && !options.tui) {
-        writeLine('\n' + '═'.repeat(80));
-        writeLine('✓✓✓ SUCCESS ✓✓✓');
-        writeLine('═'.repeat(80));
-        writeLine(`Total time: ${minutes}m ${seconds}s`);
-
-        if (!executionId) {
-          writeLine('═'.repeat(80));
-          writeLine(`Execution ID: ${completedExecutionId}`);
-          writeLine('─'.repeat(80));
-          writeLine('To resume this execution later, use:');
-          writeLine(`  stepcat --execution-id ${completedExecutionId}`);
-          writeLine('Or from a different directory:');
-          writeLine(`  stepcat --execution-id ${completedExecutionId} --dir ${workDir}`);
+      if (stoppedAfterStep) {
+        for (const adapter of uiAdapters) {
+          await adapter.shutdown();
         }
-
-        writeLine('═'.repeat(80));
+        if (storage) {
+          storage.close();
+        }
+        process.exit(0);
       }
 
-      if (options.ui || options.tui) {
-        if (stoppedAfterStep) {
-          for (const adapter of uiAdapters) {
-            await adapter.shutdown();
-          }
-          if (storage) {
-            storage.close();
-          }
-          process.exit(0);
-        }
-
-        if (options.ui) {
-          writeLine('\n' + '═'.repeat(80));
-          writeLine('All steps completed! Web UI will remain open for viewing.');
-          writeLine('Press Ctrl+C to exit.');
-          writeLine('═'.repeat(80));
-        }
-
-        await new Promise(() => {});
-      } else if (storage) {
-        storage.close();
-      }
+      await new Promise(() => {});
 
       process.exit(0);
     } catch (error) {
@@ -369,8 +275,8 @@ program
         writeErrorLine(error.stack);
       }
 
-      if (uiAdapter) {
-        await uiAdapter.shutdown();
+      for (const adapter of uiAdapters) {
+        await adapter.shutdown();
       }
 
       if (storage) {
