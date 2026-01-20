@@ -2,7 +2,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
 import { Plan, DbStep, Iteration, Issue } from './models.js';
-import { Storage, IterationUpdate, ExecutionState } from './storage.js';
+import { Storage, IterationUpdate, ExecutionState, PlanStepInput } from './storage.js';
 import { migrations } from './migrations.js';
 
 export class Database implements Storage {
@@ -112,6 +112,44 @@ export class Database implements Storage {
     const updatedAt = new Date().toISOString();
     const stmt = this.db.prepare('UPDATE steps SET status = ?, updatedAt = ? WHERE id = ?');
     stmt.run(status, updatedAt, stepId);
+  }
+
+  replacePendingStepsFromPlan(
+    planId: number,
+    startStepNumber: number,
+    steps: PlanStepInput[]
+  ): { deletedCount: number; createdCount: number } {
+    const transaction = this.db.transaction(() => {
+      const existingSteps = this.db
+        .prepare('SELECT stepNumber, status FROM steps WHERE planId = ? AND stepNumber >= ?')
+        .all(planId, startStepNumber) as Array<{ stepNumber: number; status: DbStep['status'] }>;
+      const nonPending = existingSteps.filter((step) => step.status !== 'pending');
+      if (nonPending.length > 0) {
+        const blockedSteps = nonPending.map((step) => step.stepNumber).join(', ');
+        throw new Error(
+          `Cannot replace future steps because steps ${blockedSteps} are not pending`
+        );
+      }
+
+      const deleteResult = this.db
+        .prepare('DELETE FROM steps WHERE planId = ? AND stepNumber >= ?')
+        .run(planId, startStepNumber);
+
+      const insertStmt = this.db.prepare(
+        'INSERT INTO steps (planId, stepNumber, title, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      const now = new Date().toISOString();
+      for (const step of steps) {
+        insertStmt.run(planId, step.stepNumber, step.title, 'pending', now, now);
+      }
+
+      return {
+        deletedCount: deleteResult.changes,
+        createdCount: steps.length,
+      };
+    });
+
+    return transaction();
   }
 
   createIteration(

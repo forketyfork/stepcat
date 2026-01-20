@@ -10,6 +10,11 @@ export type ExecutionState = {
   issues: Issue[];
 };
 
+export type PlanStepInput = {
+  stepNumber: number;
+  title: string;
+};
+
 export interface Storage {
   createPlan(planFilePath: string, workDir: string, owner: string, repo: string): Plan;
   getPlan(id: number): Plan | undefined;
@@ -17,6 +22,11 @@ export interface Storage {
   createStep(planId: number, stepNumber: number, title: string): DbStep;
   getSteps(planId: number): DbStep[];
   updateStepStatus(stepId: number, status: DbStep['status']): void;
+  replacePendingStepsFromPlan(
+    planId: number,
+    startStepNumber: number,
+    steps: PlanStepInput[]
+  ): { deletedCount: number; createdCount: number };
 
   createIteration(
     stepId: number,

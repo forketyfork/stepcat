@@ -175,6 +175,63 @@ Implement the feature
       db2.close();
     });
 
+    it('should refresh pending steps from updated plan on resume', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      db.createStep(plan.id, 2, 'Implementation');
+      db.createStep(plan.id, 3, 'Legacy Future');
+      db.updateStepStatus(step1.id, 'completed');
+      db.close();
+
+      const updatedPlan = `# Test Plan
+
+## Step 1: Setup
+
+Setup the project
+
+## Step 2: Implementation Updated
+
+Implement the feature
+
+## Step 3: New Future
+
+Additional changes
+
+## Step 4: Extra Step
+
+More changes
+`;
+      writeFileSync(planFile, updatedPlan, 'utf-8');
+
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        maxIterationsPerStep: 3,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const steps = db2.getSteps(plan.id);
+      expect(steps).toHaveLength(4);
+      expect(steps[1].title).toBe('Implementation');
+      expect(steps[2].title).toBe('New Future');
+      expect(steps[3].title).toBe('Extra Step');
+      db2.close();
+    });
+
     it('should throw error if execution ID not found', () => {
       expect(() => {
         new Orchestrator({
