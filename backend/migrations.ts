@@ -341,4 +341,19 @@ export const migrations: Migration[] = [
       }
     },
   },
+  {
+    id: 5,
+    name: 'add_foreign_key_indexes',
+    up: (db) => {
+      db.exec(`
+        BEGIN;
+
+        CREATE INDEX IF NOT EXISTS idx_steps_planId ON steps(planId);
+        CREATE INDEX IF NOT EXISTS idx_iterations_stepId ON iterations(stepId);
+        CREATE INDEX IF NOT EXISTS idx_issues_iterationId ON issues(iterationId);
+
+        COMMIT;
+      `);
+    },
+  },
 ];
