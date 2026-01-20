@@ -2,6 +2,7 @@ import { UIAdapter, UIAdapterConfig } from './ui-adapter.js';
 import { OrchestratorEvent } from '../events.js';
 import { TUIState, initialState } from '../tui/types.js';
 import { Storage } from '../storage.js';
+import { Iteration, Issue } from '../models.js';
 import { PermissionRequest } from '../permission-requests.js';
 import type * as ReactTypes from 'react';
 import type { RenderOptions } from 'ink';
@@ -158,17 +159,41 @@ export class TUIAdapter implements UIAdapter {
           const plan = this.storage.getPlan(event.executionId);
           if (plan) {
             this.state.plan = plan;
-            this.state.steps = this.storage.getSteps(event.executionId);
+            const executionState = this.storage.getExecutionState(event.executionId);
+            this.state.steps = executionState.steps;
+            this.state.iterations.clear();
+            this.state.issues.clear();
 
-            this.state.steps.forEach(step => {
-              const iterations = this.storage!.getIterations(step.id);
-              this.state.iterations.set(step.id, iterations);
+            const iterationsByStep = new Map<number, Iteration[]>();
+            const issuesByIteration = new Map<number, Issue[]>();
 
-              iterations.forEach(iteration => {
-                const issues = this.storage!.getIssues(iteration.id);
-                this.state.issues.set(iteration.id, issues);
-              });
-            });
+            for (const iteration of executionState.iterations) {
+              const stepIterations = iterationsByStep.get(iteration.stepId);
+              if (stepIterations) {
+                stepIterations.push(iteration);
+              } else {
+                iterationsByStep.set(iteration.stepId, [iteration]);
+              }
+            }
+
+            for (const issue of executionState.issues) {
+              const iterationIssues = issuesByIteration.get(issue.iterationId);
+              if (iterationIssues) {
+                iterationIssues.push(issue);
+              } else {
+                issuesByIteration.set(issue.iterationId, [issue]);
+              }
+            }
+
+            for (const step of executionState.steps) {
+              const stepIterations = iterationsByStep.get(step.id) ?? [];
+              this.state.iterations.set(step.id, stepIterations);
+
+              for (const iteration of stepIterations) {
+                const iterationIssues = issuesByIteration.get(iteration.id) ?? [];
+                this.state.issues.set(iteration.id, iterationIssues);
+              }
+            }
           }
         }
         break;

@@ -62,6 +62,10 @@ export class PreflightRunner {
     return null;
   }
 
+  private writeLine(line: string): void {
+    process.stdout.write(`${line}\n`);
+  }
+
   async run(options: PreflightOptions): Promise<PreflightResult> {
     const claudePath = this.getClaudePath();
 
@@ -106,16 +110,16 @@ export class PreflightRunner {
     // Build the prompt
     const prompt = PROMPTS.preflight(planContent, claudeMdContent, claudeSettingsContent);
 
-    console.log('═'.repeat(80));
-    console.log('STEPCAT PREFLIGHT CHECK');
-    console.log('═'.repeat(80));
-    console.log(`Plan file:      ${options.planFile}`);
-    console.log(`Work directory: ${options.workDir}`);
-    console.log(`CLAUDE.md:      ${claudeMdContent ? 'Found' : 'Not found'}`);
-    console.log(`Settings:       ${settingsStatus}`);
-    console.log('═'.repeat(80));
-    console.log('Running Claude Code to analyze required permissions...');
-    console.log('─'.repeat(80));
+    this.writeLine('═'.repeat(80));
+    this.writeLine('STEPCAT PREFLIGHT CHECK');
+    this.writeLine('═'.repeat(80));
+    this.writeLine(`Plan file:      ${options.planFile}`);
+    this.writeLine(`Work directory: ${options.workDir}`);
+    this.writeLine(`CLAUDE.md:      ${claudeMdContent ? 'Found' : 'Not found'}`);
+    this.writeLine(`Settings:       ${settingsStatus}`);
+    this.writeLine('═'.repeat(80));
+    this.writeLine('Running Claude Code to analyze required permissions...');
+    this.writeLine('─'.repeat(80));
 
     const timeout = (options.timeoutMinutes ?? 5) * 60 * 1000;
 

@@ -4,11 +4,15 @@ import { Command } from 'commander';
 import { Orchestrator } from './orchestrator.js';
 import { OrchestratorEventEmitter } from './events.js';
 import { Database } from './database.js';
-import { WebSocketUIAdapter, TUIAdapter, UIAdapter } from './ui/index.js';
+import { TUIAdapter, UIAdapter } from './ui/index.js';
 import { PreflightRunner } from './preflight-runner.js';
 import { StopController } from './stop-controller.js';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
+
+const writeErrorLine = (line: string): void => {
+  process.stderr.write(`${line}\n`);
+};
 
 const program = new Command();
 
@@ -23,10 +27,7 @@ program
   .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseInt)
   .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseInt)
   .option('--max-iterations <count>', 'Maximum iterations per step (default: 3)', parseInt)
-  .option('--ui', 'Launch web UI (default: false)')
-  .option('--tui', 'Launch terminal UI (default: false)')
-  .option('--port <number>', 'Web UI port (default: 3742)', parseInt)
-  .option('--no-auto-open', 'Do not automatically open browser when using --ui')
+  .option('--keep-open', 'Keep the TUI open after execution completes')
   .option('--implementation-agent <agent>', 'Agent to use for implementation (claude|codex)')
   .option('--review-agent <agent>', 'Agent to use for code review (claude|codex)')
   .option('--preflight', 'Run preflight check to detect missing permissions')
@@ -34,8 +35,8 @@ program
     // Handle preflight check
     if (options.preflight) {
       if (!options.file || !options.dir) {
-        console.error('Preflight check requires both --file and --dir options.');
-        console.error('Usage: stepcat --preflight --file plan.md --dir /path/to/project');
+        writeErrorLine('Preflight check requires both --file and --dir options.');
+        writeErrorLine('Usage: stepcat --preflight --file plan.md --dir /path/to/project');
         process.exit(1);
       }
 
@@ -43,19 +44,19 @@ program
       const workDir = resolve(options.dir);
 
       if (!existsSync(planFile)) {
-        console.error(`Plan file not found: ${planFile}`);
+        writeErrorLine(`Plan file not found: ${planFile}`);
         process.exit(1);
       }
 
       if (!existsSync(workDir)) {
-        console.error(`Work directory not found: ${workDir}`);
+        writeErrorLine(`Work directory not found: ${workDir}`);
         process.exit(1);
       }
 
       const preflightRunner = new PreflightRunner();
       try {
         const result = await preflightRunner.run({ planFile, workDir });
-        console.log(preflightRunner.formatOutput(result));
+        process.stdout.write(`${preflightRunner.formatOutput(result)}\n`);
 
         if (!result.success) {
           process.exit(1);
@@ -68,14 +69,14 @@ program
 
         process.exit(0);
       } catch (error) {
-        console.error('Preflight check failed:', error instanceof Error ? error.message : String(error));
+        writeErrorLine(`Preflight check failed: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
       }
     }
 
     const startTime = Date.now();
-    let uiAdapter: UIAdapter | null = null;
     let storage: Database | null = null;
+    let uiAdapters: UIAdapter[] = [];
 
     try {
       let planFile: string;
@@ -180,19 +181,6 @@ program
         // The Orchestrator's tryRecoverUncommittedChanges() will handle
         // resuming interrupted sessions with uncommitted changes.
 
-        if (!options.ui && !options.tui) {
-          console.log('═'.repeat(80));
-          console.log('STEPCAT - Resuming Execution');
-          console.log('═'.repeat(80));
-          console.log(`Execution ID:   ${executionId}`);
-          console.log(`Plan file:      ${planFile}`);
-          console.log(`Work directory: ${workDir}`);
-          console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
-          console.log(`Implementation: ${implementationAgent ?? 'claude'}`);
-          console.log(`Review agent:   ${reviewAgent ?? 'codex'}`);
-          console.log(`Max iterations: ${maxIterationsPerStep ?? 3}`);
-          console.log('═'.repeat(80));
-        }
       } else {
         if (!options.file || !options.dir) {
           throw new Error(
@@ -208,18 +196,6 @@ program
         planFile = resolve(options.file);
         workDir = resolve(options.dir);
 
-        if (!options.ui && !options.tui) {
-          console.log('═'.repeat(80));
-          console.log('STEPCAT - Step-by-step Agent Orchestration');
-          console.log('═'.repeat(80));
-          console.log(`Plan file:      ${planFile}`);
-          console.log(`Work directory: ${workDir}`);
-          console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
-          console.log(`Implementation: ${implementationAgent ?? 'claude'}`);
-          console.log(`Review agent:   ${reviewAgent ?? 'codex'}`);
-          console.log(`Max iterations: ${maxIterationsPerStep ?? 3}`);
-          console.log('═'.repeat(80));
-        }
       }
 
       if (!options.token && !process.env.GITHUB_TOKEN) {
@@ -233,26 +209,11 @@ program
 
       const eventEmitter = new OrchestratorEventEmitter();
       storage = new Database(workDir);
-
-      const uiAdapters: UIAdapter[] = [];
-      const stopController = options.tui ? new StopController() : undefined;
-
-      if (options.ui) {
-        uiAdapter = new WebSocketUIAdapter({
-          port: options.port,
-          autoOpen: options.autoOpen,
-          storage
-        });
-
-        await uiAdapter.initialize();
-        uiAdapters.push(uiAdapter);
-      }
-
-      if (options.tui) {
-        const tuiAdapter = new TUIAdapter({ storage, stopController });
-        await tuiAdapter.initialize();
-        uiAdapters.push(tuiAdapter);
-      }
+      uiAdapters = [];
+      const stopController = new StopController();
+      const tuiAdapter = new TUIAdapter({ storage, stopController });
+      await tuiAdapter.initialize();
+      uiAdapters.push(tuiAdapter);
 
       const orchestrator = new Orchestrator({
         planFile,
@@ -262,7 +223,7 @@ program
         agentTimeoutMinutes: options.agentTimeout,
         eventEmitter,
         uiAdapters,
-        silent: options.ui || options.tui,
+        silent: true,
         executionId,
         storage,
         implementationAgent,
@@ -271,17 +232,8 @@ program
         stopController,
       });
 
-      eventEmitter.on('event', (event) => {
-        if (event.type === 'execution_started' && !options.ui && !options.tui) {
-          console.log('═'.repeat(80));
-          console.log(`Execution ID: ${event.executionId}`);
-          console.log('═'.repeat(80));
-        }
-      });
-
-      let completedExecutionId: number;
       try {
-        completedExecutionId = await orchestrator.run();
+        await orchestrator.run();
       } catch (error) {
         eventEmitter.emit('event', {
           type: 'error',
@@ -291,50 +243,27 @@ program
         throw error;
       }
 
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const minutes = Math.floor(elapsed / 60);
-      const seconds = elapsed % 60;
       const stoppedAfterStep = stopController?.wasStopAfterStepTriggered() ?? false;
 
-      if (!options.ui && !options.tui) {
-        console.log('\n' + '═'.repeat(80));
-        console.log('✓✓✓ SUCCESS ✓✓✓');
-        console.log('═'.repeat(80));
-        console.log(`Total time: ${minutes}m ${seconds}s`);
-
-        if (!executionId) {
-          console.log('═'.repeat(80));
-          console.log(`Execution ID: ${completedExecutionId}`);
-          console.log('─'.repeat(80));
-          console.log('To resume this execution later, use:');
-          console.log(`  stepcat --execution-id ${completedExecutionId}`);
-          console.log(`Or from a different directory:`);
-          console.log(`  stepcat --execution-id ${completedExecutionId} --dir ${workDir}`);
+      if (stoppedAfterStep) {
+        for (const adapter of uiAdapters) {
+          await adapter.shutdown();
         }
-
-        console.log('═'.repeat(80));
+        if (storage) {
+          storage.close();
+        }
+        process.exit(0);
       }
 
-      if (options.ui || options.tui) {
-        if (stoppedAfterStep) {
-          for (const adapter of uiAdapters) {
-            await adapter.shutdown();
-          }
-          if (storage) {
-            storage.close();
-          }
-          process.exit(0);
-        }
-
-        if (options.ui) {
-          console.log('\n' + '═'.repeat(80));
-          console.log('All steps completed! Web UI will remain open for viewing.');
-          console.log('Press Ctrl+C to exit.');
-          console.log('═'.repeat(80));
-        }
-
+      if (options.keepOpen) {
         await new Promise(() => {});
-      } else if (storage) {
+      }
+
+      for (const adapter of uiAdapters) {
+        await adapter.shutdown();
+      }
+
+      if (storage) {
         storage.close();
       }
 
@@ -344,21 +273,21 @@ program
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
 
-      console.error('\n' + '═'.repeat(80));
-      console.error('✗✗✗ FAILED ✗✗✗');
-      console.error('═'.repeat(80));
-      console.error(error instanceof Error ? error.message : String(error));
-      console.error('═'.repeat(80));
-      console.error(`Time before failure: ${minutes}m ${seconds}s`);
-      console.error('═'.repeat(80));
+      writeErrorLine('\n' + '═'.repeat(80));
+      writeErrorLine('✗✗✗ FAILED ✗✗✗');
+      writeErrorLine('═'.repeat(80));
+      writeErrorLine(error instanceof Error ? error.message : String(error));
+      writeErrorLine('═'.repeat(80));
+      writeErrorLine(`Time before failure: ${minutes}m ${seconds}s`);
+      writeErrorLine('═'.repeat(80));
 
       if (error instanceof Error && error.stack && process.env.DEBUG) {
-        console.error('\nStack trace (DEBUG mode):');
-        console.error(error.stack);
+        writeErrorLine('\nStack trace (DEBUG mode):');
+        writeErrorLine(error.stack);
       }
 
-      if (uiAdapter) {
-        await uiAdapter.shutdown();
+      for (const adapter of uiAdapters) {
+        await adapter.shutdown();
       }
 
       if (storage) {

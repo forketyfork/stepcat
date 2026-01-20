@@ -16,7 +16,6 @@ Step-by-step agent orchestration solution that automates implementation of multi
 - [Project Architecture](#project-architecture)
 - [Development](#development)
 - [Testing](#testing)
-- [Frontend Development](#frontend-development)
 - [Troubleshooting](#troubleshooting)
 - [Uninstall](#uninstall)
 - [License](#license)
@@ -47,14 +46,10 @@ All execution state is stored in a SQLite database (`.stepcat/executions.db`), e
    ## Step 2: Implement Core Features
    ## Step 3: Add Tests
    ```
-4. Run in CLI mode:
+4. Run with the terminal UI (default):
    ```bash
    export GITHUB_TOKEN=your_token_here
    stepcat --file plan.md --dir /path/to/project
-   ```
-5. Optional web UI:
-   ```bash
-   stepcat --file plan.md --dir /path/to/project --ui
    ```
 
 ## Installation
@@ -71,9 +66,9 @@ npm install --save-dev stepcat
 
 ## Usage
 
-### CLI Mode (Default)
+### Terminal UI (Default)
 
-Run Stepcat with terminal output:
+Run Stepcat with the TUI:
 
 ```bash
 stepcat --file plan.md --dir /path/to/project
@@ -85,26 +80,6 @@ stepcat --file plan.md --dir /path/to/project
   - Enter - View selected log
   - Esc - Return to main view
 
-### Web UI Mode
-
-Launch the beautiful web interface for real-time progress visualization:
-
-```bash
-stepcat --file plan.md --dir /path/to/project --ui
-```
-
-The web UI features:
-- 🎨 **Beautiful purple/pastel design** with smooth animations
-- 📊 **Hierarchical view** of Steps → Iterations → Issues
-- 🔄 **Live GitHub Actions status** with visual progress indicators
-- 📋 **Detailed iteration tracking** with commit SHAs and logs
-- 🐛 **Issue tracking** from CI failures and code reviews
-- ⚡ **WebSocket-powered** instant updates
-- 📱 **Responsive design** that works on all devices
-- 🔽 **Collapsible sections** for easy navigation
-
-The UI automatically opens in your default browser at `http://localhost:3742` (customizable with `--port`).
-
 ### CLI Options
 
 - `-f, --file <path>` - Path to the implementation plan file (required for new executions)
@@ -113,20 +88,11 @@ The UI automatically opens in your default browser at `http://localhost:3742` (c
 - `-t, --token <token>` - GitHub token (optional, defaults to `GITHUB_TOKEN` env var)
 - `--build-timeout <minutes>` - GitHub Actions check timeout in minutes (default: 30)
 - `--agent-timeout <minutes>` - Agent execution timeout in minutes (default: 30)
+- `--keep-open` - Keep the TUI open after execution completes
 - `--implementation-agent <agent>` - Agent to use for implementation iterations (`claude` or `codex`, default: `claude`)
 - `--review-agent <agent>` - Agent to use for code review (`claude` or `codex`, default: `codex`)
-- `--ui` - Launch web UI (default: false)
-- `--port <number>` - Web UI port (default: 3742)
-- `--no-auto-open` - Don't automatically open browser when using --ui
 
 ### Examples
-
-**Start a new execution with web UI:**
-
-```bash
-export GITHUB_TOKEN=your_token_here
-stepcat --file implementation-plan.md --dir ./my-project --ui
-```
 
 **Resume an existing execution:**
 
@@ -138,12 +104,6 @@ stepcat --execution-id 123
 
 ```bash
 stepcat --execution-id 123 --dir /path/to/project
-```
-
-**Custom port without auto-opening browser:**
-
-```bash
-stepcat --file plan.md --dir ./project --ui --port 8080 --no-auto-open
 ```
 
 **CLI mode with custom timeouts:**
@@ -318,69 +278,46 @@ Authentication notes:
 Stepcat is organized into two main components:
 
 ### Backend (`backend/`)
-- **TypeScript + Node.js** backend with Express
+- **TypeScript + Node.js** backend with terminal UI (Ink)
 - SQLite database for execution state
 - Claude Code and Codex integration
-- WebSocket server for real-time updates
-
-### Frontend (`frontend/`)
-- **React 18 + TypeScript + Vite** frontend
-- Beautiful purple/pastel UI with smooth animations
-- WebSocket client for real-time updates
-- Component-based architecture with proper separation of concerns
-
-The backend serves the built frontend as static files, creating a seamless single-application experience.
 
 ## Development
 
 ### Running Locally from Sources
 
-To run Stepcat locally during development, you need to build the frontend first (since the backend serves the built React app):
+To run Stepcat locally during development, build the backend and run the CLI:
 
 ```bash
-# 1. Install all dependencies (root + frontend)
+# 1. Install all dependencies
 npm install
-cd frontend && npm install && cd ..
 
-# 2. Build the frontend
-npm run build:frontend
-# or: just build-frontend
-
-# 3. Run the backend with ts-node
-npm run dev -- --file plan.md --dir /path/to/project --ui
-# or: just dev --file plan.md --dir /path/to/project --ui
+# 2. Run the backend with ts-node
+npm run dev -- --file plan.md --dir /path/to/project
+# or: just dev --file plan.md --dir /path/to/project
 ```
 
 **Alternative using justfile:**
 
 ```bash
 just install           # Install all dependencies
-just build-frontend    # Build React app
-just dev --file plan.md --dir /path/to/project --ui
+just dev --file plan.md --dir /path/to/project
 ```
-
-**Note**: The frontend must be built before running the backend with `--ui`, as the backend serves the static React files from `frontend/dist/`. If you make changes to the frontend, rebuild it with `npm run build:frontend` or `just build-frontend`.
 
 ### Development Commands
 
 ```bash
-# Install dependencies (both root and frontend)
+# Install dependencies
 just install
 
-# Build the entire project (frontend + backend)
+# Build the entire project
 just build
 
 # Build only backend
 just build-backend
 
-# Build only frontend
-just build-frontend
-
 # Run backend linting
 just lint
-
-# Run frontend linting
-just lint-frontend
 
 # Run tests (Jest + Vitest)
 just test
@@ -400,9 +337,6 @@ npm run build
 
 # Build only backend
 npm run build:backend
-
-# Build only frontend
-npm run build:frontend
 
 # Run backend linting
 npm run lint
@@ -438,19 +372,6 @@ The project uses native ECMAScript Modules (ESM) with `import.meta.url` for path
 
 All tests are located in `backend/__tests__/` directory.
 
-### Frontend Development
-
-To work on the web UI separately:
-
-```bash
-# Start the frontend dev server with hot reload
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend dev server runs on `http://localhost:5173` and expects the backend WebSocket server to be running on port 3742.
-
 ## Troubleshooting
 
 - CI checks don't start:
@@ -459,8 +380,6 @@ The frontend dev server runs on `http://localhost:5173` and expects the backend 
   - Ensure there is an open PR or that your branch/Actions are configured to run checks on push.
 - `just` command not found:
   - Install `just` from `https://github.com/casey/just` or use the npm script equivalents in this README.
-- Web UI is blank or 404s:
-  - Build the frontend (`npm run build:frontend`) before running with `--ui`, or use CLI mode without `--ui`.
 - Path or module resolution errors when running from another directory:
   - Use the built output (`npm run build`) and execute the CLI from `dist/` if developing locally.
 

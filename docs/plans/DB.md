@@ -55,11 +55,14 @@ Create TypeScript interfaces for the database entities and implement the databas
   - `updateStepStatus(stepId, status)`: Update step status
   - `createIteration(stepId, iterationNumber, type)`: Create iteration, return Iteration
   - `getIterations(stepId)`: Get all iterations for a step
+  - `getIterationsForPlan(planId)`: Get all iterations for a plan (JOIN steps, ordered by step + iteration)
   - `updateIteration(iterationId, updates)`: Update iteration fields (commitSha, logs, status)
   - `createIssue(iterationId, type, description, ...)`: Create issue, return Issue
   - `getIssues(iterationId)`: Get all issues for an iteration
+  - `getIssuesForStepByType(stepId, issueType)`: Get issues of a type for a step (latest-first by iteration)
   - `updateIssueStatus(issueId, status, resolvedAt?)`: Mark issue as fixed
   - `getOpenIssues(stepId)`: Get all open issues for a step
+  - `getExecutionState(planId)`: Read steps, iterations, issues in one transaction for state sync
 - Initialize database at `.stepcat/executions.db` in the work directory
 - Proper error handling and transactions where needed
 
@@ -289,7 +292,7 @@ Complete refactor to use database for state tracking and implement an iteration 
 ```typescript
 async run() {
   await this.initializeOrResumePlan();
-  emit('init', { full state from DB });
+  emit('init', getExecutionState(plan.id));
 
   while (true) {
     const step = this.getCurrentStep();
@@ -347,7 +350,7 @@ async run() {
       if (promptType === 'implementation') {
         codexPrompt = prompts.codexReviewImplementation(step.stepNumber, step.title, planContent);
       } else if (promptType === 'build_fix') {
-        const buildErrors = getIssues(previousIteration.id).filter(i => i.type === 'ci_failure');
+        const buildErrors = getIssuesForStepByType(step.id, 'ci_failure');
         codexPrompt = prompts.codexReviewBuildFix(buildErrors);
       } else { // review_fix
         const openIssues = getOpenIssues(step.id).filter(i => i.type === 'codex_review');
@@ -473,105 +476,6 @@ Add `--execution-id` flag to support resuming executions and make `--file` and `
 - TypeScript compilation succeeds
 - Manual test: Start execution, stop it, resume with execution ID
 
-## Step 9: Update WebServer with Hierarchical UI [done]
-
-### Status Quo
-
-`src/web-server.ts` displays a flat list of steps with basic phase indicators. UI shows activity log and GitHub status but doesn't display iterations or issues hierarchically.
-
-### Objectives
-
-Implement hierarchical UI displaying Steps → Iterations → Issues with real-time updates and proper state synchronization.
-
-### Tech Notes
-
-**Update `src/web-server.ts`**:
-
-**WebSocket state synchronization**:
-- On new WebSocket connection, emit `state_sync` event with full current state from database
-- Include: plan info, all steps, all iterations, all issues
-- This ensures new clients get complete state immediately
-
-**Update embedded HTML/CSS/JavaScript**:
-
-**HTML Structure**:
-```html
-<div id="steps-container">
-  <!-- Hierarchical structure -->
-  <div class="step" data-step-id="1">
-    <div class="step-header">
-      <span class="status-icon">⏳/✓/✗</span>
-      <span class="step-title">Step 1: Title</span>
-      <span class="step-meta">3 iterations</span>
-    </div>
-    <div class="iterations-container">
-      <div class="iteration" data-iteration-id="1">
-        <div class="iteration-header">
-          <span>Iteration 1: Implementation</span>
-          <span class="commit-sha">abc123f</span>
-        </div>
-        <div class="issues-container">
-          <div class="issue" data-issue-id="1">
-            <span class="severity">⚠️</span>
-            <span class="description">Issue description</span>
-            <span class="location">file.ts:42</span>
-            <span class="status">✓ fixed</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-```
-
-**CSS Styling**:
-- Hierarchical indentation for iterations and issues
-- Collapsible sections (expand/collapse iterations)
-- Color coding:
-  - Steps: pending (gray), in_progress (blue), completed (green), failed (red)
-  - Issues: open (red), fixed (green)
-  - Iterations: in_progress (blue spinner), completed (green), failed (red)
-- Smooth animations for status transitions
-- Progress indicators: "Fixing 2/5 issues in iteration 3"
-
-**JavaScript Event Handlers**:
-- `state_sync`: Render complete hierarchy from scratch
-- `step_start`: Update step status, add loading indicator
-- `step_complete`: Update step status, show completion
-- `iteration_start`: Add new iteration to step, show spinner
-- `iteration_complete`: Update iteration with commit SHA, change status
-- `issue_found`: Add new issue to iteration
-- `issue_resolved`: Update issue status to fixed
-- `codex_review_complete`: Show review result in iteration
-
-**Collapsible functionality**:
-- Click step header to expand/collapse iterations
-- Click iteration header to expand/collapse issues
-- Default: expand current in-progress step, collapse others
-- Persist expansion state in browser localStorage
-
-**Real-time updates**:
-- Smooth animations when adding new items
-- Auto-scroll to show current activity
-- Highlight recently updated items (fade effect)
-
-**HTML escaping** (security):
-- Ensure all dynamic content uses the existing `escapeHtml()` function
-- Apply to: step titles, issue descriptions, file paths, commit messages, etc.
-
-### Acceptance Criteria
-
-- UI displays three-level hierarchy: Steps → Iterations → Issues
-- New WebSocket connections receive full state via `state_sync` event
-- All events properly update the UI in real-time
-- Collapsible sections work correctly
-- Visual indicators clearly show status of each entity
-- Progress information is displayed (iteration counts, issue resolution)
-- HTML escaping prevents XSS vulnerabilities
-- UI is visually appealing with smooth animations
-- TypeScript compilation succeeds
-- Manual test: Run execution with UI and verify all updates appear correctly
-
 ## Step 10: Update Documentation [done]
 
 ### Status Quo
@@ -598,10 +502,6 @@ Completely rewrite documentation to reflect the new database-driven architecture
 
   # Resume execution
   stepcat --execution-id 123
-
-  # With UI
-  stepcat --file plan.md --dir /path/to/project --ui
-  stepcat --execution-id 123 --ui
   ```
 
 **Architecture section** - major rewrite:
@@ -686,11 +586,6 @@ Completely rewrite documentation to reflect the new database-driven architecture
 **Target Project Requirements**:
 - Keep existing requirements (justfile, GitHub Actions, etc.)
 - Add: "Must be executed from within the target project directory"
-
-**Web UI section** (update):
-- Document hierarchical display: Steps → Iterations → Issues
-- Explain state synchronization on WebSocket connect
-- Document collapsible sections
 
 ### Acceptance Criteria
 
@@ -799,9 +694,9 @@ Perform end-to-end integration testing, validate documentation accuracy, and ens
 
 1. **Fresh execution test**:
    - Create a simple test project with a 3-step plan
-   - Run `stepcat --file plan.md --dir /path/to/test-project --ui`
+   - Run `stepcat --file plan.md --dir /path/to/test-project`
    - Verify execution ID is printed
-   - Watch UI for real-time updates
+   - Watch the TUI for real-time updates
    - Intentionally introduce a build failure in step 2
    - Verify build fix iteration is created and works
    - Verify Codex review runs and issues are displayed
@@ -813,7 +708,7 @@ Perform end-to-end integration testing, validate documentation accuracy, and ens
    - Start execution of a 5-step plan
    - Stop execution (Ctrl+C) after step 2 completes
    - Verify database contains partial state
-   - Resume with `stepcat --execution-id <id> --ui`
+   - Resume with `stepcat --execution-id <id>`
    - Verify execution continues from step 3
    - Verify execution completes all remaining steps
 
@@ -825,14 +720,11 @@ Perform end-to-end integration testing, validate documentation accuracy, and ens
    - Test resume with dirty git working directory
    - Verify appropriate error and prevention
 
-4. **UI validation**:
-   - Open web UI during execution
+4. **TUI validation**:
    - Verify steps, iterations, and issues display correctly
    - Verify status updates happen in real-time
    - Verify collapsible sections work
    - Verify progress indicators are accurate
-   - Test opening UI after execution is complete (state_sync)
-   - Close and reopen browser to verify state persists
 
 **Documentation validation**:
 - Read through CLAUDE.md as if you're a new developer
@@ -851,7 +743,6 @@ Perform end-to-end integration testing, validate documentation accuracy, and ens
 - Fresh execution completes successfully with all features working
 - Resume functionality works correctly from any point
 - Error handling is robust with clear error messages
-- Web UI displays all information correctly with real-time updates
 - Database state is correct after various execution scenarios
 - Documentation is accurate and complete
 - All npm scripts (build, lint, test) pass successfully

@@ -44,16 +44,10 @@ export class CodexRunner {
           message: line,
         });
       } else {
-        switch (level) {
-          case "error":
-            console.error(line);
-            break;
-          case "warn":
-            console.warn(line);
-            break;
-          default:
-            console.log(line);
-        }
+        const stream = level === "error" || level === "warn"
+          ? process.stderr
+          : process.stdout;
+        stream.write(`${line}\n`);
       }
     }
   }

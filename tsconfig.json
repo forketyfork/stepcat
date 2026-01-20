@@ -28,5 +28,5 @@
     }
   },
   "include": ["backend/**/*"],
-  "exclude": ["node_modules", "dist", "frontend", "backend/**/*.test.ts", "backend/**/__tests__"]
+  "exclude": ["node_modules", "dist", "backend/**/*.test.ts", "backend/**/__tests__"]
 }

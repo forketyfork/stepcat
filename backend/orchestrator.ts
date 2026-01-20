@@ -41,6 +41,28 @@ type AgentRunResult = {
   workingTreeStatus?: string | null;
 };
 
+type ImplementationAgentStrategy =
+  | {
+      supportsPermissionRequests: false;
+      run: (prompt: string) => Promise<AgentRunResult>;
+    }
+  | {
+      supportsPermissionRequests: true;
+      run: (prompt: string) => Promise<AgentRunResult>;
+      runContinue: (prompt: string) => Promise<AgentRunResult>;
+    };
+
+type ReviewAgentStrategy =
+  | {
+      supportsPermissionRequests: false;
+      run: (prompt: string) => Promise<{ success: boolean; output: string }>;
+    }
+  | {
+      supportsPermissionRequests: true;
+      run: (prompt: string) => Promise<{ success: boolean; output: string }>;
+      runContinue: (prompt: string) => Promise<{ success: boolean; output?: string }>;
+    };
+
 type PermissionHandlingResult = "applied" | "declined" | "noop";
 
 type CheckRunOutput = {
@@ -156,7 +178,7 @@ export class Orchestrator {
       getLogger()?.log(logLevel, "Orchestrator", line);
 
       if (!this.silent) {
-        console.log(line);
+        process.stdout.write(`${line}\n`);
       }
 
       this.emitEvent({
@@ -274,7 +296,7 @@ export class Orchestrator {
     if (!process.stdin.isTTY) {
       this.log(
         "Cannot prompt for permission approval without a TTY. " +
-          "Run with --tui to approve permissions.",
+          "Run in an interactive terminal to approve permissions.",
         "warn",
         stepNumber,
       );
@@ -286,7 +308,7 @@ export class Orchestrator {
     );
 
     if (!adapter || !adapter.requestPermissionApproval) {
-      throw new Error("Permission approval requires the TUI. Re-run with --tui.");
+      throw new Error("Permission approval requires the TUI.");
     }
 
     return adapter.requestPermissionApproval({ permissions, reason }, stepNumber);
@@ -419,14 +441,116 @@ export class Orchestrator {
     ].join("\n");
   }
 
+  private getImplementationStrategy(): ImplementationAgentStrategy {
+    if (this.implementationAgent === 'claude') {
+      return {
+        supportsPermissionRequests: true,
+        run: (prompt: string) => this.claudeRunner.run({
+          workDir: this.workDir,
+          prompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          captureOutput: true,
+          eventEmitter: this.eventEmitter,
+        }),
+        runContinue: (prompt: string) => this.claudeRunner.runContinue({
+          workDir: this.workDir,
+          prompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          captureOutput: true,
+          eventEmitter: this.eventEmitter,
+        }),
+      };
+    }
+
+    return {
+      supportsPermissionRequests: false,
+      run: async (prompt: string) => {
+        const result = await this.codexRunner.run({
+          workDir: this.workDir,
+          prompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          expectCommit: true,
+          eventEmitter: this.eventEmitter,
+        });
+
+        return {
+          success: result.success,
+          commitSha: result.commitSha ?? null,
+          output: result.output,
+        };
+      },
+    };
+  }
+
+  private getReviewStrategy(): ReviewAgentStrategy {
+    if (this.reviewAgent === 'codex') {
+      return {
+        supportsPermissionRequests: false,
+        run: async (prompt: string) => {
+          const result = await this.codexRunner.run({
+            workDir: this.workDir,
+            prompt,
+            timeoutMinutes: this.agentTimeoutMinutes,
+            eventEmitter: this.eventEmitter,
+          });
+
+          return {
+            success: result.success,
+            output: result.output,
+          };
+        },
+      };
+    }
+
+    return {
+      supportsPermissionRequests: true,
+      run: async (prompt: string) => {
+        const promptWithPermissions = `${prompt}\n\n${PERMISSION_REQUEST_INSTRUCTIONS.trim()}`;
+        const result = await this.claudeRunner.run({
+          workDir: this.workDir,
+          prompt: promptWithPermissions,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          captureOutput: true,
+          eventEmitter: this.eventEmitter,
+        });
+
+        const output = result.output;
+
+        if (!output) {
+          throw new Error('Claude Code did not produce any review output');
+        }
+
+        return {
+          success: result.success,
+          output,
+        };
+      },
+      runContinue: async (prompt: string) => {
+        const result = await this.claudeRunner.runContinue({
+          workDir: this.workDir,
+          prompt,
+          timeoutMinutes: this.agentTimeoutMinutes,
+          captureOutput: true,
+          eventEmitter: this.eventEmitter,
+        });
+
+        return {
+          success: result.success,
+          output: result.output,
+        };
+      },
+    };
+  }
+
   private async runImplementationAgentWithPermissions(
     iteration: Iteration,
     stepNumber: number,
     prompt: string,
   ): Promise<AgentRunResult> {
-    const initialResult = await this.runImplementationAgent(prompt);
+    const strategy = this.getImplementationStrategy();
+    const initialResult = await strategy.run(prompt);
 
-    if (this.implementationAgent !== "claude") {
+    if (!strategy.supportsPermissionRequests) {
       return initialResult;
     }
 
@@ -455,13 +579,9 @@ export class Orchestrator {
         throw new Error(this.buildPermissionRequestError(outcome));
       }
 
-      const continueResult = await this.claudeRunner.runContinue({
-        workDir: this.workDir,
-        prompt: this.buildPermissionContinuePrompt(stepNumber),
-        timeoutMinutes: this.agentTimeoutMinutes,
-        captureOutput: true,
-        eventEmitter: this.eventEmitter,
-      });
+      const continueResult = await strategy.runContinue(
+        this.buildPermissionContinuePrompt(stepNumber),
+      );
 
       if (!continueResult.success) {
         const failureLog = this.buildAgentLog(combinedOutput, currentResult.workingTreeStatus);
@@ -498,9 +618,10 @@ export class Orchestrator {
     stepNumber: number,
     prompt: string,
   ): Promise<{ success: boolean; output: string }> {
-    let reviewRun = await this.runReviewAgent(prompt);
+    const strategy = this.getReviewStrategy();
+    let reviewRun = await strategy.run(prompt);
 
-    if (this.reviewAgent !== "claude") {
+    if (!strategy.supportsPermissionRequests) {
       return reviewRun;
     }
 
@@ -522,13 +643,9 @@ export class Orchestrator {
         throw new Error(this.buildPermissionRequestError(outcome));
       }
 
-      const continueResult = await this.claudeRunner.runContinue({
-        workDir: this.workDir,
-        prompt: this.buildReviewContinuePrompt(stepNumber),
-        timeoutMinutes: this.agentTimeoutMinutes,
-        captureOutput: true,
-        eventEmitter: this.eventEmitter,
-      });
+      const continueResult = await strategy.runContinue(
+        this.buildReviewContinuePrompt(stepNumber),
+      );
 
       if (!continueResult.success) {
         throw new Error("Claude Code --continue failed while resuming the review.");
@@ -608,67 +725,15 @@ export class Orchestrator {
     output?: string;
     workingTreeStatus?: string | null;
   }> {
-    if (this.implementationAgent === 'claude') {
-      return this.claudeRunner.run({
-        workDir: this.workDir,
-        prompt,
-        timeoutMinutes: this.agentTimeoutMinutes,
-        captureOutput: true,
-        eventEmitter: this.eventEmitter,
-      });
-    }
-
-    const result = await this.codexRunner.run({
-      workDir: this.workDir,
-      prompt,
-      timeoutMinutes: this.agentTimeoutMinutes,
-      expectCommit: true,
-      eventEmitter: this.eventEmitter,
-    });
-
-    return {
-      success: result.success,
-      commitSha: result.commitSha ?? null,
-      output: result.output,
-    };
+    const strategy = this.getImplementationStrategy();
+    return strategy.run(prompt);
   }
 
   private async runReviewAgent(
     prompt: string,
   ): Promise<{ success: boolean; output: string }> {
-    if (this.reviewAgent === 'codex') {
-      const result = await this.codexRunner.run({
-        workDir: this.workDir,
-        prompt,
-        timeoutMinutes: this.agentTimeoutMinutes,
-        eventEmitter: this.eventEmitter,
-      });
-
-      return {
-        success: result.success,
-        output: result.output,
-      };
-    }
-
-    const promptWithPermissions = `${prompt}\n\n${PERMISSION_REQUEST_INSTRUCTIONS.trim()}`;
-    const result = await this.claudeRunner.run({
-      workDir: this.workDir,
-      prompt: promptWithPermissions,
-      timeoutMinutes: this.agentTimeoutMinutes,
-      captureOutput: true,
-      eventEmitter: this.eventEmitter,
-    });
-
-    const output = result.output;
-
-    if (!output) {
-      throw new Error('Claude Code did not produce any review output');
-    }
-
-    return {
-      success: result.success,
-      output,
-    };
+    const strategy = this.getReviewStrategy();
+    return strategy.run(prompt);
   }
 
   private cleanupIncompleteIterations(): void {
@@ -677,19 +742,22 @@ export class Orchestrator {
     }
 
     const steps = this.storage.getSteps(this.plan.id);
+    const iterations = this.storage.getIterationsForPlan(this.plan.id);
+    const stepNumbersById = new Map<number, number>();
+    for (const step of steps) {
+      stepNumbersById.set(step.id, step.stepNumber);
+    }
     let cleanedCount = 0;
 
-    for (const step of steps) {
-      const iterations = this.storage.getIterations(step.id);
-      for (const iteration of iterations) {
-        if (iteration.status === 'in_progress') {
-          this.log(
-            `Found incomplete iteration ${iteration.iterationNumber} for step ${step.stepNumber}, marking as aborted`,
-            "warn"
-          );
-          this.storage.updateIteration(iteration.id, { status: 'aborted' });
-          cleanedCount++;
-        }
+    for (const iteration of iterations) {
+      if (iteration.status === 'in_progress') {
+        const stepNumber = stepNumbersById.get(iteration.stepId) ?? iteration.stepId;
+        this.log(
+          `Found incomplete iteration ${iteration.iterationNumber} for step ${stepNumber}, marking as aborted`,
+          "warn"
+        );
+        this.storage.updateIteration(iteration.id, { status: 'aborted' });
+        cleanedCount++;
       }
     }
 
@@ -704,7 +772,9 @@ export class Orchestrator {
         cwd: this.workDir,
         encoding: "utf-8",
       }).trim();
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Failed to read HEAD commit in workDir "${this.workDir}": ${message}`, "warn");
       return null;
     }
   }
@@ -721,14 +791,19 @@ export class Orchestrator {
 
     // Collect all known commit SHAs from this execution
     const steps = this.storage.getSteps(this.plan.id);
+    const iterationsForPlan = this.storage.getIterationsForPlan(this.plan.id);
     const knownCommits = new Set<string>();
+    const iterationsByStep = new Map<number, Iteration[]>();
 
-    for (const step of steps) {
-      const iterations = this.storage.getIterations(step.id);
-      for (const iteration of iterations) {
-        if (iteration.commitSha) {
-          knownCommits.add(iteration.commitSha);
-        }
+    for (const iteration of iterationsForPlan) {
+      if (iteration.commitSha) {
+        knownCommits.add(iteration.commitSha);
+      }
+      const stepIterations = iterationsByStep.get(iteration.stepId);
+      if (stepIterations) {
+        stepIterations.push(iteration);
+      } else {
+        iterationsByStep.set(iteration.stepId, [iteration]);
       }
     }
 
@@ -743,7 +818,7 @@ export class Orchestrator {
         continue;
       }
 
-      const iterations = this.storage.getIterations(step.id);
+      const iterations = iterationsByStep.get(step.id) ?? [];
       if (iterations.length === 0) {
         continue;
       }
@@ -799,14 +874,12 @@ export class Orchestrator {
   }
 
   private getLatestIssuesForStep(stepId: number, issueType: Issue['type']): Issue[] {
-    const iterations = this.storage.getIterations(stepId);
-    for (let index = iterations.length - 1; index >= 0; index -= 1) {
-      const issues = this.storage.getIssues(iterations[index].id).filter(issue => issue.type === issueType);
-      if (issues.length > 0) {
-        return issues;
-      }
+    const issues = this.storage.getIssuesForStepByType(stepId, issueType);
+    if (issues.length === 0) {
+      return [];
     }
-    return [];
+    const latestIterationId = issues[0].iterationId;
+    return issues.filter(issue => issue.iterationId === latestIterationId);
   }
 
   private formatLatestBuildErrors(stepId: number): string {
@@ -922,9 +995,7 @@ CRITICAL REQUIREMENTS:
   private emitInitialState(): void {
     if (!this.plan) return;
 
-    const allSteps = this.storage.getSteps(this.plan.id);
-    const allIterations = allSteps.flatMap((s) => this.storage.getIterations(s.id));
-    const allIssues = allIterations.flatMap((i) => this.storage.getIssues(i.id));
+    const executionState = this.storage.getExecutionState(this.plan.id);
 
     this.emitEvent({
       type: "execution_started",
@@ -937,9 +1008,9 @@ CRITICAL REQUIREMENTS:
       type: "state_sync",
       timestamp: Date.now(),
       plan: this.plan,
-      steps: allSteps,
-      iterations: allIterations,
-      issues: allIssues,
+      steps: executionState.steps,
+      iterations: executionState.iterations,
+      issues: executionState.issues,
     });
   }
 

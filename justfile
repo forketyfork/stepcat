@@ -1,4 +1,4 @@
-# Build the project (both frontend and backend)
+# Build the project (backend only)
 build:
     npm run build
 
@@ -6,11 +6,7 @@ build:
 build-backend:
     npm run build:backend
 
-# Build only frontend
-build-frontend:
-    npm run build:frontend
-
-# Run linting (both backend and frontend)
+# Run linting (backend only)
 lint:
     npm run lint
 
@@ -18,9 +14,6 @@ lint:
 lint-backend:
     npm run lint:backend
 
-# Run frontend linting only
-lint-frontend:
-    npm run lint:frontend
 
 # Run tests (backend only for now)
 test:
@@ -29,7 +22,6 @@ test:
 # Clean build artifacts
 clean:
     rm -rf dist
-    rm -rf frontend/dist
 
 # Install dependencies
 install:

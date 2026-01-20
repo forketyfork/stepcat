@@ -8,20 +8,17 @@
     "stepcat": "dist/cli.js"
   },
   "scripts": {
-    "build": "npm run build:frontend && npm run build:backend && npm run postbuild",
-    "build:frontend": "cd frontend && npm install && npm run build",
+    "build": "npm run build:backend && npm run postbuild",
     "build:backend": "tsc",
     "postbuild": "node -e \"const fs = require('fs'); const path = 'dist/cli.js'; let content = fs.readFileSync(path, 'utf8'); if (!content.startsWith('#!')) { content = '#!/usr/bin/env node\\n' + content; fs.writeFileSync(path, content); fs.chmodSync(path, '755'); }\"",
     "start": "node dist/cli.js",
     "dev": "npm run build:backend && node dist/cli.js",
-    "dev:frontend": "cd frontend && npm run dev",
     "test": "jest && vitest run",
     "test:jest": "jest",
     "test:vitest": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint backend && cd frontend && npm run lint",
-    "lint:backend": "eslint backend",
-    "lint:frontend": "cd frontend && npm run lint"
+    "lint": "eslint backend",
+    "lint:backend": "eslint backend"
   },
   "keywords": [
     "orchestration",
@@ -37,31 +34,29 @@
     "@openai/codex": "^0.87.0",
     "better-sqlite3": "^12.6.2",
     "commander": "^14.0.2",
-    "express": "^5.2.1",
     "ink": "^6.6.0",
-    "open": "^11.0.0",
-    "react": "^19.2.3",
-    "ws": "^8.19.0"
+    "react": "^19.2.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/express": "^5.0.6",
-    "@types/jest": "^30.0.0",
+    "@types/jest": "^29.5.14",
     "@types/node": "^25.0.9",
     "@types/react": "^19.2.8",
-    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.53.0",
     "@typescript-eslint/parser": "^8.53.0",
     "@vitest/ui": "^4.0.17",
     "eslint": "^9.39.2",
     "ink-testing-library": "^4.0.0",
-    "jest": "^30.2.0",
+    "jest": "^29.7.0",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.53.0",
     "vitest": "^4.0.17"
+  },
+  "overrides": {
+    "diff": "^8.0.3"
   }
 }
