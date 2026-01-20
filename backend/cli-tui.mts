@@ -9,6 +9,14 @@ import { StopController } from './stop-controller.js';
 import { resolve } from 'path';
 import { existsSync } from 'fs';
 
+const writeLine = (line: string): void => {
+  process.stdout.write(`${line}\n`);
+};
+
+const writeErrorLine = (line: string): void => {
+  process.stderr.write(`${line}\n`);
+};
+
 const program = new Command();
 
 program
@@ -119,15 +127,15 @@ program
         // resuming interrupted sessions with uncommitted changes.
 
         if (!options.ui && !options.tui) {
-          console.log('═'.repeat(80));
-          console.log('STEPCAT - Resuming Execution');
-          console.log('═'.repeat(80));
-          console.log(`Execution ID:   ${executionId}`);
-          console.log(`Plan file:      ${planFile}`);
-          console.log(`Work directory: ${workDir}`);
-          console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
-          console.log(`Max iterations: ${maxIterationsPerStep ?? 3}`);
-          console.log('═'.repeat(80));
+          writeLine('═'.repeat(80));
+          writeLine('STEPCAT - Resuming Execution');
+          writeLine('═'.repeat(80));
+          writeLine(`Execution ID:   ${executionId}`);
+          writeLine(`Plan file:      ${planFile}`);
+          writeLine(`Work directory: ${workDir}`);
+          writeLine(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
+          writeLine(`Max iterations: ${maxIterationsPerStep ?? 3}`);
+          writeLine('═'.repeat(80));
         }
       } else {
         if (!options.file || !options.dir) {
@@ -145,14 +153,14 @@ program
         workDir = resolve(options.dir);
 
         if (!options.ui && !options.tui) {
-          console.log('═'.repeat(80));
-          console.log('STEPCAT - Step-by-step Agent Orchestration');
-          console.log('═'.repeat(80));
-          console.log(`Plan file:      ${planFile}`);
-          console.log(`Work directory: ${workDir}`);
-          console.log(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
-          console.log(`Max iterations: ${maxIterationsPerStep ?? 3}`);
-          console.log('═'.repeat(80));
+          writeLine('═'.repeat(80));
+          writeLine('STEPCAT - Step-by-step Agent Orchestration');
+          writeLine('═'.repeat(80));
+          writeLine(`Plan file:      ${planFile}`);
+          writeLine(`Work directory: ${workDir}`);
+          writeLine(`GitHub token:   ${options.token ? '***provided***' : process.env.GITHUB_TOKEN ? '***from env***' : '⚠ NOT SET'}`);
+          writeLine(`Max iterations: ${maxIterationsPerStep ?? 3}`);
+          writeLine('═'.repeat(80));
         }
       }
 
@@ -177,6 +185,10 @@ program
         });
 
         await uiAdapter.initialize();
+        const uiPort = options.port ?? 3742;
+        writeLine('═'.repeat(80));
+        writeLine(`🎨 Stepcat Web UI is running at: http://localhost:${uiPort}`);
+        writeLine('═'.repeat(80));
         uiAdapters.push(uiAdapter);
       }
 
@@ -203,9 +215,9 @@ program
 
       eventEmitter.on('event', (event: OrchestratorEvent) => {
         if (event.type === 'execution_started' && !options.ui && !options.tui) {
-          console.log('═'.repeat(80));
-          console.log(`Execution ID: ${event.executionId}`);
-          console.log('═'.repeat(80));
+          writeLine('═'.repeat(80));
+          writeLine(`Execution ID: ${event.executionId}`);
+          writeLine('═'.repeat(80));
         }
       });
 
@@ -228,22 +240,22 @@ program
       const stoppedAfterStep = stopController?.wasStopAfterStepTriggered() ?? false;
 
       if (!options.ui && !options.tui) {
-        console.log('\n' + '═'.repeat(80));
-        console.log('✓✓✓ SUCCESS ✓✓✓');
-        console.log('═'.repeat(80));
-        console.log(`Total time: ${minutes}m ${seconds}s`);
+        writeLine('\n' + '═'.repeat(80));
+        writeLine('✓✓✓ SUCCESS ✓✓✓');
+        writeLine('═'.repeat(80));
+        writeLine(`Total time: ${minutes}m ${seconds}s`);
 
         if (!executionId) {
-          console.log('═'.repeat(80));
-          console.log(`Execution ID: ${completedExecutionId}`);
-          console.log('─'.repeat(80));
-          console.log('To resume this execution later, use:');
-          console.log(`  stepcat --execution-id ${completedExecutionId}`);
-          console.log(`Or from a different directory:`);
-          console.log(`  stepcat --execution-id ${completedExecutionId} --dir ${workDir}`);
+          writeLine('═'.repeat(80));
+          writeLine(`Execution ID: ${completedExecutionId}`);
+          writeLine('─'.repeat(80));
+          writeLine('To resume this execution later, use:');
+          writeLine(`  stepcat --execution-id ${completedExecutionId}`);
+          writeLine('Or from a different directory:');
+          writeLine(`  stepcat --execution-id ${completedExecutionId} --dir ${workDir}`);
         }
 
-        console.log('═'.repeat(80));
+        writeLine('═'.repeat(80));
       }
 
       if (stoppedAfterStep) {
@@ -257,10 +269,10 @@ program
       }
 
       if (uiAdapter) {
-        console.log('\n' + '═'.repeat(80));
-        console.log('All steps completed! Web UI will remain open for viewing.');
-        console.log('Press Ctrl+C to exit.');
-        console.log('═'.repeat(80));
+        writeLine('\n' + '═'.repeat(80));
+        writeLine('All steps completed! Web UI will remain open for viewing.');
+        writeLine('Press Ctrl+C to exit.');
+        writeLine('═'.repeat(80));
 
         await new Promise(() => {});
       } else if (storage) {
@@ -277,17 +289,17 @@ program
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
 
-      console.error('\n' + '═'.repeat(80));
-      console.error('✗✗✗ FAILED ✗✗✗');
-      console.error('═'.repeat(80));
-      console.error(error instanceof Error ? error.message : String(error));
-      console.error('═'.repeat(80));
-      console.error(`Time before failure: ${minutes}m ${seconds}s`);
-      console.error('═'.repeat(80));
+      writeErrorLine('\n' + '═'.repeat(80));
+      writeErrorLine('✗✗✗ FAILED ✗✗✗');
+      writeErrorLine('═'.repeat(80));
+      writeErrorLine(error instanceof Error ? error.message : String(error));
+      writeErrorLine('═'.repeat(80));
+      writeErrorLine(`Time before failure: ${minutes}m ${seconds}s`);
+      writeErrorLine('═'.repeat(80));
 
       if (error instanceof Error && error.stack && process.env.DEBUG) {
-        console.error('\nStack trace (DEBUG mode):');
-        console.error(error.stack);
+        writeErrorLine('\nStack trace (DEBUG mode):');
+        writeErrorLine(error.stack);
       }
 
       if (storage) {

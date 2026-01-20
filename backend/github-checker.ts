@@ -1,6 +1,7 @@
 import { Octokit } from '@octokit/rest';
 import { execSync } from 'child_process';
 import { OrchestratorEventEmitter } from './events.js';
+import { getLogger, LogLevel } from './logger.js';
 
 type PullRequestDetails = {
   number: number;
@@ -379,20 +380,29 @@ export class GitHubChecker {
   }
 
   private log(message: string, level: 'info' | 'warn' | 'error' | 'success' = 'info'): void {
-    if (this.eventEmitter) {
-      const lines = message.split('\n');
-      for (const line of lines) {
-        if (line.trim()) {
-          this.eventEmitter.emit('event', {
-            type: 'log',
-            timestamp: Date.now(),
-            level,
-            message: line
-          });
-        }
+    const lines = message.split('\n');
+    const logLevel: LogLevel = level === 'success' ? 'info' : level;
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
       }
-    } else {
-      console.log(message);
+
+      getLogger()?.log(logLevel, 'GitHubChecker', line);
+
+      if (this.eventEmitter) {
+        this.eventEmitter.emit('event', {
+          type: 'log',
+          timestamp: Date.now(),
+          level,
+          message: line
+        });
+      } else {
+        const stream = logLevel === 'error' || logLevel === 'warn'
+          ? process.stderr
+          : process.stdout;
+        stream.write(`${line}\n`);
+      }
     }
   }
 }

@@ -29,6 +29,13 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_' },
       ],
+      'no-console': 'error',
+    },
+  },
+  {
+    files: ['backend/ui/tui-adapter.ts'],
+    rules: {
+      'no-console': 'off',
     },
   },
   {

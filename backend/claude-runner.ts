@@ -28,20 +28,24 @@ interface ContinueOptions {
 
 export class ClaudeRunner {
   private emitLog(message: string, eventEmitter?: OrchestratorEventEmitter): void {
-    if (eventEmitter) {
-      const lines = message.split('\n');
-      for (const line of lines) {
-        if (line.trim()) {
-          eventEmitter.emit("event", {
-            type: "log",
-            timestamp: Date.now(),
-            level: "info",
-            message: line,
-          });
-        }
+    const lines = message.split('\n');
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
       }
-    } else {
-      console.log(message);
+
+      getLogger()?.info("ClaudeRunner", line);
+
+      if (eventEmitter) {
+        eventEmitter.emit("event", {
+          type: "log",
+          timestamp: Date.now(),
+          level: "info",
+          message: line,
+        });
+      } else {
+        process.stdout.write(`${line}\n`);
+      }
     }
   }
 

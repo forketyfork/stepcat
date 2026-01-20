@@ -156,7 +156,7 @@ export class Orchestrator {
       getLogger()?.log(logLevel, "Orchestrator", line);
 
       if (!this.silent) {
-        console.log(line);
+        process.stdout.write(`${line}\n`);
       }
 
       this.emitEvent({

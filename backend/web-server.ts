@@ -3,6 +3,7 @@ import { createServer, Server as HTTPServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { OrchestratorEventEmitter, OrchestratorEvent } from './events.js';
 import { Storage } from './storage.js';
+import { getLogger } from './logger.js';
 import open from 'open';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -46,6 +47,25 @@ export class WebServer {
     this.setupWebSocket();
   }
 
+  private log(level: 'debug' | 'info' | 'warn' | 'error', message: string): void {
+    getLogger()?.log(level, 'WebServer', message);
+  }
+
+  private emitLogEvent(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
+    this.log(level, message);
+    const event: OrchestratorEvent = {
+      type: 'log',
+      timestamp: Date.now(),
+      level,
+      message,
+    };
+    this.eventHistory.push(event);
+    if (this.eventHistory.length > this.MAX_EVENT_HISTORY) {
+      this.eventHistory.shift();
+    }
+    this.eventEmitter.emit('event', event);
+  }
+
   private setupRoutes(): void {
     const frontendDistPath = path.resolve(moduleDir, '../frontend/dist');
 
@@ -62,7 +82,7 @@ export class WebServer {
 
   private setupWebSocket(): void {
     this.wss.on('connection', (ws: WebSocket) => {
-      console.log('New client connected');
+      this.log('debug', 'New client connected');
       this.clients.add(ws);
 
       if (this.storage && this.latestStateSyncEvent) {
@@ -88,7 +108,7 @@ export class WebServer {
       if (this.eventHistory.length > 0 && ws.readyState === WebSocket.OPEN) {
         const nonStateSyncEvents = this.eventHistory.filter(event => event.type !== 'state_sync');
         if (nonStateSyncEvents.length > 0) {
-          console.log(`Replaying ${nonStateSyncEvents.length} cached events to new client`);
+          this.log('debug', `Replaying ${nonStateSyncEvents.length} cached events to new client`);
           nonStateSyncEvents.forEach(event => {
             ws.send(JSON.stringify(event));
           });
@@ -96,12 +116,13 @@ export class WebServer {
       }
 
       ws.on('close', () => {
-        console.log('Client disconnected');
+        this.log('debug', 'Client disconnected');
         this.clients.delete(ws);
       });
 
       ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
+        const message = error instanceof Error ? error.message : String(error);
+        this.log('error', `WebSocket error: ${message}`);
         this.clients.delete(ws);
       });
     });
@@ -139,13 +160,16 @@ export class WebServer {
     return new Promise((resolve, reject) => {
       this.httpServer.listen(this.port, () => {
         const url = `http://localhost:${this.port}`;
-        console.log(`\n${'═'.repeat(80)}`);
-        console.log(`🎨 Stepcat Web UI is running at: ${url}`);
-        console.log(`${'═'.repeat(80)}\n`);
+        const bannerLines = [
+          '═'.repeat(80),
+          `🎨 Stepcat Web UI is running at: ${url}`,
+          '═'.repeat(80),
+        ];
+        bannerLines.forEach(line => this.emitLogEvent(line));
 
         if (this.autoOpen) {
           open(url).catch(err => {
-            console.warn('Could not automatically open browser:', err.message);
+            this.log('warn', `Could not automatically open browser: ${err.message}`);
           });
         }
 
