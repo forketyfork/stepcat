@@ -774,7 +774,7 @@ export class Orchestrator {
       }).trim();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      getLogger()?.debug("Orchestrator", `Failed to read HEAD commit: ${message}`);
+      this.log(`Failed to read HEAD commit in workDir "${this.workDir}": ${message}`, "warn");
       return null;
     }
   }
