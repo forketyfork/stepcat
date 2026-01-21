@@ -1,14 +1,17 @@
-import { vi } from 'vitest';
-import { Orchestrator } from '../orchestrator.js';
-import { Database } from '../database.js';
-import { ClaudeRunner } from '../claude-runner.js';
-import { CodexRunner } from '../codex-runner.js';
-import { GitHubChecker } from '../github-checker.js';
-import { OrchestratorEventEmitter } from '../events.js';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
 import { execSync } from 'child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+import { vi } from 'vitest';
+
+import { ClaudeRunner as _ClaudeRunner } from '../claude-runner.js';
+import { CodexRunner as _CodexRunner } from '../codex-runner.js';
+import { Database } from '../database.js';
+import { OrchestratorEventEmitter } from '../events.js';
+import { GitHubChecker } from '../github-checker.js';
+import { Orchestrator } from '../orchestrator.js';
+
 
 const { mockClaudeRunnerInstance, mockCodexRunnerInstance, mockGitHubCheckerInstance } = vi.hoisted(() => {
   const mockClaudeRunnerInstance = {
@@ -55,9 +58,11 @@ vi.mock('../codex-runner', () => {
 });
 
 vi.mock('../github-checker', async () => {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Required for vi.importActual typing
   const actual = await vi.importActual<typeof import('../github-checker.js')>('../github-checker.js');
   const GitHubCheckerMock: any = vi.fn(function() { return mockGitHubCheckerInstance; });
-  GitHubCheckerMock.parseRepoInfo = actual.GitHubChecker.parseRepoInfo;
+  GitHubCheckerMock.parseRepoInfo = (...args: Parameters<typeof actual.GitHubChecker.parseRepoInfo>) =>
+    actual.GitHubChecker.parseRepoInfo(...args);
   return {
     ...actual,
     GitHubChecker: GitHubCheckerMock,
@@ -65,6 +70,7 @@ vi.mock('../github-checker', async () => {
 });
 vi.mock('child_process');
 
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Required for vi.importActual typing
 const { MergeConflictError } = await vi.importActual<typeof import('../github-checker.js')>('../github-checker.js');
 
 describe('Orchestrator', () => {
@@ -145,7 +151,7 @@ Implement the feature
       const db = new Database(tempDir);
       const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step1 = db.createStep(plan.id, 1, 'Setup');
-      const step2 = db.createStep(plan.id, 2, 'Implementation');
+      const _step2 = db.createStep(plan.id, 2, 'Implementation');
       db.updateStepStatus(step1.id, 'completed');
       db.close();
 
@@ -280,7 +286,7 @@ More changes
       const db = new Database(tempDir);
       const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       const step1 = db.createStep(plan.id, 1, 'Setup');
-      const step2 = db.createStep(plan.id, 2, 'Implementation');
+      const _step2 = db.createStep(plan.id, 2, 'Implementation');
 
       db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
       const iter1 = db.createIteration(step1.id, 2, 'implementation', 'claude', 'codex');
@@ -905,14 +911,14 @@ More changes
 
   describe('agent configuration', () => {
     it('allows using Codex for implementation iterations', async () => {
-      mockCodexRunnerInstance.run = vi.fn().mockImplementation(async (options: any) => {
+      mockCodexRunnerInstance.run = vi.fn().mockImplementation((options: any) => {
         if (options.expectCommit) {
-          return { success: true, output: 'Implementation complete', commitSha: 'abc123' };
+          return Promise.resolve({ success: true, output: 'Implementation complete', commitSha: 'abc123' });
         }
-        return {
+        return Promise.resolve({
           success: true,
           output: JSON.stringify({ result: 'PASS', issues: [] }),
-        };
+        });
       });
 
       mockClaudeRunnerInstance.run = vi.fn();
@@ -935,15 +941,15 @@ More changes
     });
 
     it('allows using Claude Code for code review', async () => {
-      mockClaudeRunnerInstance.run = vi.fn().mockImplementation(async (options: any) => {
+      mockClaudeRunnerInstance.run = vi.fn().mockImplementation((options: any) => {
         if (options.prompt.includes('code review') || options.prompt.includes('Review')) {
-          return {
+          return Promise.resolve({
             success: true,
             commitSha: null,
             output: JSON.stringify({ result: 'PASS', issues: [] }),
-          };
+          });
         }
-        return { success: true, commitSha: 'abc123', output: 'Implementation log' };
+        return Promise.resolve({ success: true, commitSha: 'abc123', output: 'Implementation log' });
       });
 
       mockCodexRunnerInstance.run = vi.fn();
@@ -1070,6 +1076,7 @@ More changes
         1,
       );
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- isTTY can be undefined at runtime despite types
       setTty(originalIsTty ?? false);
     });
 
@@ -1095,6 +1102,7 @@ More changes
         confirmPermissionUpdate.call(orchestrator, ['Bash(zig build:*)'], 'needed', 1),
       ).rejects.toThrow(/requires the TUI/);
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- isTTY can be undefined at runtime despite types
       setTty(originalIsTty ?? false);
     });
   });

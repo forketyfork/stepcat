@@ -1,7 +1,7 @@
-import { OrchestratorEvent } from '../events.js';
-import { PermissionRequest } from '../permission-requests.js';
-import { Storage } from '../storage.js';
+import type { OrchestratorEvent } from '../events.js';
+import type { PermissionRequest } from '../permission-requests.js';
 import type { StopController } from '../stop-controller.js';
+import type { Storage } from '../storage.js';
 
 export interface UIAdapterConfig {
   storage?: Storage;

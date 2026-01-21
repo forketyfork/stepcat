@@ -1,8 +1,8 @@
-import { Database } from '../database.js';
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'fs';
-import { join } from 'path';
 import { tmpdir } from 'os';
-import { resolve } from 'path';
+import { join, resolve } from 'path';
+
+import { Database } from '../database.js';
 
 describe('CLI validation scenarios', () => {
   let tempDir: string;
@@ -27,8 +27,11 @@ Setup the project
 
   describe('execution ID validation', () => {
     it('should validate that execution ID is a positive integer', () => {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing validation logic with literal values
       expect(Number.isInteger(123) && 123 > 0).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing validation logic with literal values
       expect(Number.isInteger(-5) && -5 > 0).toBe(false);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing validation logic with literal values
       expect(Number.isInteger(0) && 0 > 0).toBe(false);
       expect(Number.isInteger(parseInt('abc')) && parseInt('abc') > 0).toBe(false);
     });
@@ -37,7 +40,7 @@ Setup the project
   describe('database existence check', () => {
     it('should verify database exists at expected path', () => {
       const db = new Database(tempDir);
-      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const _plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
       db.close();
 
       const dbPath = resolve(tempDir, '.stepcat', 'executions.db');
@@ -158,21 +161,24 @@ Setup the project
     it('should detect missing token', () => {
       const tokenFlag = undefined;
       const tokenEnv = undefined;
-      const hasToken = Boolean(tokenFlag || tokenEnv);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing nullish coalescing with literal undefined values
+      const hasToken = Boolean(tokenFlag ?? tokenEnv);
       expect(hasToken).toBe(false);
     });
 
     it('should accept token from flag', () => {
       const tokenFlag = 'test-token';
       const tokenEnv = undefined;
-      const hasToken = Boolean(tokenFlag || tokenEnv);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing nullish coalescing with literal values
+      const hasToken = Boolean(tokenFlag ?? tokenEnv);
       expect(hasToken).toBe(true);
     });
 
     it('should accept token from environment', () => {
       const tokenFlag = undefined;
       const tokenEnv = 'env-token';
-      const hasToken = Boolean(tokenFlag || tokenEnv);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing nullish coalescing with literal values
+      const hasToken = Boolean(tokenFlag ?? tokenEnv);
       expect(hasToken).toBe(true);
     });
   });
@@ -180,12 +186,14 @@ Setup the project
   describe('resume mode detection', () => {
     it('should detect resume mode when execution ID provided', () => {
       const executionId = 123;
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing comparison with literal value
       const isResumeMode = executionId !== undefined;
       expect(isResumeMode).toBe(true);
     });
 
     it('should detect new execution mode when execution ID not provided', () => {
       const executionId = undefined;
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing comparison with literal undefined
       const isResumeMode = executionId !== undefined;
       expect(isResumeMode).toBe(false);
     });

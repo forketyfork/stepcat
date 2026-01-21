@@ -1,14 +1,32 @@
 #!/usr/bin/env node
+/* eslint-disable n/no-process-exit -- CLI entry point requires process.exit for exit codes */
+
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 
 import { Command } from 'commander';
-import { Orchestrator } from './orchestrator.js';
-import { OrchestratorEventEmitter } from './events.js';
+
 import { Database } from './database.js';
-import { TUIAdapter, UIAdapter } from './ui/index.js';
+import { OrchestratorEventEmitter } from './events.js';
+import { Orchestrator } from './orchestrator.js';
 import { PreflightRunner } from './preflight-runner.js';
 import { StopController } from './stop-controller.js';
-import { resolve } from 'path';
-import { existsSync } from 'fs';
+import type { UIAdapter } from './ui/index.js';
+import { TUIAdapter } from './ui/index.js';
+
+interface CliOptions {
+  file?: string;
+  dir?: string;
+  executionId?: number;
+  token?: string;
+  buildTimeout?: number;
+  agentTimeout?: number;
+  maxIterations?: number;
+  keepOpen?: boolean;
+  implementationAgent?: string;
+  reviewAgent?: string;
+  preflight?: boolean;
+}
 
 const writeErrorLine = (line: string): void => {
   process.stderr.write(`${line}\n`);
@@ -31,7 +49,7 @@ program
   .option('--implementation-agent <agent>', 'Agent to use for implementation (claude|codex)')
   .option('--review-agent <agent>', 'Agent to use for code review (claude|codex)')
   .option('--preflight', 'Run preflight check to detect missing permissions')
-  .action(async (options) => {
+  .action(async (options: CliOptions) => {
     // Handle preflight check
     if (options.preflight) {
       if (!options.file || !options.dir) {
@@ -90,7 +108,7 @@ program
             `Invalid ${flag} value: ${value}. Expected 'claude' or 'codex'.`
           );
         }
-        return normalized as 'claude' | 'codex';
+        return normalized;
       };
 
       const implementationAgent = options.implementationAgent
@@ -243,15 +261,13 @@ program
         throw error;
       }
 
-      const stoppedAfterStep = stopController?.wasStopAfterStepTriggered() ?? false;
+      const stoppedAfterStep = stopController.wasStopAfterStepTriggered();
 
       if (stoppedAfterStep) {
         for (const adapter of uiAdapters) {
           await adapter.shutdown();
         }
-        if (storage) {
-          storage.close();
-        }
+        storage.close();
         process.exit(0);
       }
 
@@ -263,9 +279,7 @@ program
         await adapter.shutdown();
       }
 
-      if (storage) {
-        storage.close();
-      }
+      storage.close();
 
       process.exit(0);
     } catch (error) {

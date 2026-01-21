@@ -1,6 +1,8 @@
-import React from 'react';
 import { Box, Text } from 'ink';
-import { DbStep, Iteration, Issue } from '../../models.js';
+import React from 'react';
+
+import type { DbStep, Iteration, Issue } from '../../models.js';
+
 import { IterationItem } from './IterationItem.js';
 
 interface StepItemProps {
@@ -48,7 +50,7 @@ export const StepItem: React.FC<StepItemProps> = ({ step, iterations, issues }) 
               <IterationItem
                 key={iteration.id}
                 iteration={iteration}
-                issues={issues.get(iteration.id) || []}
+                issues={issues.get(iteration.id) ?? []}
                 displayNumber={displayNumber}
               />
             );

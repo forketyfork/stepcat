@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+
 import { PROMPTS } from './prompts.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -155,6 +156,7 @@ export class PreflightRunner {
         }, timeout);
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive check for clearer error message
       if (!child.stdin) {
         throw new Error('Claude Code process did not provide stdin stream');
       }
@@ -162,8 +164,9 @@ export class PreflightRunner {
       child.stdin.write(prompt);
       child.stdin.end();
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive guard for stream access
       if (child.stdout) {
-        child.stdout.on('data', (chunk) => {
+        child.stdout.on('data', (chunk: Buffer) => {
           stdoutData += chunk.toString();
         });
       }
@@ -209,12 +212,18 @@ export class PreflightRunner {
     }
 
     try {
-      const parsed = JSON.parse(jsonMatch[0]);
+      const parsed: unknown = JSON.parse(jsonMatch[0]);
+
+      if (typeof parsed !== 'object' || parsed === null) {
+        throw new Error('Parsed JSON is not an object');
+      }
+
+      const parsedObj = parsed as Record<string, unknown>;
 
       return {
         success: true,
-        analysis: parsed.analysis,
-        recommendations: parsed.recommendations,
+        analysis: parsedObj.analysis as PreflightResult['analysis'],
+        recommendations: parsedObj.recommendations as PreflightResult['recommendations'],
         rawOutput: output,
       };
     } catch (parseError) {

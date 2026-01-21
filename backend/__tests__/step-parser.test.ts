@@ -1,7 +1,8 @@
-import { StepParser } from '../step-parser.js';
 import { writeFileSync, mkdtempSync, rmSync } from 'fs';
-import { join } from 'path';
 import { tmpdir } from 'os';
+import { join } from 'path';
+
+import { StepParser } from '../step-parser.js';
 
 describe('StepParser', () => {
   let tempDir: string;

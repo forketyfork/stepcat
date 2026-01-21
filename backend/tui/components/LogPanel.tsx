@@ -1,5 +1,5 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import React from 'react';
 
 const LOG_LINES_TO_DISPLAY = 5;
 const LOG_PANEL_LABEL = 'Recent logs';
@@ -49,12 +49,13 @@ export const LogPanel: React.FC<LogPanelProps> = React.memo(({ logs, terminalWid
   const rows: LogRow[] =
     recentLogs.length > 0
       ? recentLogs.map((log, idx) => {
-          const sanitizedMessage = (log.message ?? '').replace(/[\r\n]+/g, ' ');
+          const sanitizedMessage = log.message.replace(/[\r\n]+/g, ' ');
           const hasContent = sanitizedMessage.trim().length > 0;
           return {
             key: `${log.timestamp}-${idx}`,
             message: hasContent ? sanitizedMessage : '',
-            level: (log.level as LogRow['level']) ?? 'info',
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- fallback for empty string level
+            level: (log.level as LogRow['level']) || 'info',
             timestamp: log.timestamp,
             showPrefix: hasContent,
             dim: !hasContent,
@@ -87,7 +88,7 @@ export const LogPanel: React.FC<LogPanelProps> = React.memo(({ logs, terminalWid
   );
 
   const logRows = rows.slice(0, LOG_LINES_TO_DISPLAY).map(row => {
-    const hasMessage = (row.message ?? '').trim().length > 0;
+    const hasMessage = row.message.trim().length > 0;
     const shouldShowPrefix = row.showPrefix && row.timestamp && hasMessage;
 
     let prefix: string;
@@ -107,7 +108,7 @@ export const LogPanel: React.FC<LogPanelProps> = React.memo(({ logs, terminalWid
 
     const availableForMessage = Math.max(0, logInnerWidth - 1 - prefix.length);
 
-    let messageText = (row.message ?? '').replace(/[\r\n]+/g, ' ');
+    let messageText = row.message.replace(/[\r\n]+/g, ' ');
     if (messageText.length > availableForMessage) {
       if (availableForMessage <= 0) {
         messageText = '';

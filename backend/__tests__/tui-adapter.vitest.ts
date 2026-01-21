@@ -1,10 +1,11 @@
-import { vi } from "vitest";
-import { TUIAdapter } from '../ui/tui-adapter.js';
-import { Database } from '../database.js';
 import { mkdtempSync, rmSync, existsSync } from 'fs';
-import { join, resolve, dirname } from 'path';
 import { tmpdir } from 'os';
-import { fileURLToPath } from 'url';
+import { join, resolve } from 'path';
+
+import { vi } from "vitest";
+
+import { Database } from '../database.js';
+import { TUIAdapter } from '../ui/tui-adapter.js';
 
 // Mock ink and react to avoid ESM import issues in Jest
 vi.mock('ink', () => ({
@@ -21,11 +22,11 @@ vi.mock('react', () => {
   const reactMock = {
     createElement: vi.fn((component, props) => ({ component, props })),
     Fragment: 'Fragment',
-    memo: vi.fn((component) => component),
-    useState: vi.fn((initial) => [initial, vi.fn()]),
+    memo: vi.fn(<T,>(component: T): T => component),
+    useState: vi.fn(<T,>(initial: T): [T, () => void] => [initial, vi.fn()]),
     useEffect: vi.fn(),
-    useMemo: vi.fn((fn) => fn()),
-    useCallback: vi.fn((fn) => fn),
+    useMemo: vi.fn(<T,>(fn: () => T): T => fn()),
+    useCallback: vi.fn(<T extends (...args: unknown[]) => unknown>(fn: T): T => fn),
   };
   return {
     ...reactMock,
@@ -107,7 +108,7 @@ describe('TUIAdapter', () => {
       const compiledPath = resolve(__dirname, '../../dist/tui/components/App.js');
       // Note: May not exist if build hasn't been run, so we just log it
       if (!existsSync(compiledPath)) {
-        console.warn(`Compiled TUI component not found at: ${compiledPath}`);
+        // Compiled path not found - this is expected in dev mode
       }
     });
 
@@ -132,7 +133,7 @@ describe('TUIAdapter', () => {
       const adapter = new TUIAdapter({ storage: db });
 
       // Mock process.cwd to simulate running from wrong directory
-      const originalCwd = process.cwd();
+      const _originalCwd = process.cwd();
       const wrongDir = '/tmp';
 
       // Override process.cwd temporarily

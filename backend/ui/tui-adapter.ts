@@ -1,27 +1,32 @@
-import { UIAdapter, UIAdapterConfig } from './ui-adapter.js';
-import { OrchestratorEvent } from '../events.js';
-import { TUIState, initialState } from '../tui/types.js';
-import { Storage } from '../storage.js';
-import { Iteration, Issue } from '../models.js';
-import { PermissionRequest } from '../permission-requests.js';
-import type * as ReactTypes from 'react';
-import type { RenderOptions } from 'ink';
-import { pathToFileURL, fileURLToPath } from 'url';
-import { resolve, dirname, sep } from 'path';
+import { spawnSync } from 'child_process';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
-import { spawnSync } from 'child_process';
+import { resolve, dirname, sep, join } from 'path';
+import { pathToFileURL, fileURLToPath } from 'url';
 import { format } from 'util';
+
+import type { RenderOptions } from 'ink';
+import type * as ReactTypes from 'react';
+
+import type { OrchestratorEvent } from '../events.js';
 import { getLogger } from '../logger.js';
+import type { Iteration, Issue } from '../models.js';
+import type { PermissionRequest } from '../permission-requests.js';
 import type { StopController } from '../stop-controller.js';
+import type { Storage } from '../storage.js';
+import { initialState } from '../tui/types.js';
+import type { TUIState} from '../tui/types.js';
+
+import type { UIAdapter, UIAdapterConfig } from './ui-adapter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const moduleDir = __dirname;
 const isBuiltArtifact = moduleDir.split(sep).includes('dist');
 
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Dynamic import types for runtime loading
 type InkModule = typeof import('ink');
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Dynamic import types for runtime loading
 type ReactModule = typeof import('react');
 type InkInstance = { rerender: (node: ReactTypes.ReactNode) => void; unmount: () => void };
 type AppComponent = ReactTypes.FC<{
@@ -112,8 +117,8 @@ export class TUIAdapter implements UIAdapter {
     const componentPath = resolve(moduleDir, '../tui/components', fileName);
     const componentUrl = pathToFileURL(componentPath).href;
 
-    const componentsModule = await import(componentUrl);
-    this.App = componentsModule.App;
+    const componentsModule = await import(componentUrl) as { App?: AppComponent };
+    this.App = componentsModule.App ?? null;
 
     if (!this.App) {
       throw new Error('Failed to load TUI App component');
@@ -254,6 +259,7 @@ export class TUIAdapter implements UIAdapter {
         break;
 
       case 'github_check':
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- iterationId can be undefined for some github_check events
         if (event.iterationId !== undefined && event.iterationId !== null) {
           this.refreshIteration(event.iterationId);
         }
@@ -312,6 +318,7 @@ export class TUIAdapter implements UIAdapter {
     this.rerender();
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- Async for API consistency with UIAdapter interface
   private async displayLogWithPager(logContent: string): Promise<void> {
     const tempFile = join(tmpdir(), `stepcat-log-${Date.now()}.txt`);
 
@@ -480,6 +487,7 @@ export class TUIAdapter implements UIAdapter {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- Async for API consistency with UIAdapter interface
   async shutdown(): Promise<void> {
     if (this.rerenderTimer) {
       clearTimeout(this.rerenderTimer);

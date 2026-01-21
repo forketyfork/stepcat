@@ -1,6 +1,7 @@
-import React from 'react';
 import { Box, Text } from 'ink';
-import { LogViewerItem } from '../types.js';
+import React from 'react';
+
+import type { LogViewerItem } from '../types.js';
 
 interface LogViewerProps {
   items: LogViewerItem[];

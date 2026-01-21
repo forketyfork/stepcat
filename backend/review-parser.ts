@@ -44,21 +44,23 @@ export class ReviewParser {
 
   private tryParseJSON(text: string): ReviewResult | null {
     try {
-      const parsed = JSON.parse(text);
+      const parsed: unknown = JSON.parse(text);
 
       if (typeof parsed !== 'object' || parsed === null) {
         return this.createErrorResult('Parsed JSON is not an object');
       }
 
-      if (!parsed.result || (parsed.result !== 'PASS' && parsed.result !== 'FAIL')) {
+      const parsedObj = parsed as Record<string, unknown>;
+
+      if (!parsedObj.result || (parsedObj.result !== 'PASS' && parsedObj.result !== 'FAIL')) {
         return this.createErrorResult('Invalid or missing "result" field (must be PASS or FAIL)');
       }
 
-      if (!Array.isArray(parsed.issues)) {
+      if (!Array.isArray(parsedObj.issues)) {
         return this.createErrorResult('Invalid or missing "issues" field (must be an array)');
       }
 
-      const issues = parsed.issues.map((issue: unknown, index: number) => {
+      const issues = parsedObj.issues.map((issue: unknown, index: number) => {
         if (typeof issue !== 'object' || issue === null) {
           throw new Error(`Issue at index ${index} is not an object`);
         }
@@ -75,16 +77,21 @@ export class ReviewParser {
           throw new Error(`Issue at index ${index} has invalid "severity" (must be error or warning)`);
         }
 
+        const severityValue: 'error' | 'warning' =
+          issueObj.severity === 'error' || issueObj.severity === 'warning'
+            ? issueObj.severity
+            : 'error';
+
         return {
           file: issueObj.file,
           line: typeof issueObj.line === 'number' ? issueObj.line : undefined,
-          severity: (issueObj.severity as 'error' | 'warning') || 'error',
+          severity: severityValue,
           description: issueObj.description,
         };
       });
 
       return {
-        result: parsed.result as 'PASS' | 'FAIL',
+        result: parsedObj.result,
         issues,
       };
     } catch (error) {

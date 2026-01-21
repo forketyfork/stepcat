@@ -1,7 +1,10 @@
-import { Octokit } from '@octokit/rest';
 import { execSync } from 'child_process';
-import { OrchestratorEventEmitter } from './events.js';
-import { getLogger, LogLevel } from './logger.js';
+
+import { Octokit } from '@octokit/rest';
+
+import type { OrchestratorEventEmitter } from './events.js';
+import type { LogLevel } from './logger.js';
+import { getLogger } from './logger.js';
 
 type PullRequestDetails = {
   number: number;
@@ -46,7 +49,7 @@ export class GitHubChecker {
 
   constructor(config: GitHubConfig) {
     this.octokit = new Octokit({
-      auth: config.token || process.env.GITHUB_TOKEN
+      auth: config.token ?? process.env.GITHUB_TOKEN
     });
     this.owner = config.owner;
     this.repo = config.repo;
@@ -88,7 +91,7 @@ export class GitHubChecker {
     while (Date.now() - startTime < maxWaitMs) {
       try {
         const prDetails = await this.getPullRequestDetails();
-        if (prDetails && prDetails.headSha && prDetails.headSha !== targetSha) {
+        if (prDetails?.headSha && prDetails.headSha !== targetSha) {
           const comparison = await this.compareCommits(targetSha, prDetails.headSha);
 
           if (comparison === 'ahead' || comparison === 'identical') {
@@ -106,6 +109,7 @@ export class GitHubChecker {
               `PR #${prDetails.number} head ${prDetails.headSha} has diverged from ${targetSha}. Waiting for ${targetSha} checks.`,
               'warn',
             );
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- explicit check for enum clarity
           } else if (comparison === 'unknown') {
             this.log(
               `Unable to determine relationship between PR #${prDetails.number} head ${prDetails.headSha} and ${targetSha}. Waiting for ${targetSha} checks.`,
@@ -278,6 +282,7 @@ export class GitHubChecker {
         basehead: `${baseSha}...${headSha}`,
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- explicit enum check for clarity and future-proofing
       if (data.status === 'ahead' || data.status === 'behind' || data.status === 'identical' || data.status === 'diverged') {
         return data.status;
       }
@@ -345,6 +350,7 @@ export class GitHubChecker {
       });
 
       const pull = pullList.data[0];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- array index access can return undefined at runtime
       if (!pull) {
         return null;
       }
@@ -359,9 +365,13 @@ export class GitHubChecker {
 
       return {
         number: pullDetails.number,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive against API response variations
         headSha: pullDetails.head?.sha ?? pull.head.sha ?? '',
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive against API response variations
         headRef: pullDetails.head?.ref ?? branch,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive against API response variations
         baseRef: pullDetails.base?.ref,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- mergeable_state can be null from API
         mergeableState: pullDetails.mergeable_state ?? null,
       };
     } catch (error) {

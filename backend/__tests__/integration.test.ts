@@ -1,8 +1,10 @@
+import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
 import { Database } from '../database.js';
 import { StepParser } from '../step-parser.js';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+
 
 describe('Database and StepParser Integration Tests', () => {
   let tempDir: string;

@@ -1,4 +1,4 @@
-import { Plan, DbStep, Iteration, Issue } from '../models.js';
+import type { Plan, DbStep, Iteration, Issue } from '../models.js';
 
 export type LogViewerItem = {
   id: string;

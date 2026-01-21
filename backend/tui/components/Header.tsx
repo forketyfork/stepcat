@@ -1,7 +1,10 @@
-import React from 'react';
-import { Box, Text } from 'ink';
-import { TUIState } from '../types.js';
 import { basename } from 'path';
+
+import { Box, Text } from 'ink';
+import React from 'react';
+
+import type { TUIState } from '../types.js';
+
 
 interface HeaderProps {
   state: TUIState;
@@ -32,7 +35,7 @@ export const Header: React.FC<HeaderProps> = ({ state }) => {
   const bottomLine = createLine(width, '╚', '╝', '═');
 
   const title = 'STEPCAT - Step-by-step Agent Orchestration';
-  const executionId = state.plan?.id || 'N/A';
+  const executionId = state.plan?.id ?? 'N/A';
   const statsBaseContent = `Execution ID: ${executionId}  │  Steps: ${completedSteps}/${totalSteps}  │  Plan: ${planFileName}`;
   let statsContent = showCurrentPhase
     ? `${statsBaseContent}  │  Current: ${currentPhaseText}`

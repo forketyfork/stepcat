@@ -1,10 +1,12 @@
-import React from 'react';
 import { Box, Text, useInput } from 'ink';
-import { TUIState, LogViewerItem } from '../types.js';
+import React from 'react';
+
+import type { DbStep, Iteration } from '../../models.js';
+import type { TUIState, LogViewerItem } from '../types.js';
+
 import { Header } from './Header.js';
-import { LogViewer } from './LogViewer.js';
 import { LogPanel } from './LogPanel.js';
-import { DbStep, Iteration } from '../../models.js';
+import { LogViewer } from './LogViewer.js';
 
 interface AppProps {
   state: TUIState;
@@ -221,7 +223,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
     const items: LogViewerItem[] = [];
 
     state.steps.forEach(step => {
-      const iterations = state.iterations.get(step.id) || [];
+      const iterations = state.iterations.get(step.id) ?? [];
       iterations.forEach((iteration, iterationIndex) => {
         const displayNumber = iterationIndex + 1;
         if (iteration.claudeLog) {
@@ -299,7 +301,8 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
         }
       } else if (key.return) {
         const selectedItem = state.logViewerItems[state.selectedLogIndex];
-        if (selectedItem && selectedItem.logContent) {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- array index access can return undefined
+        if (selectedItem?.logContent) {
           state.pendingLogView = selectedItem.logContent;
           state.stateVersion++;
           onStateChange();
@@ -363,7 +366,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
         color: getStepStatusColor(step.status),
       });
 
-      const iterations = state.iterations.get(step.id) || [];
+      const iterations = state.iterations.get(step.id) ?? [];
       iterations.forEach((iteration, iterationIndex) => {
         const displayNumber = iterationIndex + 1;
         const displayNumberText = String(displayNumber);
@@ -436,7 +439,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
           });
         }
 
-        const issues = state.issues.get(iteration.id) || [];
+        const issues = state.issues.get(iteration.id) ?? [];
         const openIssues = issues.filter(issue => issue.status === 'open');
         const fixedIssues = issues.filter(issue => issue.status === 'fixed');
 
@@ -467,6 +470,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
     });
 
     return lines;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stateVersion triggers re-computation when mutable state objects change
   }, [state.steps, state.iterations, state.issues, state.stateVersion]);
 
   const hasAnimatedHighlights = React.useMemo(() => {
@@ -512,7 +516,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
         const line = allStepLines[i];
         if (line.key.startsWith(`step-${activeStep.id}`) ||
             line.key.startsWith(`iteration-`)) {
-          const iterations = state.iterations.get(activeStep.id) || [];
+          const iterations = state.iterations.get(activeStep.id) ?? [];
           const isActiveStepIteration = iterations.some(it => line.key.startsWith(`iteration-${it.id}`));
           if (line.key.startsWith(`step-${activeStep.id}`) || isActiveStepIteration) {
             activeStepLines.push(i);
@@ -551,7 +555,7 @@ export const App: React.FC<AppProps> = ({ state, onStateChange, onRequestStopAft
     const baseColor = line.color;
     const dim = Boolean(line.dim);
 
-    let content = line.text ?? '';
+    let content = line.text;
     if (content.length > stepsInnerWidth) {
       if (stepsInnerWidth <= 0) {
         content = '';
