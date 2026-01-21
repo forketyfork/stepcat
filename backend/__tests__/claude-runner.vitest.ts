@@ -1,5 +1,3 @@
-import { vi as _vi } from "vitest";
-
 import { ClaudeRunner } from '../claude-runner.js';
 import { PROMPTS } from '../prompts.js';
 

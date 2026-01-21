@@ -11,7 +11,7 @@ import { GitHubChecker, MergeConflictError } from "./github-checker.js";
 import type { LogLevel } from "./logger.js";
 import { Logger, getLogger } from "./logger.js";
 import type { Plan, DbStep, Iteration, Issue } from "./models.js";
-import type { PermissionRequest} from "./permission-requests.js";
+import type { PermissionRequest } from "./permission-requests.js";
 import { PermissionRequestParser, mergePermissionAllows } from "./permission-requests.js";
 import { PERMISSION_REQUEST_INSTRUCTIONS, PROMPTS } from "./prompts.js";
 import { ReviewParser } from "./review-parser.js";

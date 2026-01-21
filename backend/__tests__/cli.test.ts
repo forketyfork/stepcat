@@ -1,6 +1,6 @@
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
-import { join , resolve } from 'path';
+import { join, resolve } from 'path';
 
 import { Database } from '../database.js';
 
