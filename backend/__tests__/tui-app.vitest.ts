@@ -1,8 +1,10 @@
-import React from 'react';
 import { render } from 'ink-testing-library';
+import React from 'react';
 import { describe, expect, it } from 'vitest';
+
 import { App } from '../tui/components/App.js';
-import { TUIState, initialState } from '../tui/types.js';
+import type { TUIState} from '../tui/types.js';
+import { initialState } from '../tui/types.js';
 
 describe('TUI App log rendering', () => {
   it('displays log messages when available', () => {

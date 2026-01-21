@@ -1,6 +1,7 @@
-import React from 'react';
 import { Box, Text } from 'ink';
-import { Iteration, Issue } from '../../models.js';
+import React from 'react';
+
+import type { Iteration, Issue } from '../../models.js';
 
 export const ITERATION_DISPLAY_HEIGHT = 6;
 

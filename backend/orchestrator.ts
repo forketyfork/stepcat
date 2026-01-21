@@ -1,20 +1,24 @@
-import { StepParser } from "./step-parser.js";
-import { ClaudeRunner } from "./claude-runner.js";
-import { CodexRunner } from "./codex-runner.js";
-import { GitHubChecker, MergeConflictError } from "./github-checker.js";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";
-import { OrchestratorEventEmitter, OrchestratorEvent } from "./events.js";
+
+import { ClaudeRunner } from "./claude-runner.js";
+import { CodexRunner } from "./codex-runner.js";
 import { Database } from "./database.js";
-import { Storage } from "./storage.js";
-import { Plan, DbStep, Iteration, Issue } from "./models.js";
+import { OrchestratorEventEmitter } from "./events.js";
+import type { OrchestratorEvent } from "./events.js";
+import { GitHubChecker, MergeConflictError } from "./github-checker.js";
+import type { LogLevel } from "./logger.js";
+import { Logger, getLogger } from "./logger.js";
+import type { Plan, DbStep, Iteration, Issue } from "./models.js";
+import type { PermissionRequest} from "./permission-requests.js";
+import { PermissionRequestParser, mergePermissionAllows } from "./permission-requests.js";
 import { PERMISSION_REQUEST_INSTRUCTIONS, PROMPTS } from "./prompts.js";
-import { UIAdapter } from "./ui/ui-adapter.js";
 import { ReviewParser } from "./review-parser.js";
-import { Logger, getLogger, LogLevel } from "./logger.js";
-import { PermissionRequest, PermissionRequestParser, mergePermissionAllows } from "./permission-requests.js";
+import { StepParser } from "./step-parser.js";
 import type { StopController } from "./stop-controller.js";
+import type { Storage } from "./storage.js";
+import type { UIAdapter } from "./ui/ui-adapter.js";
 
 export interface OrchestratorConfig {
   planFile: string;
@@ -307,7 +311,7 @@ export class Orchestrator {
       (candidate) => typeof candidate.requestPermissionApproval === "function",
     );
 
-    if (!adapter || !adapter.requestPermissionApproval) {
+    if (!adapter?.requestPermissionApproval) {
       throw new Error("Permission approval requires the TUI.");
     }
 
@@ -324,7 +328,7 @@ export class Orchestrator {
       return {};
     }
 
-    const parsed = JSON.parse(content);
+    const parsed: unknown = JSON.parse(content);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       throw new Error(`Invalid JSON object in ${settingsPath}`);
     }
@@ -634,7 +638,7 @@ export class Orchestrator {
       if (!request) {
         return {
           success: reviewRun.success,
-          output: latestOutput ?? reviewRun.output,
+          output: latestOutput,
         };
       }
 
@@ -1001,7 +1005,7 @@ CRITICAL REQUIREMENTS:
       type: "execution_started",
       timestamp: Date.now(),
       executionId: this.plan.id,
-      isResume: !!this.executionId,
+      isResume: Boolean(this.executionId),
     });
 
     this.emitEvent({
@@ -1117,9 +1121,10 @@ CRITICAL REQUIREMENTS:
       (s) => s.status === 'pending' || s.status === 'in_progress'
     );
 
-    return currentStep || null;
+    return currentStep ?? null;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- Async for API consistency with caller expectations
   private async pushCommit(): Promise<void> {
     try {
       const output = execSync("git push", {
@@ -1127,7 +1132,8 @@ CRITICAL REQUIREMENTS:
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
       });
-      if (output && output.trim()) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- output can be undefined in test mocks
+      if (output?.trim()) {
         this.log(output.trim());
       }
       this.log("✓ Pushed commit to GitHub", "success");
@@ -1157,7 +1163,7 @@ CRITICAL REQUIREMENTS:
 
     const limitedAnnotations = annotations.slice(0, Orchestrator.MAX_ANNOTATIONS);
     const lines = limitedAnnotations.map((annotation) => {
-      const lineSuffix = annotation.start_line != null ? `:${annotation.start_line}` : "";
+      const lineSuffix = annotation.start_line !== null ? `:${annotation.start_line}` : "";
       const location = `${annotation.path}${lineSuffix}`;
       const level = annotation.annotation_level ?? "failure";
       const message = this.singleLine(
@@ -1361,10 +1367,10 @@ CRITICAL REQUIREMENTS:
           prompt,
         );
 
-        if (!result || !result.commitSha) {
-          const failureLog = this.buildAgentLog(result?.output, result?.workingTreeStatus);
+        if (!result.commitSha) {
+          const failureLog = this.buildAgentLog(result.output, result.workingTreeStatus);
           const workingTreeSummary = this.formatWorkingTreeSummary(
-            result?.workingTreeStatus ?? null,
+            result.workingTreeStatus,
           );
 
           this.storage.updateIteration(iteration.id, {
@@ -1373,7 +1379,7 @@ CRITICAL REQUIREMENTS:
           });
 
           this.logWorkingTreeStatusAfterAgent(
-            result?.workingTreeStatus,
+            result.workingTreeStatus,
             step.stepNumber,
           );
 
@@ -1454,6 +1460,7 @@ CRITICAL REQUIREMENTS:
             const iterationsForStep = this.storage.getIterations(step.id);
             const latestIteration = iterationsForStep[iterationsForStep.length - 1];
 
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- array index access can return undefined
             if (latestIteration) {
               this.storage.updateIteration(latestIteration.id, { buildStatus: 'merge_conflict' });
 
@@ -1494,6 +1501,7 @@ CRITICAL REQUIREMENTS:
               sha: trackedSha,
               attempt: attemptsWithCommits,
               maxAttempts: this.maxIterationsPerStep,
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- latestIteration can be undefined from array access
               iterationId: latestIteration?.id ?? previousIterationId,
               checkName: 'Merge conflict detected',
             });
@@ -1565,10 +1573,10 @@ CRITICAL REQUIREMENTS:
             prompt,
           );
 
-          if (!result || !result.commitSha) {
-            const failureLog = this.buildAgentLog(result?.output, result?.workingTreeStatus);
+          if (!result.commitSha) {
+            const failureLog = this.buildAgentLog(result.output, result.workingTreeStatus);
             const workingTreeSummary = this.formatWorkingTreeSummary(
-              result?.workingTreeStatus ?? null,
+              result.workingTreeStatus,
             );
 
             this.storage.updateIteration(iteration.id, {
@@ -1577,7 +1585,7 @@ CRITICAL REQUIREMENTS:
             });
 
             this.logWorkingTreeStatusAfterAgent(
-              result?.workingTreeStatus,
+              result.workingTreeStatus,
               step.stepNumber,
             );
 
@@ -1641,7 +1649,7 @@ CRITICAL REQUIREMENTS:
         }
         const promptType = this.determineCodexPromptType(previousIteration);
 
-        const commitSha = previousIteration.commitSha || 'HEAD';
+        const commitSha = previousIteration.commitSha ?? 'HEAD';
         let codexPrompt: string;
         if (promptType === 'implementation') {
           codexPrompt = PROMPTS.codexReviewImplementation(step.stepNumber, step.title, this.planContent, commitSha);
@@ -1652,9 +1660,9 @@ CRITICAL REQUIREMENTS:
           const openIssues = this.storage.getOpenIssues(step.id)
             .filter(i => i.type === 'codex_review')
             .map(i => ({
-              file: i.filePath || 'unknown',
-              line: i.lineNumber !== null ? i.lineNumber : undefined,
-              severity: i.severity || 'error',
+              file: i.filePath ?? 'unknown',
+              line: i.lineNumber ?? undefined,
+              severity: i.severity ?? 'error',
               description: i.description,
             }));
           codexPrompt = PROMPTS.codexReviewCodeFixes(openIssues, commitSha);
@@ -1780,10 +1788,10 @@ CRITICAL REQUIREMENTS:
             prompt,
           );
 
-          if (!result || !result.commitSha) {
-            const failureLog = this.buildAgentLog(result?.output, result?.workingTreeStatus);
+          if (!result.commitSha) {
+            const failureLog = this.buildAgentLog(result.output, result.workingTreeStatus);
             const workingTreeSummary = this.formatWorkingTreeSummary(
-              result?.workingTreeStatus ?? null,
+              result.workingTreeStatus,
             );
 
             this.storage.updateIteration(iteration.id, {
@@ -1792,7 +1800,7 @@ CRITICAL REQUIREMENTS:
             });
 
             this.logWorkingTreeStatusAfterAgent(
-              result?.workingTreeStatus,
+              result.workingTreeStatus,
               step.stepNumber,
             );
 

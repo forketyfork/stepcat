@@ -43,7 +43,7 @@ export class PermissionRequestParser {
 
   private tryParseJSON(text: string): PermissionRequest | null {
     try {
-      const parsed = JSON.parse(text);
+      const parsed: unknown = JSON.parse(text);
       if (!isRecord(parsed)) {
         return null;
       }

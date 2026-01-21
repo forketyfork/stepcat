@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "fs";
+
 import { getLogger } from "./logger.js";
 
 export type StepPhase = "pending" | "implementation" | "review" | "done";

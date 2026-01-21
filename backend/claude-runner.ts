@@ -2,9 +2,10 @@ import { spawn, execSync } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { PROMPTS } from "./prompts.js";
-import { OrchestratorEventEmitter } from "./events.js";
+
+import type { OrchestratorEventEmitter } from "./events.js";
 import { getLogger } from "./logger.js";
+import { PROMPTS } from "./prompts.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -72,7 +73,7 @@ export class ClaudeRunner {
         encoding: "utf-8",
       }).trim();
     } catch (error) {
-      getLogger()?.warn("ClaudeRunner", `Could not get HEAD commit (repo may be empty or unborn): ${error}`);
+      getLogger()?.warn("ClaudeRunner", `Could not get HEAD commit (repo may be empty or unborn): ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -148,6 +149,7 @@ export class ClaudeRunner {
         }, timeout);
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive check for clearer error message
       if (!child.stdin) {
         throw new Error('Claude Code process did not provide stdin stream');
       }
@@ -155,8 +157,9 @@ export class ClaudeRunner {
       child.stdin.write(options.prompt);
       child.stdin.end();
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive guard for stream access
       if (child.stdout) {
-        child.stdout.on("data", (chunk) => {
+        child.stdout.on("data", (chunk: Buffer) => {
           const text = chunk.toString();
           if (captureOutput) {
             stdoutData += text;
@@ -174,8 +177,9 @@ export class ClaudeRunner {
         });
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive guard for stream access
       if (child.stderr) {
-        child.stderr.on("data", (chunk) => {
+        child.stderr.on("data", (chunk: Buffer) => {
           const text = chunk.toString();
           if (options.eventEmitter) {
             const lines = text.split('\n');
@@ -238,7 +242,7 @@ export class ClaudeRunner {
     this.emitLog("─".repeat(80), options.eventEmitter);
     this.emitLog(`Running Claude Code in ${options.workDir}`, options.eventEmitter);
     this.emitLog(`Binary: ${claudePath}`, options.eventEmitter);
-    this.emitLog(`Timeout: ${options.timeoutMinutes || 30} minutes`, options.eventEmitter);
+    this.emitLog(`Timeout: ${options.timeoutMinutes ?? 30} minutes`, options.eventEmitter);
     this.emitLog("─".repeat(80), options.eventEmitter);
 
     const headBefore = this.tryGetHeadCommit(options.workDir);
@@ -284,6 +288,7 @@ export class ClaudeRunner {
         }, timeout);
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive check for clearer error message
       if (!child.stdin) {
         throw new Error('Claude Code process did not provide stdin stream');
       }
@@ -291,8 +296,9 @@ export class ClaudeRunner {
       child.stdin.write(options.prompt);
       child.stdin.end();
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive guard for stream access
       if (child.stdout) {
-        child.stdout.on("data", (chunk) => {
+        child.stdout.on("data", (chunk: Buffer) => {
           const text = chunk.toString();
           if (captureOutput) {
             stdoutData += text;
@@ -310,8 +316,9 @@ export class ClaudeRunner {
         });
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive guard for stream access
       if (child.stderr) {
-        child.stderr.on("data", (chunk) => {
+        child.stderr.on("data", (chunk: Buffer) => {
           const text = chunk.toString();
           if (options.eventEmitter) {
             const lines = text.split('\n');

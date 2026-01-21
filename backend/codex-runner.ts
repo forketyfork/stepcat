@@ -2,9 +2,12 @@ import { spawn, execSync } from "child_process";
 import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { ReviewParser, ReviewResult } from "./review-parser.js";
-import { OrchestratorEventEmitter } from "./events.js";
-import { getLogger, LogLevel } from "./logger.js";
+
+import type { OrchestratorEventEmitter } from "./events.js";
+import type { LogLevel } from "./logger.js";
+import { getLogger } from "./logger.js";
+import { ReviewParser } from "./review-parser.js";
+import type { ReviewResult } from "./review-parser.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -96,7 +99,7 @@ export class CodexRunner {
     this.emitLog("─".repeat(80), options.eventEmitter);
     this.emitLog(`Running Codex in ${options.workDir}`, options.eventEmitter);
     this.emitLog(`Binary: ${codexPath}`, options.eventEmitter);
-    this.emitLog(`Timeout: ${options.timeoutMinutes || 30} minutes`, options.eventEmitter);
+    this.emitLog(`Timeout: ${options.timeoutMinutes ?? 30} minutes`, options.eventEmitter);
     this.emitLog("─".repeat(80), options.eventEmitter);
 
     let headBefore: string | null = null;
@@ -135,6 +138,7 @@ export class CodexRunner {
         }, timeout);
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- defensive check for clearer error message
       if (!child.stdin) {
         throw new Error('Codex process did not provide stdin stream');
       }
@@ -142,7 +146,7 @@ export class CodexRunner {
       child.stdin.write(options.prompt);
       child.stdin.end();
 
-      child.stdout.on("data", (chunk) => {
+      child.stdout.on("data", (chunk: Buffer) => {
         const text = chunk.toString();
         stdoutData += text;
         if (options.eventEmitter) {
@@ -152,7 +156,8 @@ export class CodexRunner {
         }
       });
 
-      child.stderr?.on("data", (chunk) => {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- stderr is always defined with stdio: pipe, but optional chain is safer
+      child.stderr?.on("data", (chunk: Buffer) => {
         const text = chunk.toString();
         stderrData += text;
         if (options.eventEmitter) {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+
 import { GitHubChecker } from '../github-checker.js';
 
 type CheckRun = {
@@ -89,7 +90,7 @@ describe('GitHubChecker waitForChecksToPass', () => {
       },
     };
     (checker as any).log = noopLog;
-    vi.spyOn(checker as any, 'sleep').mockImplementation(() => Promise.resolve());
+    vi.spyOn(checker as any, 'sleep').mockResolvedValue(undefined);
     vi.spyOn(checker as any, 'getCurrentBranch').mockReturnValue('feature/test');
 
     const result = await checker.waitForChecksToPass(currentSha, 1);
@@ -155,7 +156,7 @@ describe('GitHubChecker waitForChecksToPass', () => {
       },
     };
     (checker as any).log = noopLog;
-    vi.spyOn(checker as any, 'sleep').mockImplementation(() => Promise.resolve());
+    vi.spyOn(checker as any, 'sleep').mockResolvedValue(undefined);
     vi.spyOn(checker as any, 'getCurrentBranch').mockReturnValue('feature/next');
 
     const result = await checker.waitForChecksToPass(currentSha, 1);

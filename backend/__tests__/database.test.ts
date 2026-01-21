@@ -1,8 +1,11 @@
-import BetterSqlite3 from 'better-sqlite3';
-import { Database } from '../database.js';
 import { mkdtempSync, rmSync, mkdirSync } from 'fs';
-import { join } from 'path';
 import { tmpdir } from 'os';
+import { join } from 'path';
+
+import BetterSqlite3 from 'better-sqlite3';
+
+import { Database } from '../database.js';
+
 
 describe('Database', () => {
   let tempDir: string;
@@ -447,7 +450,7 @@ describe('Database', () => {
       const openIssue = db.createIssue(iteration2.id, 'ci_failure', 'Open issue 2');
       db.updateIssueStatus(openIssue.id, 'fixed');
 
-      const issue3 = db.createIssue(iteration2.id, 'codex_review', 'Open issue 3');
+      const _issue3 = db.createIssue(iteration2.id, 'codex_review', 'Open issue 3');
 
       const openIssues = db.getOpenIssues(stepId);
 
@@ -548,7 +551,7 @@ describe('Database', () => {
   describe('foreign key constraints', () => {
     it('should cascade delete steps when plan is deleted', () => {
       const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
-      const step = db.createStep(plan.id, 1, 'Setup');
+      const _step = db.createStep(plan.id, 1, 'Setup');
 
       (db as any).db.prepare('DELETE FROM plans WHERE id = ?').run(plan.id);
 
@@ -559,7 +562,7 @@ describe('Database', () => {
     it('should cascade delete iterations when step is deleted', () => {
       const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
       const step = db.createStep(plan.id, 1, 'Setup');
-      const iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
+      const _iteration = db.createIteration(step.id, 1, 'implementation', 'claude', 'codex');
 
       (db as any).db.prepare('DELETE FROM steps WHERE id = ?').run(step.id);
 

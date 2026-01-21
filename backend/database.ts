@@ -1,15 +1,17 @@
-import BetterSqlite3 from 'better-sqlite3';
-import * as path from 'path';
 import * as fs from 'fs';
-import { Plan, DbStep, Iteration, Issue } from './models.js';
-import { Storage, IterationUpdate, ExecutionState, PlanStepInput } from './storage.js';
+import * as path from 'path';
+
+import BetterSqlite3 from 'better-sqlite3';
+
 import { migrations } from './migrations.js';
+import type { Plan, DbStep, Iteration, Issue } from './models.js';
+import type { Storage, IterationUpdate, ExecutionState, PlanStepInput } from './storage.js';
 
 export class Database implements Storage {
   private db: BetterSqlite3.Database;
 
   constructor(workDir: string, databasePath?: string) {
-    const dbPath = databasePath || path.join(workDir, '.stepcat', 'executions.db');
+    const dbPath = databasePath ?? path.join(workDir, '.stepcat', 'executions.db');
     const dbDir = path.dirname(dbPath);
 
     try {
@@ -292,7 +294,7 @@ export class Database implements Storage {
 
   updateIssueStatus(issueId: number, status: Issue['status'], resolvedAt?: string): void {
     const stmt = this.db.prepare('UPDATE issues SET status = ?, resolvedAt = ? WHERE id = ?');
-    stmt.run(status, resolvedAt || null, issueId);
+    stmt.run(status, resolvedAt ?? null, issueId);
   }
 
   getOpenIssues(stepId: number): Issue[] {
