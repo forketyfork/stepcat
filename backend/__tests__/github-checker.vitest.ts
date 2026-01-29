@@ -10,10 +10,12 @@ type CheckRun = {
   head_sha: string;
 };
 
+type CheckSuiteConclusion = 'success' | 'failure' | 'neutral' | 'cancelled' | 'timed_out' | 'action_required' | null;
+
 type CheckSuite = {
   id: number;
   status: 'queued' | 'in_progress' | 'completed';
-  conclusion: 'success' | 'failure' | 'neutral' | 'cancelled' | 'timed_out' | 'action_required' | null;
+  conclusion: CheckSuiteConclusion;
   head_sha: string;
   app?: { name: string };
 };
@@ -248,6 +250,38 @@ describe('GitHubChecker waitForChecksToPass', () => {
     const listSuitesForRef = vi.fn().mockResolvedValue({
       data: createCheckSuitesResponse([
         { id: 1, status: 'completed', conclusion: 'failure', head_sha: sha, app: { name: 'GitHub Actions' } },
+      ]),
+    });
+
+    const pullsList = vi.fn().mockResolvedValue({ data: [] });
+
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    (checker as any).octokit = {
+      checks: { listForRef, listSuitesForRef },
+      pulls: { list: pullsList, get: vi.fn() },
+      repos: { compareCommitsWithBasehead: vi.fn() },
+    };
+    (checker as any).log = noopLog;
+    vi.spyOn(checker as any, 'sleep').mockResolvedValue(undefined);
+    vi.spyOn(checker as any, 'getCurrentBranch').mockReturnValue('main');
+
+    const result = await checker.waitForChecksToPass(sha, 1);
+
+    expect(result).toBe(false);
+  });
+
+  it('returns false when check suite requires action', async () => {
+    const sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    const listForRef = vi.fn().mockResolvedValue({
+      data: createCheckRunsResponse([
+        { id: 1, name: 'CI', status: 'completed', conclusion: 'success', head_sha: sha },
+      ]),
+    });
+
+    const listSuitesForRef = vi.fn().mockResolvedValue({
+      data: createCheckSuitesResponse([
+        { id: 1, status: 'completed', conclusion: 'action_required', head_sha: sha, app: { name: 'GitHub Actions' } },
       ]),
     });
 

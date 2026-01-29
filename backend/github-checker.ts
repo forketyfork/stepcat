@@ -294,8 +294,11 @@ export class GitHubChecker {
       suite => suite.head_sha === targetSha
     );
 
-    // If no suites exist, consider it passed (edge case)
+    // If no suites exist for this ref, treat it as passed.
+    // This covers cases where CI is not configured or no checks are expected
+    // for the target SHA.
     if (suitesForTarget.length === 0) {
+      this.log('No check suites found for target SHA; treating as passed.');
       return 'passed';
     }
 
@@ -315,12 +318,13 @@ export class GitHubChecker {
       return 'pending';
     }
 
-    // Check for failed suites
+    // Check for failed suites (including action_required which needs manual intervention)
     const failedSuites = suitesForTarget.filter(
       suite =>
         suite.conclusion === 'failure' ||
         suite.conclusion === 'timed_out' ||
-        suite.conclusion === 'cancelled'
+        suite.conclusion === 'cancelled' ||
+        suite.conclusion === 'action_required'
     );
 
     if (failedSuites.length > 0) {
