@@ -191,6 +191,16 @@ export class GitHubChecker {
         );
 
         if (allPassed) {
+          // Before declaring success, verify check_suites are also complete
+          const suitesResult = await this.verifyCheckSuites(targetSha, startTime);
+          if (suitesResult === 'pending') {
+            await this.sleep(this.pollIntervalMs);
+            continue;
+          }
+          if (suitesResult === 'failed') {
+            return false;
+          }
+
           this.lastTrackedSha = targetSha;
           this.log('\n✓ All checks passed:', 'success');
           runsForTarget.forEach(run => {
@@ -268,6 +278,67 @@ export class GitHubChecker {
 
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private async verifyCheckSuites(
+    targetSha: string,
+    startTime: number
+  ): Promise<'passed' | 'pending' | 'failed'> {
+    const { data: checkSuites } = await this.octokit.checks.listSuitesForRef({
+      owner: this.owner,
+      repo: this.repo,
+      ref: targetSha,
+    });
+
+    const suitesForTarget = checkSuites.check_suites.filter(
+      suite => suite.head_sha === targetSha
+    );
+
+    // If no suites exist for this ref, treat it as passed.
+    // This covers cases where CI is not configured or no checks are expected
+    // for the target SHA.
+    if (suitesForTarget.length === 0) {
+      this.log('No check suites found for target SHA; treating as passed.');
+      return 'passed';
+    }
+
+    // Check if any suites are still pending/queued
+    const pendingSuites = suitesForTarget.filter(
+      suite => suite.status !== 'completed'
+    );
+
+    if (pendingSuites.length > 0) {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const pendingNames = pendingSuites
+        .map(suite => suite.app?.name ?? 'Unknown')
+        .join(', ');
+      this.log(
+        `[${elapsed}s] Check runs passed but ${pendingSuites.length} check suite(s) still pending: ${pendingNames}`
+      );
+      return 'pending';
+    }
+
+    // Check for failed suites (including action_required which needs manual intervention)
+    const failedSuites = suitesForTarget.filter(
+      suite =>
+        suite.conclusion === 'failure' ||
+        suite.conclusion === 'timed_out' ||
+        suite.conclusion === 'cancelled' ||
+        suite.conclusion === 'action_required'
+    );
+
+    if (failedSuites.length > 0) {
+      this.log('\n✗ Some check suites failed:', 'error');
+      failedSuites.forEach(suite => {
+        this.log(
+          `  ✗ ${suite.app?.name ?? 'Unknown'}: ${suite.conclusion}`,
+          'error'
+        );
+      });
+      return 'failed';
+    }
+
+    return 'passed';
   }
 
   private async compareCommits(baseSha: string, headSha: string): Promise<'ahead' | 'behind' | 'identical' | 'diverged' | 'unknown'> {
