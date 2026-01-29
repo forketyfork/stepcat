@@ -88,7 +88,7 @@ stepcat --file plan.md --dir /path/to/project
 - `-t, --token <token>` - GitHub token (optional, defaults to `GITHUB_TOKEN` env var)
 - `--build-timeout <minutes>` - GitHub Actions check timeout in minutes (default: 30)
 - `--agent-timeout <minutes>` - Agent execution timeout in minutes (default: 30)
-- `--keep-open` - Keep the TUI open after execution completes
+- `--exit-on-complete` - Exit the TUI after execution completes (default: stay open)
 - `--implementation-agent <agent>` - Agent to use for implementation iterations (`claude` or `codex`, default: `claude`)
 - `--review-agent <agent>` - Agent to use for code review (`claude` or `codex`, default: `codex`)
 
