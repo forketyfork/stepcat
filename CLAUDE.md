@@ -264,12 +264,18 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Used by both ClaudeRunner and CodexRunner for consistent review parsing
 - Expected JSON schema: `{"result": "PASS"|"FAIL", "issues": [{file, line?, severity, description}]}`
 
-**GitHubChecker** (`backend/github-checker.ts`): Monitors GitHub Actions
+**GitHubChecker** (`backend/github-checker.ts`): Monitors GitHub Actions and manages PRs
 - Uses Octokit to poll check runs via GitHub API
-- Polls every 30 seconds until completion or timeout
+- Polls every 5 seconds until completion or timeout
 - Parses repo info from `git remote get-url origin`
 - Expects format: `github.com[:/]owner/repo`
 - Returns true if all checks pass/skip, false otherwise
+- Branch and PR management:
+  - `getCurrentBranch()`: Returns the current git branch name
+  - `getDefaultBranch()`: Fetches the repository's default branch from GitHub API
+  - `remoteBranchExists(branch)`: Checks if a branch exists on the remote
+  - `hasUpstreamTracking()`: Checks if the current branch has upstream tracking configured
+  - `createPullRequest(title, body, baseBranch?)`: Creates a PR for the current branch
 
 **PreflightRunner** (`backend/preflight-runner.ts`): Analyzes required permissions before execution
 - Reads plan file, CLAUDE.md, and `.claude/settings.json` / `.claude/settings.local.json`
@@ -320,10 +326,14 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 **Step Execution Flow**:
 1. **Initial Implementation**: Claude creates commit, orchestrator pushes and waits for GitHub Actions
-2. **Build Verification Loop**: If build fails, create build_fix iteration → Claude creates new commit → orchestrator pushes → repeat from step 2. Merge conflicts are detected during this phase and surface as 'merge_conflict' build statuses until the branch is rebased
-3. **Code Review**: Run Codex review with context-specific prompt (varies based on iteration type: implementation/build_fix/review_fix)
-4. **Review Fix Loop**: If Codex finds issues, parse JSON, save issues to DB, create review_fix iteration → Claude creates new commit → orchestrator pushes → repeat from step 2
-5. **Step Completion**: When Codex passes (result: 'PASS') and CI passes, mark step complete and move to next step
+2. **Branch and PR Setup**: Before checking build status, the orchestrator ensures:
+   - We're on a feature branch (not main/master or detached HEAD)
+   - The branch is pushed to the remote (with upstream tracking if needed)
+   - A PR exists for the branch (creates one if not)
+3. **Build Verification Loop**: If build fails, create build_fix iteration → Claude creates new commit → orchestrator pushes → repeat from step 3. Merge conflicts are detected during this phase and surface as 'merge_conflict' build statuses until the branch is rebased
+4. **Code Review**: Run Codex review with context-specific prompt (varies based on iteration type: implementation/build_fix/review_fix)
+5. **Review Fix Loop**: If Codex finds issues, parse JSON, save issues to DB, create review_fix iteration → Claude creates new commit → orchestrator pushes → repeat from step 3
+6. **Step Completion**: When Codex passes (result: 'PASS') and CI passes, mark step complete and move to next step
 
 **State Tracking**:
 - All execution state stored in SQLite database at `.stepcat/executions.db` in project work directory
@@ -366,6 +376,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 - Must be a GitHub repo with Actions enabled
 - Must have remote origin pointing to GitHub
 - Must be executed from within the target project directory
+- Must be on a feature branch (not main/master) - stepcat will create a PR automatically
 
 ## TypeScript Configuration
 

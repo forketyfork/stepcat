@@ -392,7 +392,7 @@ export class GitHubChecker {
     }
   }
 
-  private getCurrentBranch(): string | null {
+  getCurrentBranch(): string | null {
     try {
       return execSync('git rev-parse --abbrev-ref HEAD', {
         cwd: this.workDir,
@@ -403,6 +403,76 @@ export class GitHubChecker {
       getLogger()?.debug('GitHubChecker', `Failed to read current branch: ${message}`);
       return null;
     }
+  }
+
+  async getDefaultBranch(): Promise<string> {
+    try {
+      const response = await this.octokit.repos.get({
+        owner: this.owner,
+        repo: this.repo,
+      });
+      return response.data.default_branch;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Failed to fetch default branch, falling back to 'main': ${message}`, 'warn');
+      return 'main';
+    }
+  }
+
+  remoteBranchExists(branch: string): boolean {
+    try {
+      execSync(`git ls-remote --exit-code --heads origin ${branch}`, {
+        cwd: this.workDir,
+        stdio: 'ignore',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  hasUpstreamTracking(): boolean {
+    try {
+      execSync('git rev-parse --abbrev-ref @{upstream}', {
+        cwd: this.workDir,
+        stdio: 'ignore',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async createPullRequest(
+    title: string,
+    body: string,
+    baseBranch?: string,
+  ): Promise<{ number: number; url: string; headSha: string }> {
+    const branch = this.getCurrentBranch();
+    if (!branch || branch === 'HEAD') {
+      throw new Error('Cannot create pull request: not on a branch');
+    }
+
+    const base = baseBranch ?? (await this.getDefaultBranch());
+
+    this.log(`Creating pull request: ${branch} -> ${base}`);
+
+    const response = await this.octokit.pulls.create({
+      owner: this.owner,
+      repo: this.repo,
+      title,
+      body,
+      head: branch,
+      base,
+    });
+
+    this.log(`✓ Created PR #${response.data.number}: ${response.data.html_url}`, 'success');
+
+    return {
+      number: response.data.number,
+      url: response.data.html_url,
+      headSha: response.data.head.sha,
+    };
   }
 
   private async getPullRequestDetails(): Promise<PullRequestDetails | null> {

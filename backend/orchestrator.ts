@@ -1136,8 +1136,13 @@ CRITICAL REQUIREMENTS:
 
   // eslint-disable-next-line @typescript-eslint/require-await -- Async for API consistency with caller expectations
   private async pushCommit(): Promise<void> {
+    const branch = this.githubChecker.getCurrentBranch();
+    const hasUpstream = this.githubChecker.hasUpstreamTracking();
+
+    const pushCommand = hasUpstream ? "git push" : `git push -u origin ${branch}`;
+
     try {
-      const output = execSync("git push", {
+      const output = execSync(pushCommand, {
         cwd: this.workDir,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
@@ -1151,6 +1156,93 @@ CRITICAL REQUIREMENTS:
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.log(`⚠ Failed to push commit: ${errorMessage}`, "warn");
       throw new Error("Failed to push commit to GitHub");
+    }
+  }
+
+  private async ensureBranchAndPR(step: DbStep): Promise<void> {
+    const branch = this.githubChecker.getCurrentBranch();
+
+    if (!branch || branch === 'HEAD') {
+      throw new Error(
+        'Cannot run build checks: repository is in a detached HEAD state. ' +
+        'Please checkout a feature branch before running stepcat.'
+      );
+    }
+
+    const defaultBranch = await this.githubChecker.getDefaultBranch();
+    if (branch === defaultBranch || branch === 'main' || branch === 'master') {
+      throw new Error(
+        `Cannot run build checks: currently on the default branch "${branch}". ` +
+        'Please create and checkout a feature branch before running stepcat.'
+      );
+    }
+
+    this.log(`Working on branch: ${branch}`);
+
+    if (!this.githubChecker.remoteBranchExists(branch)) {
+      this.log(`Branch "${branch}" not found on remote, pushing...`);
+      try {
+        execSync(`git push -u origin ${branch}`, {
+          cwd: this.workDir,
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        this.log(`✓ Pushed branch "${branch}" to origin`, "success");
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to push branch "${branch}" to origin: ${errorMessage}`);
+      }
+    }
+
+    const existingPR = await this.getPullRequestForCurrentBranch();
+    if (existingPR) {
+      this.log(`Using existing PR #${existingPR.number} for branch "${branch}"`);
+      return;
+    }
+
+    this.log(`No PR found for branch "${branch}", creating one...`);
+
+    const planName = this.planFile.split('/').pop() ?? this.planFile;
+    const prTitle = `[Stepcat] ${step.title}`;
+    const prBody = [
+      `## Automated PR created by Stepcat`,
+      '',
+      `This PR implements changes from plan file: \`${planName}\``,
+      '',
+      `**Current step:** Step ${step.stepNumber}: ${step.title}`,
+      '',
+      '---',
+      '_This PR is managed by [Stepcat](https://github.com/forketyfork/stepcat). ' +
+      'Each iteration creates a separate commit for full traceability._',
+    ].join('\n');
+
+    await this.githubChecker.createPullRequest(prTitle, prBody, defaultBranch);
+  }
+
+  private async getPullRequestForCurrentBranch(): Promise<{ number: number; url: string } | null> {
+    const branch = this.githubChecker.getCurrentBranch();
+    if (!branch || branch === 'HEAD') {
+      return null;
+    }
+
+    try {
+      const response = await this.githubChecker.getOctokit().pulls.list({
+        owner: this.githubChecker.getOwner(),
+        repo: this.githubChecker.getRepo(),
+        head: `${this.githubChecker.getOwner()}:${branch}`,
+        state: 'open',
+        per_page: 1,
+      });
+
+      const pr = response.data[0];
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- array index access can return undefined
+      if (!pr) {
+        return null;
+      }
+
+      return { number: pr.number, url: pr.html_url };
+    } catch {
+      return null;
     }
   }
 
@@ -1432,6 +1524,8 @@ CRITICAL REQUIREMENTS:
       } else {
         iterationNumber = highestIterationNumber + 1;
       }
+
+      await this.ensureBranchAndPR(step);
 
       while (this.countIterationsWithCommits(step.id) <= this.maxIterationsPerStep) {
         const attemptsWithCommits = this.countIterationsWithCommits(step.id);

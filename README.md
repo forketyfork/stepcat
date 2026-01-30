@@ -197,6 +197,11 @@ Your target project (the one being developed) **must** have the following `just`
 - `just lint` - Run linting
 - `just test` - Run tests
 
+**Git Requirements:**
+- Must be a GitHub repository with Actions enabled
+- Must be on a feature branch (not `main` or `master`)
+- Stepcat will automatically push the branch and create a PR if one doesn't exist
+
 **Example justfile for a Node.js project:**
 
 ```justfile

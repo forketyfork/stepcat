@@ -333,3 +333,116 @@ describe('GitHubChecker waitForChecksToPass', () => {
     expect(listSuitesForRef).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('GitHubChecker getDefaultBranch', () => {
+  const owner = 'forketyfork';
+  const repo = 'stepcat';
+  const workDir = process.cwd();
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns the default branch from the API', async () => {
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    (checker as any).octokit = {
+      repos: {
+        get: vi.fn().mockResolvedValue({ data: { default_branch: 'develop' } }),
+      },
+    };
+    (checker as any).log = noopLog;
+
+    const result = await checker.getDefaultBranch();
+
+    expect(result).toBe('develop');
+  });
+
+  it('falls back to main when API fails', async () => {
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    (checker as any).octokit = {
+      repos: {
+        get: vi.fn().mockRejectedValue(new Error('Not found')),
+      },
+    };
+    (checker as any).log = noopLog;
+
+    const result = await checker.getDefaultBranch();
+
+    expect(result).toBe('main');
+  });
+});
+
+describe('GitHubChecker createPullRequest', () => {
+  const owner = 'forketyfork';
+  const repo = 'stepcat';
+  const workDir = process.cwd();
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('creates a pull request and returns details', async () => {
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    (checker as any).octokit = {
+      repos: {
+        get: vi.fn().mockResolvedValue({ data: { default_branch: 'main' } }),
+      },
+      pulls: {
+        create: vi.fn().mockResolvedValue({
+          data: {
+            number: 42,
+            html_url: 'https://github.com/forketyfork/stepcat/pull/42',
+            head: { sha: 'abc123' },
+          },
+        }),
+      },
+    };
+    (checker as any).log = noopLog;
+    vi.spyOn(checker, 'getCurrentBranch').mockReturnValue('feature/test');
+
+    const result = await checker.createPullRequest('Test PR', 'Test body');
+
+    expect(result).toEqual({
+      number: 42,
+      url: 'https://github.com/forketyfork/stepcat/pull/42',
+      headSha: 'abc123',
+    });
+  });
+
+  it('throws when on detached HEAD', async () => {
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    (checker as any).log = noopLog;
+    vi.spyOn(checker, 'getCurrentBranch').mockReturnValue('HEAD');
+
+    await expect(checker.createPullRequest('Test PR', 'Test body')).rejects.toThrow(
+      'Cannot create pull request: not on a branch'
+    );
+  });
+
+  it('uses provided base branch instead of default', async () => {
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    const createMock = vi.fn().mockResolvedValue({
+      data: {
+        number: 1,
+        html_url: 'https://github.com/forketyfork/stepcat/pull/1',
+        head: { sha: 'def456' },
+      },
+    });
+    (checker as any).octokit = {
+      pulls: { create: createMock },
+    };
+    (checker as any).log = noopLog;
+    vi.spyOn(checker, 'getCurrentBranch').mockReturnValue('feature/branch');
+
+    await checker.createPullRequest('PR Title', 'PR body', 'develop');
+
+    expect(createMock).toHaveBeenCalledWith({
+      owner: 'forketyfork',
+      repo: 'stepcat',
+      title: 'PR Title',
+      body: 'PR body',
+      head: 'feature/branch',
+      base: 'develop',
+    });
+  });
+});
