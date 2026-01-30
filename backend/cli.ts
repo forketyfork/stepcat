@@ -354,7 +354,7 @@ program
 
       // Set up signal handlers for graceful shutdown
       const cleanup = async (reason: string): Promise<void> => {
-        getLogger()?.error('CLI', `Process terminating: ${reason}`);
+        getLogger()?.error('CLI', `Process terminating, starting cleanup: ${reason}`);
         for (const adapter of uiAdapters) {
           try {
             await adapter.shutdown();

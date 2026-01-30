@@ -737,7 +737,9 @@ stepcat --status --execution-id 5 --dir /path/to/project
 
 **Iteration completed but step still in_progress**
 - The process was interrupted after Claude finished but before push/review completed
-- Check the `phase` column: if it's 'implementation' or 'pushing', the commit may not have been pushed
+- Check the `phase` column:
+  - If it's `implementation`, the implementation agent ran but a commit has not yet been created
+  - If it's `pushing`, a commit was created but may not have been pushed
 - Resume with `--execution-id` to continue
 
 **buildStatus is NULL with status 'completed'**
