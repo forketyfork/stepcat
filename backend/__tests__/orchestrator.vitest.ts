@@ -34,9 +34,17 @@ const { mockClaudeRunnerInstance, mockCodexRunnerInstance, mockGitHubCheckerInst
     getLastTrackedSha: vi.fn().mockReturnValue('abc123'),
     getOwner: vi.fn().mockReturnValue('test-owner'),
     getRepo: vi.fn().mockReturnValue('test-repo'),
+    getCurrentBranch: vi.fn().mockReturnValue('feature-branch'),
+    hasUpstreamTracking: vi.fn().mockReturnValue(true),
+    getDefaultBranch: vi.fn().mockResolvedValue('main'),
+    remoteBranchExists: vi.fn().mockReturnValue(true),
+    createPullRequest: vi.fn().mockResolvedValue({ number: 1, url: 'https://github.com/test-owner/test-repo/pull/1', headSha: 'abc123' }),
     getOctokit: vi.fn().mockReturnValue({
       checks: {
         listForRef: vi.fn().mockResolvedValue({ data: { check_runs: [] } }),
+      },
+      pulls: {
+        list: vi.fn().mockResolvedValue({ data: [{ number: 1, html_url: 'https://github.com/test-owner/test-repo/pull/1' }] }),
       },
       request: vi.fn().mockResolvedValue({ data: [] }),
     }),

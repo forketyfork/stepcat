@@ -290,8 +290,26 @@ export class GitHubChecker {
       ref: targetSha,
     });
 
+    // Get check runs to determine which apps actually have runs
+    const { data: checkRuns } = await this.octokit.checks.listForRef({
+      owner: this.owner,
+      repo: this.repo,
+      ref: targetSha,
+    });
+
+    // Build a set of app IDs that have at least one check run
+    const appsWithRuns = new Set<number>();
+    for (const run of checkRuns.check_runs) {
+      if (run.app?.id) {
+        appsWithRuns.add(run.app.id);
+      }
+    }
+
+    // Filter to suites that match the target SHA AND have at least one check run.
+    // This excludes inactive integrations (like Cursor) that create check suites
+    // but never actually run any checks.
     const suitesForTarget = checkSuites.check_suites.filter(
-      suite => suite.head_sha === targetSha
+      suite => suite.head_sha === targetSha && suite.app?.id && appsWithRuns.has(suite.app.id)
     );
 
     // If no suites exist for this ref, treat it as passed.
@@ -392,7 +410,7 @@ export class GitHubChecker {
     }
   }
 
-  private getCurrentBranch(): string | null {
+  getCurrentBranch(): string | null {
     try {
       return execSync('git rev-parse --abbrev-ref HEAD', {
         cwd: this.workDir,
@@ -403,6 +421,76 @@ export class GitHubChecker {
       getLogger()?.debug('GitHubChecker', `Failed to read current branch: ${message}`);
       return null;
     }
+  }
+
+  async getDefaultBranch(): Promise<string> {
+    try {
+      const response = await this.octokit.repos.get({
+        owner: this.owner,
+        repo: this.repo,
+      });
+      return response.data.default_branch;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`Failed to fetch default branch, falling back to 'main': ${message}`, 'warn');
+      return 'main';
+    }
+  }
+
+  remoteBranchExists(branch: string): boolean {
+    try {
+      execSync(`git ls-remote --exit-code --heads origin ${branch}`, {
+        cwd: this.workDir,
+        stdio: 'ignore',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  hasUpstreamTracking(): boolean {
+    try {
+      execSync('git rev-parse --abbrev-ref @{upstream}', {
+        cwd: this.workDir,
+        stdio: 'ignore',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async createPullRequest(
+    title: string,
+    body: string,
+    baseBranch?: string,
+  ): Promise<{ number: number; url: string; headSha: string }> {
+    const branch = this.getCurrentBranch();
+    if (!branch || branch === 'HEAD') {
+      throw new Error('Cannot create pull request: not on a branch');
+    }
+
+    const base = baseBranch ?? (await this.getDefaultBranch());
+
+    this.log(`Creating pull request: ${branch} -> ${base}`);
+
+    const response = await this.octokit.pulls.create({
+      owner: this.owner,
+      repo: this.repo,
+      title,
+      body,
+      head: branch,
+      base,
+    });
+
+    this.log(`✓ Created PR #${response.data.number}: ${response.data.html_url}`, 'success');
+
+    return {
+      number: response.data.number,
+      url: response.data.html_url,
+      headSha: response.data.head.sha,
+    };
   }
 
   private async getPullRequestDetails(): Promise<PullRequestDetails | null> {
