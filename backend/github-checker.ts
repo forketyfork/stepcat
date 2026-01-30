@@ -290,8 +290,26 @@ export class GitHubChecker {
       ref: targetSha,
     });
 
+    // Get check runs to determine which apps actually have runs
+    const { data: checkRuns } = await this.octokit.checks.listForRef({
+      owner: this.owner,
+      repo: this.repo,
+      ref: targetSha,
+    });
+
+    // Build a set of app IDs that have at least one check run
+    const appsWithRuns = new Set<number>();
+    for (const run of checkRuns.check_runs) {
+      if (run.app?.id) {
+        appsWithRuns.add(run.app.id);
+      }
+    }
+
+    // Filter to suites that match the target SHA AND have at least one check run.
+    // This excludes inactive integrations (like Cursor) that create check suites
+    // but never actually run any checks.
     const suitesForTarget = checkSuites.check_suites.filter(
-      suite => suite.head_sha === targetSha
+      suite => suite.head_sha === targetSha && suite.app?.id && appsWithRuns.has(suite.app.id)
     );
 
     // If no suites exist for this ref, treat it as passed.
