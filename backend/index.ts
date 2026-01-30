@@ -7,3 +7,18 @@ export { PROMPTS } from './prompts.js';
 export { Database } from './database.js';
 export { Storage, IterationUpdate } from './storage.js';
 export { Plan, DbStep, Iteration, Issue } from './models.js';
+export { DagExecutor } from './dag-executor.js';
+export type { DagNodeHandler, DagExecutorOptions, DagRunState } from './dag-executor.js';
+export {
+  DagConfig,
+  DagExecutionContext,
+  DagForEachConfig,
+  DagGroupConfig,
+  DagNodeConfig,
+  DagNodeResult,
+  DagRepeatUntilConfig,
+  DagRunResult,
+  DagTaskConfig,
+  DagTaskExecution,
+} from './dag-models.js';
+export { parseDagConfig } from './dag-config.js';

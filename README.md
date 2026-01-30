@@ -399,3 +399,56 @@ npm uninstall -g stepcat
 ## License
 
 MIT
+
+## DAG Configuration (Experimental)
+
+Stepcat can be extended with a YAML-based DAG description that models nodes and loops in a BPMN-like flow. This provides a flexible way to define orchestration flows without hardcoding a fixed sequence. The DAG DSL is parsed with `parseDagConfig()` and executed with `DagExecutor` using handler callbacks.
+
+### DAG Schema
+
+Each DAG is a YAML mapping with a top-level `nodes` list. Nodes can be tasks or groups:
+
+- **Task nodes**: `name`, optional `prompt`, optional `agent`, optional `depends_on`.
+- **Group nodes**: `name`, optional `depends_on`, and a nested `nodes` list. Groups can declare one of:
+  - `for_each`: repeat the group over an array (e.g., plan steps).
+  - `repeat_until`: repeat until a named condition node returns truthy output.
+
+### Example
+
+```yaml
+version: 1
+nodes:
+  - name: implement
+    prompt: "Implement {{step.title}}"
+    agent: claude
+  - name: review
+    depends_on: [implement]
+    agent: codex
+  - name: plan-loop
+    for_each:
+      var: step
+      in: plan.steps
+    nodes:
+      - name: implement
+        prompt: "Implement {{step.title}}"
+        agent: claude
+      - name: review
+        depends_on: [implement]
+        agent: codex
+  - name: build-loop
+    repeat_until:
+      condition: build_green
+      max_iterations: 5
+    nodes:
+      - name: build_green
+        agent: github
+```
+
+### Execution Notes
+
+- `depends_on` enforces DAG ordering (cycles are rejected).
+- `for_each` resolves an array from the execution context (e.g. `plan.steps`) and sets `{{step}}` and `{{step_index}}` for each iteration.
+- `repeat_until` reruns its group until the named condition node outputs a truthy value.
+- `prompt` strings support `{{path.to.value}}` templating from the execution context.
+
+The executor is adapter-friendly: register handlers by `agent` name to connect to Claude, Codex, GitHub checks, or custom integrations.
