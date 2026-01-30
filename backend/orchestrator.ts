@@ -4,6 +4,8 @@ import { dirname, resolve } from "path";
 
 import { ClaudeRunner } from "./claude-runner.js";
 import { CodexRunner } from "./codex-runner.js";
+import { DagExecutor } from "./dag-executor.js";
+import type { DagConfig, DagNodeResult } from "./dag-models.js";
 import { Database } from "./database.js";
 import { OrchestratorEventEmitter } from "./events.js";
 import type { OrchestratorEvent } from "./events.js";
@@ -546,7 +548,7 @@ export class Orchestrator {
     };
   }
 
-  private async runImplementationAgentWithPermissions(
+  private async runImplementationAgentWithPermissionsDirect(
     iteration: Iteration,
     stepNumber: number,
     prompt: string,
@@ -615,6 +617,48 @@ export class Orchestrator {
     throw new Error(
       `Exceeded ${maxPermissionAttempts} permission request attempts for Step ${stepNumber}.`,
     );
+  }
+
+  private async runImplementationAgentWithPermissions(
+    iteration: Iteration,
+    stepNumber: number,
+    prompt: string,
+  ): Promise<AgentRunResult> {
+    const dagConfig: DagConfig = {
+      nodes: [
+        {
+          name: "implementation",
+          agent: this.implementationAgent,
+          prompt,
+        },
+      ],
+    };
+
+    const executor = new DagExecutor(dagConfig, {
+      handlers: {
+        [this.implementationAgent]: async node => {
+          const resolvedPrompt = node.resolvedPrompt ?? prompt;
+          const result = await this.runImplementationAgentWithPermissionsDirect(
+            iteration,
+            stepNumber,
+            resolvedPrompt,
+          );
+          const status: DagNodeResult["status"] = result.success ? "success" : "failed";
+          return {
+            status,
+            output: result,
+            error: result.success ? undefined : new Error("Implementation agent failed."),
+          };
+        },
+      },
+    });
+
+    const runResult = await executor.run({ stepNumber });
+    const nodeResult = runResult.results.get("implementation");
+    if (!nodeResult?.output || nodeResult.status === "failed") {
+      throw nodeResult?.error ?? new Error("Implementation node failed to return a result.");
+    }
+    return nodeResult.output as AgentRunResult;
   }
 
   private async runReviewAgentWithPermissions(
