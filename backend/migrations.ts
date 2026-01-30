@@ -356,4 +356,92 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    id: 6,
+    name: 'add_phase_and_interruption_reason',
+    up: (db) => {
+      const pragmaOptions = { simple: true } as const;
+      const foreignKeysEnabled = db.pragma('foreign_keys', pragmaOptions) === 1;
+
+      db.pragma('foreign_keys = OFF');
+
+      try {
+        db.exec(`
+          BEGIN;
+
+          CREATE TABLE iterations_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stepId INTEGER NOT NULL,
+            iterationNumber INTEGER NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('implementation', 'build_fix', 'review_fix')),
+            commitSha TEXT,
+            claudeLog TEXT,
+            codexLog TEXT,
+            buildStatus TEXT CHECK(buildStatus IN ('pending', 'in_progress', 'passed', 'failed', 'merge_conflict')),
+            reviewStatus TEXT CHECK(reviewStatus IN ('pending', 'in_progress', 'passed', 'failed')),
+            status TEXT NOT NULL CHECK(status IN ('in_progress', 'completed', 'failed', 'aborted')),
+            phase TEXT CHECK(phase IN ('implementation', 'pushing', 'build_check', 'review', 'done')),
+            interruptionReason TEXT,
+            implementationAgent TEXT NOT NULL CHECK(implementationAgent IN ('claude', 'codex')),
+            reviewAgent TEXT CHECK(reviewAgent IN ('claude', 'codex')),
+            createdAt TEXT NOT NULL,
+            updatedAt TEXT NOT NULL,
+            FOREIGN KEY (stepId) REFERENCES steps(id) ON DELETE CASCADE
+          );
+
+          INSERT INTO iterations_new (
+            id,
+            stepId,
+            iterationNumber,
+            type,
+            commitSha,
+            claudeLog,
+            codexLog,
+            buildStatus,
+            reviewStatus,
+            status,
+            phase,
+            interruptionReason,
+            implementationAgent,
+            reviewAgent,
+            createdAt,
+            updatedAt
+          )
+          SELECT
+            id,
+            stepId,
+            iterationNumber,
+            type,
+            commitSha,
+            claudeLog,
+            codexLog,
+            buildStatus,
+            reviewStatus,
+            status,
+            CASE WHEN status = 'completed' THEN 'done' ELSE NULL END,
+            NULL,
+            implementationAgent,
+            reviewAgent,
+            createdAt,
+            updatedAt
+          FROM iterations;
+
+          DROP TABLE iterations;
+
+          ALTER TABLE iterations_new RENAME TO iterations;
+
+          CREATE INDEX IF NOT EXISTS idx_iterations_stepId ON iterations(stepId);
+
+          COMMIT;
+        `);
+      } catch (error) {
+        db.exec('ROLLBACK;');
+        throw error;
+      } finally {
+        if (foreignKeysEnabled) {
+          db.pragma('foreign_keys = ON');
+        }
+      }
+    },
+  },
 ];

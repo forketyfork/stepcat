@@ -18,6 +18,7 @@ export type PlanStepInput = {
 export interface Storage {
   createPlan(planFilePath: string, workDir: string, owner: string, repo: string): Plan;
   getPlan(id: number): Plan | undefined;
+  getAllPlans(): Plan[];
 
   createStep(planId: number, stepNumber: number, title: string): DbStep;
   getSteps(planId: number): DbStep[];

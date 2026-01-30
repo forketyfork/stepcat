@@ -14,6 +14,7 @@ export interface LoggerConfig {
   workDir: string;
   minLevel?: LogLevel;
   logFileName?: string;
+  executionId?: number;
 }
 
 export class Logger {
@@ -28,7 +29,12 @@ export class Logger {
       fs.mkdirSync(logDir, { recursive: true });
     }
 
-    this.logFile = path.join(logDir, config.logFileName ?? "stepcat.log");
+    // Generate filename based on execution ID if provided
+    const defaultName = config.executionId
+      ? `stepcat.${config.executionId}.log`
+      : "stepcat.log";
+
+    this.logFile = path.join(logDir, config.logFileName ?? defaultName);
     this.minLevel = config.minLevel ?? "debug";
 
     this.stream = fs.createWriteStream(this.logFile, { flags: "a" });

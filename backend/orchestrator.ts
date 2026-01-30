@@ -124,7 +124,7 @@ export class Orchestrator {
   constructor(config: OrchestratorConfig) {
     this.workDir = config.workDir;
 
-    Logger.initialize({ workDir: config.workDir });
+    // Logger initialization is deferred to initializeOrResumePlan() when execution ID is known
 
     this.parser = new StepParser(config.planFile);
     this.planFile = config.planFile;
@@ -760,7 +760,10 @@ export class Orchestrator {
           `Found incomplete iteration ${iteration.iterationNumber} for step ${stepNumber}, marking as aborted`,
           "warn"
         );
-        this.storage.updateIteration(iteration.id, { status: 'aborted' });
+        this.storage.updateIteration(iteration.id, {
+          status: 'aborted',
+          interruptionReason: 'Previous execution did not complete cleanly',
+        });
         cleanedCount++;
       }
     }
@@ -1070,6 +1073,9 @@ CRITICAL REQUIREMENTS:
 
   private async initializeOrResumePlan(): Promise<void> {
     if (this.executionId) {
+      // Initialize logger with execution ID for resume path
+      Logger.initialize({ workDir: this.workDir, executionId: this.executionId });
+
       this.log(`Resuming execution ID: ${this.executionId}`, "info");
       const plan = this.storage.getPlan(this.executionId);
       if (!plan) {
@@ -1098,6 +1104,10 @@ CRITICAL REQUIREMENTS:
         this.githubChecker.getOwner(),
         this.githubChecker.getRepo()
       );
+
+      // Initialize logger with execution ID now that plan is created
+      Logger.initialize({ workDir: this.workDir, executionId: this.plan.id });
+
       this.log(`Created new execution with ID: ${this.plan.id}`, "success");
 
       const parsedSteps = this.parser.parseSteps();
@@ -1404,6 +1414,7 @@ CRITICAL REQUIREMENTS:
           commitSha: result.commitSha,
           claudeLog: this.buildAgentLog(result.output, result.workingTreeStatus) ?? null,
           status: 'completed',
+          phase: 'pushing',
         });
 
         await this.pushCommit();
@@ -1429,7 +1440,7 @@ CRITICAL REQUIREMENTS:
         const previousIterationId = latestCommittedIteration?.id;
 
         if (previousIterationId) {
-          this.storage.updateIteration(previousIterationId, { buildStatus: 'pending' });
+          this.storage.updateIteration(previousIterationId, { buildStatus: 'pending', phase: 'build_check' });
         }
 
         this.emitEvent({
@@ -1610,6 +1621,7 @@ CRITICAL REQUIREMENTS:
             commitSha: result.commitSha,
             claudeLog: this.buildAgentLog(result.output, result.workingTreeStatus) ?? null,
             status: 'completed',
+            phase: 'pushing',
           });
 
           await this.pushCommit();
@@ -1668,7 +1680,7 @@ CRITICAL REQUIREMENTS:
           codexPrompt = PROMPTS.codexReviewCodeFixes(openIssues, commitSha);
         }
 
-        this.storage.updateIteration(previousIteration.id, { reviewStatus: 'in_progress' });
+        this.storage.updateIteration(previousIteration.id, { reviewStatus: 'in_progress', phase: 'review' });
 
         this.emitEvent({
           type: "codex_review_start",
@@ -1719,6 +1731,7 @@ CRITICAL REQUIREMENTS:
         this.storage.updateIteration(previousIteration.id, {
           codexLog: reviewRun.output,
           reviewStatus: reviewResult.result === 'PASS' ? 'passed' : 'failed',
+          phase: reviewResult.result === 'PASS' ? 'done' : 'review',
         });
 
         this.emitEvent({
@@ -1825,6 +1838,7 @@ CRITICAL REQUIREMENTS:
             commitSha: result.commitSha,
             claudeLog: this.buildAgentLog(result.output, result.workingTreeStatus) ?? null,
             status: 'completed',
+            phase: 'pushing',
           });
 
           await this.pushCommit();

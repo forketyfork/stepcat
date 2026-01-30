@@ -88,6 +88,11 @@ export class Database implements Storage {
     return stmt.get(id) as Plan | undefined;
   }
 
+  getAllPlans(): Plan[] {
+    const stmt = this.db.prepare('SELECT * FROM plans ORDER BY createdAt DESC');
+    return stmt.all() as Plan[];
+  }
+
   createStep(planId: number, stepNumber: number, title: string): DbStep {
     const now = new Date().toISOString();
     const stmt = this.db.prepare(
@@ -169,9 +174,9 @@ export class Database implements Storage {
   ): Iteration {
     const now = new Date().toISOString();
     const stmt = this.db.prepare(
-      'INSERT INTO iterations (stepId, iterationNumber, type, status, implementationAgent, reviewAgent, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO iterations (stepId, iterationNumber, type, status, phase, implementationAgent, reviewAgent, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    const result = stmt.run(stepId, iterationNumber, type, 'in_progress', implementationAgent, reviewAgent, now, now);
+    const result = stmt.run(stepId, iterationNumber, type, 'in_progress', 'implementation', implementationAgent, reviewAgent, now, now);
     return {
       id: result.lastInsertRowid as number,
       stepId,
@@ -183,6 +188,8 @@ export class Database implements Storage {
       buildStatus: null,
       reviewStatus: null,
       status: 'in_progress',
+      phase: 'implementation',
+      interruptionReason: null,
       implementationAgent,
       reviewAgent,
       createdAt: now,
@@ -234,6 +241,14 @@ export class Database implements Storage {
     if (updates.status !== undefined) {
       fields.push('status = ?');
       values.push(updates.status);
+    }
+    if (updates.phase !== undefined) {
+      fields.push('phase = ?');
+      values.push(updates.phase);
+    }
+    if (updates.interruptionReason !== undefined) {
+      fields.push('interruptionReason = ?');
+      values.push(updates.interruptionReason);
     }
     if (updates.reviewAgent !== undefined) {
       fields.push('reviewAgent = ?');
