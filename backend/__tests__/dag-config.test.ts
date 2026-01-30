@@ -11,14 +11,22 @@ nodes:
   - name: review
     depends_on: [implement]
     agent: codex
+  - name: push
+    action: push_changes
 `);
 
     expect(config.version).toBe(1);
-    expect(config.nodes).toHaveLength(2);
+    expect(config.nodes).toHaveLength(3);
     expect(config.nodes[0]).toMatchObject({
       name: 'implement',
       prompt: 'Do the work',
       agent: 'claude',
+      kind: 'agent',
+    });
+    expect(config.nodes[2]).toMatchObject({
+      name: 'push',
+      action: 'push_changes',
+      kind: 'action',
     });
   });
 
@@ -32,6 +40,7 @@ nodes:
     nodes:
       - name: implement
         prompt: "Implement {{step.title}}"
+        agent: claude
   - name: build-loop
     repeat_until:
       condition: build_green

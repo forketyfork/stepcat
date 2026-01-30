@@ -6,6 +6,7 @@ import type {
   DagGroupConfig,
   DagNodeConfig,
   DagRepeatUntilConfig,
+  DagTaskKind,
   DagTaskConfig,
 } from './dag-models.js';
 
@@ -114,23 +115,51 @@ const parseNode = (value: unknown, path: string): DagNodeConfig => {
 
   const prompt = value.prompt;
   const agent = value.agent;
+  const action = value.action;
+  const kindValue = value.kind;
   if (prompt !== undefined && typeof prompt !== 'string') {
     throw new Error(`${path}.prompt must be a string.`);
   }
   if (agent !== undefined && typeof agent !== 'string') {
     throw new Error(`${path}.agent must be a string.`);
   }
+  if (action !== undefined && typeof action !== 'string') {
+    throw new Error(`${path}.action must be a string.`);
+  }
+  if (kindValue !== undefined && kindValue !== 'agent' && kindValue !== 'action') {
+    throw new Error(`${path}.kind must be either 'agent' or 'action'.`);
+  }
+  if (agent && action) {
+    throw new Error(`${path} cannot define both agent and action.`);
+  }
+  const kind: DagTaskKind | undefined = kindValue ?? (action ? 'action' : agent ? 'agent' : undefined);
+  if (!kind) {
+    throw new Error(`${path} must define either agent or action.`);
+  }
+  if (kind === 'agent' && !agent) {
+    throw new Error(`${path} kind is 'agent' but agent is missing.`);
+  }
+  if (kind === 'action' && !action) {
+    throw new Error(`${path} kind is 'action' but action is missing.`);
+  }
   const taskConfig: DagTaskConfig = {
     name,
     depends_on: dependsOn,
+    kind,
     prompt,
     agent,
+    action,
   };
   return taskConfig;
 };
 
+const parseYamlContent = (yamlContent: string): unknown => {
+  const parser = parseYaml as (content: string) => unknown;
+  return parser(yamlContent);
+};
+
 export const parseDagConfig = (yamlContent: string): DagConfig => {
-  const parsed = parseYaml(yamlContent) as unknown;
+  const parsed = parseYamlContent(yamlContent);
   if (!isRecord(parsed)) {
     throw new Error('DAG config must be a YAML mapping.');
   }

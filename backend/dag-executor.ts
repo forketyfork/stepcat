@@ -6,6 +6,7 @@ import type {
   DagNodeResult,
   DagRunResult,
   DagTaskConfig,
+  DagTaskKind,
   DagTaskExecution,
 } from './dag-models.js';
 
@@ -16,7 +17,7 @@ export type DagNodeHandler = (
 ) => Promise<DagNodeResult>;
 
 export interface DagExecutorOptions {
-  handlers: Record<string, DagNodeHandler>;
+  handlers: Partial<Record<string, DagNodeHandler>>;
   defaultHandler?: DagNodeHandler;
   maxRepeatIterations?: number;
 }
@@ -141,9 +142,24 @@ const ensureArray = (value: unknown, label: string): unknown[] => {
   return value;
 };
 
+const resolveTaskHandler = (
+  node: DagTaskConfig,
+): { handlerId: string; kind: DagTaskKind } => {
+  if (node.kind === 'action' || node.action) {
+    if (!node.action) {
+      throw new Error(`Action node '${node.name}' is missing action.`);
+    }
+    return { handlerId: node.action, kind: 'action' };
+  }
+  if (!node.agent) {
+    throw new Error(`Agent node '${node.name}' is missing agent.`);
+  }
+  return { handlerId: node.agent, kind: 'agent' };
+};
+
 export class DagExecutor {
   private readonly config: DagConfig;
-  private readonly handlers: Record<string, DagNodeHandler>;
+  private readonly handlers: Partial<Record<string, DagNodeHandler>>;
   private readonly defaultHandler?: DagNodeHandler;
   private readonly maxRepeatIterations: number;
 
@@ -193,14 +209,17 @@ export class DagExecutor {
   ): Promise<void> {
     const fullName = buildScopeName(scope, node.name);
     const resolvedPrompt = node.prompt ? renderTemplate(node.prompt, context) : undefined;
+    const { handlerId, kind } = resolveTaskHandler(node);
     const executionNode: DagTaskExecution = {
       ...node,
       resolvedPrompt,
+      handlerId,
+      kind,
     };
 
-    const handler = node.agent ? this.handlers[node.agent] : this.defaultHandler;
+    const handler = this.handlers[handlerId] ?? this.defaultHandler;
     if (!handler) {
-      throw new Error(`No handler registered for node '${node.name}'.`);
+      throw new Error(`No handler registered for node '${node.name}' (${handlerId}).`);
     }
 
     const result = await handler(executionNode, context, runState);

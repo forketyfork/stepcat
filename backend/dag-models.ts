@@ -10,9 +10,13 @@ export interface DagBaseConfig {
   depends_on?: string[];
 }
 
+export type DagTaskKind = 'agent' | 'action';
+
 export interface DagTaskConfig extends DagBaseConfig {
+  kind?: DagTaskKind;
   prompt?: string;
   agent?: string;
+  action?: string;
 }
 
 export interface DagGroupConfig extends DagBaseConfig {
@@ -33,6 +37,8 @@ export interface DagRepeatUntilConfig {
 
 export interface DagTaskExecution extends DagTaskConfig {
   resolvedPrompt?: string;
+  handlerId: string;
+  kind: DagTaskKind;
 }
 
 export interface DagExecutionContext {

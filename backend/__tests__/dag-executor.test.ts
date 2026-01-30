@@ -16,6 +16,11 @@ describe('DagExecutor', () => {
           depends_on: ['implement'],
           agent: 'codex',
         },
+        {
+          name: 'push',
+          depends_on: ['review'],
+          action: 'push_changes',
+        },
       ],
     };
 
@@ -29,13 +34,13 @@ describe('DagExecutor', () => {
     };
 
     const executor = new DagExecutor(config, {
-      handlers: { claude: handler, codex: handler },
+      handlers: { claude: handler, codex: handler, push_changes: handler },
     });
 
     const result = await executor.run({ step: { title: 'Feature' } });
 
     expect(result.status).toBe('success');
-    expect(seen).toEqual(['implement', 'review']);
+    expect(seen).toEqual(['implement', 'review', 'push']);
     expect(result.results.get('implement')?.output).toBe('Implement Feature');
   });
 

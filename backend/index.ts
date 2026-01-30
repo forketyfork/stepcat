@@ -18,6 +18,7 @@ export {
   DagNodeResult,
   DagRepeatUntilConfig,
   DagRunResult,
+  DagTaskKind,
   DagTaskConfig,
   DagTaskExecution,
 } from './dag-models.js';
