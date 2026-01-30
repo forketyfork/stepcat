@@ -150,48 +150,56 @@ Stepcat is organized into the backend and its terminal UI components:
 
 ### Database Schema
 
-Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in the work directory. The database has four main tables plus a lightweight migrations tracker:
+Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in the work directory. The database has four main tables plus a lightweight migrations tracker.
 
-**Plan Table**:
-- `id` (INTEGER PRIMARY KEY): Unique execution identifier
-- `planFilePath` (TEXT): Path to the plan markdown file
-- `workDir` (TEXT): Working directory for the execution
-- `createdAt` (TEXT): ISO timestamp of execution start
+**Note**: All table names are **plural** (`plans`, `steps`, `iterations`, `issues`).
 
-**Step Table**:
-- `id` (INTEGER PRIMARY KEY): Unique step identifier
-- `planId` (INTEGER): Foreign key to plan
-- `stepNumber` (INTEGER): Step number from plan file
-- `title` (TEXT): Step title
-- `status` (TEXT): 'pending' | 'in_progress' | 'completed' | 'failed'
-- `createdAt` (TEXT): ISO timestamp
-- `updatedAt` (TEXT): ISO timestamp
+**`plans` table**:
+- `id` (INTEGER PRIMARY KEY AUTOINCREMENT): Unique execution identifier
+- `planFilePath` (TEXT NOT NULL): Path to the plan markdown file
+- `workDir` (TEXT NOT NULL): Working directory for the execution
+- `owner` (TEXT NOT NULL): GitHub repository owner
+- `repo` (TEXT NOT NULL): GitHub repository name
+- `createdAt` (TEXT NOT NULL): ISO timestamp of execution start
 
-**Iteration Table**:
-- `id` (INTEGER PRIMARY KEY): Unique iteration identifier
-- `stepId` (INTEGER): Foreign key to step
-- `iterationNumber` (INTEGER): Sequential number within step
-- `type` (TEXT): 'implementation' | 'build_fix' | 'review_fix'
-- `commitSha` (TEXT | NULL): Git commit SHA created by this iteration
-- `claudeLog` (TEXT | NULL): Full Claude Code output/logs
-- `codexLog` (TEXT | NULL): Full Codex review output
-- `buildStatus` (TEXT | NULL): 'pending' | 'in_progress' | 'passed' | 'failed' | 'merge_conflict'
-- `reviewStatus` (TEXT | NULL): 'pending' | 'in_progress' | 'passed' | 'failed'
-- `status` (TEXT): 'in_progress' | 'completed' | 'failed' | 'aborted'
-- `createdAt` (TEXT): ISO timestamp
-- `updatedAt` (TEXT): ISO timestamp
+**`steps` table**:
+- `id` (INTEGER PRIMARY KEY AUTOINCREMENT): Unique step identifier
+- `planId` (INTEGER NOT NULL): Foreign key to plans
+- `stepNumber` (INTEGER NOT NULL): Step number from plan file
+- `title` (TEXT NOT NULL): Step title
+- `status` (TEXT NOT NULL): 'pending' | 'in_progress' | 'completed' | 'failed'
+- `createdAt` (TEXT NOT NULL): ISO timestamp
+- `updatedAt` (TEXT NOT NULL): ISO timestamp
 
-**Issue Table**:
-- `id` (INTEGER PRIMARY KEY): Unique issue identifier
-- `iterationId` (INTEGER): Foreign key to iteration where issue was found
-- `type` (TEXT): 'ci_failure' | 'codex_review' | 'merge_conflict'
-- `description` (TEXT): Issue description
-- `filePath` (TEXT | NULL): File where issue occurred
-- `lineNumber` (INTEGER | NULL): Line number where issue occurred
-- `severity` (TEXT | NULL): 'error' | 'warning'
-- `status` (TEXT): 'open' | 'fixed'
-- `createdAt` (TEXT): ISO timestamp
-- `resolvedAt` (TEXT | NULL): ISO timestamp when marked fixed
+**`iterations` table**:
+- `id` (INTEGER PRIMARY KEY AUTOINCREMENT): Unique iteration identifier
+- `stepId` (INTEGER NOT NULL): Foreign key to steps
+- `iterationNumber` (INTEGER NOT NULL): Sequential number within step
+- `type` (TEXT NOT NULL): 'implementation' | 'build_fix' | 'review_fix'
+- `commitSha` (TEXT): Git commit SHA created by this iteration
+- `claudeLog` (TEXT): Full Claude Code output/logs
+- `codexLog` (TEXT): Full Codex review output
+- `buildStatus` (TEXT): 'pending' | 'in_progress' | 'passed' | 'failed' | 'merge_conflict'
+- `reviewStatus` (TEXT): 'pending' | 'in_progress' | 'passed' | 'failed'
+- `status` (TEXT NOT NULL): 'in_progress' | 'completed' | 'failed' | 'aborted'
+- `phase` (TEXT): 'implementation' | 'pushing' | 'build_check' | 'review' | 'done'
+- `interruptionReason` (TEXT): Reason if iteration was aborted
+- `implementationAgent` (TEXT NOT NULL): 'claude' | 'codex'
+- `reviewAgent` (TEXT): 'claude' | 'codex'
+- `createdAt` (TEXT NOT NULL): ISO timestamp
+- `updatedAt` (TEXT NOT NULL): ISO timestamp
+
+**`issues` table**:
+- `id` (INTEGER PRIMARY KEY AUTOINCREMENT): Unique issue identifier
+- `iterationId` (INTEGER NOT NULL): Foreign key to iterations
+- `type` (TEXT NOT NULL): 'ci_failure' | 'codex_review' | 'merge_conflict' | 'permission_request'
+- `description` (TEXT NOT NULL): Issue description
+- `filePath` (TEXT): File where issue occurred
+- `lineNumber` (INTEGER): Line number where issue occurred
+- `severity` (TEXT): 'error' | 'warning'
+- `status` (TEXT NOT NULL): 'open' | 'fixed'
+- `createdAt` (TEXT NOT NULL): ISO timestamp
+- `resolvedAt` (TEXT): ISO timestamp when marked fixed
 
 **Execution ID**: The plan ID serves as the execution ID and can be used to resume executions with `--execution-id <id>`.
 
@@ -217,7 +225,7 @@ Stepcat uses SQLite to persist execution state at `.stepcat/executions.db` in th
 
 **Database** (`backend/database.ts`): SQLite database management
 - Initializes database at `.stepcat/executions.db` in work directory
-- Creates schema with four tables: plan, step, iteration, issue
+- Creates schema with four tables: `plans`, `steps`, `iterations`, `issues`
 - CRUD methods for all entities with proper type safety
 - Methods include: `createPlan()`, `getSteps()`, `getIterationsForPlan()`, `getIssuesForStepByType()`, `getExecutionState()`, `updateStepStatus()`, `createIteration()`, `updateIteration()`, `createIssue()`, `getOpenIssues()`, etc.
 - Handles foreign key constraints and transactions
@@ -652,3 +660,111 @@ If you see errors like `Cannot find module '/wrong/path/to/file'`:
 10. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database, marks any in_progress iterations as 'aborted', and continues from first pending/in_progress step. Aborted iterations don't count toward max iterations limit.
 
 11. **Build Process**: The build process compiles the backend TypeScript to `dist/` via `npm run build` or `npm run build:backend`.
+
+## Troubleshooting
+
+### Log Files
+
+Stepcat writes logs to `.stepcat/stepcat.<execution-id>.log` in the work directory. Each execution has its own log file for easier debugging.
+
+### Useful SQLite Queries
+
+The database is located at `.stepcat/executions.db` in the work directory. Query it directly with `sqlite3`:
+
+```bash
+# List all executions
+sqlite3 -header -column .stepcat/executions.db \
+  "SELECT id, planFilePath, createdAt FROM plans ORDER BY createdAt DESC;"
+
+# Show execution status summary
+sqlite3 -header -column .stepcat/executions.db "
+  SELECT
+    p.id as exec_id,
+    COUNT(CASE WHEN s.status = 'completed' THEN 1 END) as done,
+    COUNT(CASE WHEN s.status = 'in_progress' THEN 1 END) as active,
+    COUNT(CASE WHEN s.status = 'pending' THEN 1 END) as pending,
+    COUNT(CASE WHEN s.status = 'failed' THEN 1 END) as failed
+  FROM plans p
+  LEFT JOIN steps s ON p.id = s.planId
+  GROUP BY p.id
+  ORDER BY p.createdAt DESC;"
+
+# Show iterations for an execution
+sqlite3 -header -column .stepcat/executions.db "
+  SELECT
+    s.stepNumber, i.iterationNumber, i.type, i.status,
+    i.phase, i.buildStatus, i.reviewStatus,
+    substr(i.commitSha, 1, 7) as commit
+  FROM iterations i
+  JOIN steps s ON i.stepId = s.id
+  WHERE s.planId = <EXECUTION_ID>
+  ORDER BY s.stepNumber, i.iterationNumber;"
+
+# Find aborted iterations with reasons
+sqlite3 -header -column .stepcat/executions.db "
+  SELECT
+    s.stepNumber, i.iterationNumber, i.type, i.phase, i.interruptionReason
+  FROM iterations i
+  JOIN steps s ON i.stepId = s.id
+  WHERE i.status = 'aborted'
+  ORDER BY i.createdAt DESC;"
+
+# Show open issues
+sqlite3 -header -column .stepcat/executions.db "
+  SELECT
+    s.stepNumber, i.iterationNumber, iss.type, iss.severity,
+    iss.filePath, iss.lineNumber, substr(iss.description, 1, 60) as desc
+  FROM issues iss
+  JOIN iterations i ON iss.iterationId = i.id
+  JOIN steps s ON i.stepId = s.id
+  WHERE iss.status = 'open'
+  ORDER BY s.stepNumber, i.iterationNumber;"
+```
+
+### Quick Status Check
+
+Use the `--status` flag to get a quick overview without starting the TUI:
+
+```bash
+# Show status of latest execution
+stepcat --status --dir /path/to/project
+
+# Show status of specific execution
+stepcat --status --execution-id 5 --dir /path/to/project
+```
+
+### Common Failure Patterns
+
+**Iteration completed but step still in_progress**
+- The process was interrupted after Claude finished but before push/review completed
+- Check the `phase` column: if it's 'implementation' or 'pushing', the commit may not have been pushed
+- Resume with `--execution-id` to continue
+
+**buildStatus is NULL with status 'completed'**
+- Same as above - interruption between phases
+- The `phase` field shows exactly where the process stopped
+
+**"Claude Code completed but did not create a commit"**
+- The implementation agent ran but did not commit changes
+- Check the log file for working tree status
+- The agent may have made changes without committing
+- Resume to retry
+
+**"Build checks failed" (buildStatus = 'failed')**
+- GitHub Actions checks did not pass
+- The orchestrator will automatically create a `build_fix` iteration
+- Check the issues table for CI failure details
+
+**"Merge conflict detected" (buildStatus = 'merge_conflict')**
+- The branch has merge conflicts with its base
+- Resolve conflicts manually, push, then resume execution
+
+**"Permission approval requires a TTY"**
+- Claude Code requested permissions but Stepcat is not running interactively
+- Add the required permissions to `.claude/settings.local.json` and resume
+
+**Iteration marked as 'aborted'**
+- The execution was interrupted (Ctrl+C, crash, etc.)
+- Check `interruptionReason` for details
+- Aborted iterations don't count toward the max iteration limit
+- Resume to retry from where it left off

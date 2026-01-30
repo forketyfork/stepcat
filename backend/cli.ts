@@ -8,6 +8,7 @@ import { Command } from 'commander';
 
 import { Database } from './database.js';
 import { OrchestratorEventEmitter } from './events.js';
+import { getLogger } from './logger.js';
 import { Orchestrator } from './orchestrator.js';
 import { PreflightRunner } from './preflight-runner.js';
 import { StopController } from './stop-controller.js';
@@ -26,6 +27,7 @@ interface CliOptions {
   implementationAgent?: string;
   reviewAgent?: string;
   preflight?: boolean;
+  status?: boolean;
 }
 
 const writeErrorLine = (line: string): void => {
@@ -49,6 +51,7 @@ program
   .option('--implementation-agent <agent>', 'Agent to use for implementation (claude|codex)')
   .option('--review-agent <agent>', 'Agent to use for code review (claude|codex)')
   .option('--preflight', 'Run preflight check to detect missing permissions')
+  .option('--status', 'Show execution status without starting TUI')
   .action(async (options: CliOptions) => {
     // Handle preflight check
     if (options.preflight) {
@@ -90,6 +93,105 @@ program
         writeErrorLine(`Preflight check failed: ${error instanceof Error ? error.message : String(error)}`);
         process.exit(1);
       }
+    }
+
+    // Handle status command
+    if (options.status) {
+      const workDir = options.dir ? resolve(options.dir) : process.cwd();
+      const dbPath = resolve(workDir, '.stepcat', 'executions.db');
+
+      if (!existsSync(dbPath)) {
+        writeErrorLine(`No database found at ${dbPath}`);
+        writeErrorLine('No executions have been run in this directory.');
+        process.exit(1);
+      }
+
+      const database = new Database(workDir);
+
+      try {
+        let plan;
+        if (options.executionId) {
+          plan = database.getPlan(options.executionId);
+          if (!plan) {
+            writeErrorLine(`Execution ID ${options.executionId} not found.`);
+            process.exit(1);
+          }
+        } else {
+          const plans = database.getAllPlans();
+          if (plans.length === 0) {
+            writeErrorLine('No executions found in database.');
+            process.exit(1);
+          }
+          plan = plans[0];
+        }
+
+        const state = database.getExecutionState(plan.id);
+
+        process.stdout.write('\n');
+        process.stdout.write('═'.repeat(80) + '\n');
+        process.stdout.write(`EXECUTION STATUS: #${plan.id}\n`);
+        process.stdout.write('═'.repeat(80) + '\n');
+        process.stdout.write(`Plan: ${plan.planFilePath}\n`);
+        process.stdout.write(`Work dir: ${plan.workDir}\n`);
+        process.stdout.write(`Started: ${plan.createdAt}\n`);
+        process.stdout.write('─'.repeat(80) + '\n');
+
+        const completedSteps = state.steps.filter(step => step.status === 'completed').length;
+        const failedSteps = state.steps.filter(step => step.status === 'failed').length;
+        const inProgressSteps = state.steps.filter(step => step.status === 'in_progress').length;
+        const pendingSteps = state.steps.filter(step => step.status === 'pending').length;
+
+        process.stdout.write(`Steps: ${completedSteps} completed, ${inProgressSteps} in progress, ${pendingSteps} pending, ${failedSteps} failed\n`);
+        process.stdout.write('─'.repeat(80) + '\n');
+
+        for (const step of state.steps) {
+          const statusIcon: Record<string, string> = {
+            'completed': '✓',
+            'in_progress': '●',
+            'pending': '○',
+            'failed': '✗',
+          };
+
+          const stepIterations = state.iterations.filter(iteration => iteration.stepId === step.id);
+          const iterationCount = stepIterations.length;
+
+          process.stdout.write(`${statusIcon[step.status]} Step ${step.stepNumber}: ${step.title}\n`);
+          process.stdout.write(`  Status: ${step.status}, Iterations: ${iterationCount}\n`);
+
+          if ((step.status === 'in_progress' || step.status === 'failed') && stepIterations.length > 0) {
+            const currentIteration = stepIterations[stepIterations.length - 1];
+            process.stdout.write(`  Current: #${currentIteration.iterationNumber} (${currentIteration.type})\n`);
+            if (currentIteration.phase) {
+              process.stdout.write(`  Phase: ${currentIteration.phase}\n`);
+            }
+            if (currentIteration.commitSha) {
+              process.stdout.write(`  Commit: ${currentIteration.commitSha.substring(0, 7)}\n`);
+            }
+            if (currentIteration.buildStatus) {
+              process.stdout.write(`  Build: ${currentIteration.buildStatus}\n`);
+            }
+            if (currentIteration.reviewStatus) {
+              process.stdout.write(`  Review: ${currentIteration.reviewStatus}\n`);
+            }
+            if (currentIteration.interruptionReason) {
+              process.stdout.write(`  Interruption: ${currentIteration.interruptionReason}\n`);
+            }
+
+            const stepIssues = state.issues.filter(issue =>
+              stepIterations.some(iter => iter.id === issue.iterationId) && issue.status === 'open'
+            );
+            if (stepIssues.length > 0) {
+              process.stdout.write(`  Open issues: ${stepIssues.length}\n`);
+            }
+          }
+        }
+
+        process.stdout.write('═'.repeat(80) + '\n');
+      } finally {
+        database.close();
+      }
+
+      process.exit(0);
     }
 
     const startTime = Date.now();
@@ -248,6 +350,44 @@ program
         reviewAgent,
         maxIterationsPerStep,
         stopController,
+      });
+
+      // Set up signal handlers for graceful shutdown
+      const cleanup = async (reason: string): Promise<void> => {
+        getLogger()?.error('CLI', `Process terminating: ${reason}`);
+        for (const adapter of uiAdapters) {
+          try {
+            await adapter.shutdown();
+          } catch {
+            // Ignore shutdown errors during termination
+          }
+        }
+        if (storage) {
+          storage.close();
+        }
+        getLogger()?.close();
+      };
+
+      process.on('SIGINT', () => {
+        void cleanup('Received SIGINT').then(() => process.exit(130));
+      });
+
+      process.on('SIGTERM', () => {
+        void cleanup('Received SIGTERM').then(() => process.exit(143));
+      });
+
+      process.on('uncaughtException', (error: Error) => {
+        getLogger()?.error('CLI', `Uncaught exception: ${error.message}`);
+        if (error.stack) {
+          getLogger()?.error('CLI', error.stack);
+        }
+        void cleanup('Uncaught exception').then(() => process.exit(1));
+      });
+
+      process.on('unhandledRejection', (reason: unknown) => {
+        const message = reason instanceof Error ? reason.message : String(reason);
+        getLogger()?.error('CLI', `Unhandled rejection: ${message}`);
+        void cleanup('Unhandled rejection').then(() => process.exit(1));
       });
 
       try {

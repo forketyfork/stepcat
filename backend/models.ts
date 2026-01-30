@@ -28,6 +28,8 @@ export interface Iteration {
   buildStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | 'merge_conflict' | null;
   reviewStatus: 'pending' | 'in_progress' | 'passed' | 'failed' | null;
   status: 'in_progress' | 'completed' | 'failed' | 'aborted';
+  phase: 'implementation' | 'pushing' | 'build_check' | 'review' | 'done' | null;
+  interruptionReason: string | null;
   implementationAgent: 'claude' | 'codex';
   reviewAgent: 'claude' | 'codex' | null;
   createdAt: string;
