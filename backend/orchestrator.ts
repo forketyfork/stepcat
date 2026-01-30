@@ -661,7 +661,7 @@ export class Orchestrator {
     return nodeResult.output as AgentRunResult;
   }
 
-  private async runReviewAgentWithPermissions(
+  private async runReviewAgentWithPermissionsDirect(
     iteration: Iteration,
     stepNumber: number,
     prompt: string,
@@ -715,6 +715,48 @@ export class Orchestrator {
     throw new Error(
       `Exceeded ${maxPermissionAttempts} permission request attempts while reviewing Step ${stepNumber}.`,
     );
+  }
+
+  private async runReviewAgentWithPermissions(
+    iteration: Iteration,
+    stepNumber: number,
+    prompt: string,
+  ): Promise<{ success: boolean; output: string }> {
+    const dagConfig: DagConfig = {
+      nodes: [
+        {
+          name: "review",
+          agent: this.reviewAgent,
+          prompt,
+        },
+      ],
+    };
+
+    const executor = new DagExecutor(dagConfig, {
+      handlers: {
+        [this.reviewAgent]: async node => {
+          const resolvedPrompt = node.resolvedPrompt ?? prompt;
+          const result = await this.runReviewAgentWithPermissionsDirect(
+            iteration,
+            stepNumber,
+            resolvedPrompt,
+          );
+          const status: DagNodeResult["status"] = result.success ? "success" : "failed";
+          return {
+            status,
+            output: result,
+            error: result.success ? undefined : new Error("Review agent failed."),
+          };
+        },
+      },
+    });
+
+    const runResult = await executor.run({ stepNumber });
+    const nodeResult = runResult.results.get("review");
+    if (!nodeResult?.output || nodeResult.status === "failed") {
+      throw nodeResult?.error ?? new Error("Review node failed to return a result.");
+    }
+    return nodeResult.output as { success: boolean; output: string };
   }
 
   private logWorkingTreeStatusAfterAgent(
