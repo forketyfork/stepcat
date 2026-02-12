@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+# script/setup: Set up the project after an initial clone or in a new worktree.
+#               Symlinks .env and .envrc.local from the main repository when
+#               running inside a git worktree, then allows direnv.
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+git_dir="$(git rev-parse --git-dir)"
+git_common_dir="$(git rev-parse --git-common-dir)"
+
+if [ "$(cd "$git_dir" && pwd -P)" != "$(cd "$git_common_dir" && pwd -P)" ]; then
+  main_repo="$(cd "$git_common_dir/.." && pwd -P)"
+  worktree_root="$(pwd -P)"
+
+  echo "==> Detected worktree, symlinking env files from $main_repo..."
+
+  for file in .env .envrc.local; do
+    source_file="$main_repo/$file"
+    target_file="$worktree_root/$file"
+
+    if [ -L "$target_file" ]; then
+      echo "  $file is already symlinked."
+    elif [ -e "$target_file" ]; then
+      echo "  $file already exists (not a symlink), skipping."
+    elif [ -e "$source_file" ]; then
+      ln -s "$source_file" "$target_file"
+      echo "  Symlinked $file -> $source_file"
+    else
+      echo "  $file not found in main repo, skipping."
+    fi
+  done
+else
+  echo "==> Not in a worktree, skipping env file symlinks."
+fi
+
+if command -v direnv &>/dev/null; then
+  echo "==> Allowing direnv..."
+  direnv allow .
+else
+  echo "==> direnv not found, skipping direnv allow."
+fi
+
+echo "==> Done."
