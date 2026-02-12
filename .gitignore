@@ -4,5 +4,6 @@ frontend/dist/
 frontend/node_modules/
 *.log
 .env
+.envrc.local
 .DS_Store
 .direnv/
