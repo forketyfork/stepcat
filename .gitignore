@@ -7,3 +7,7 @@ frontend/node_modules/
 .envrc.local
 .DS_Store
 .direnv/
+
+# Agentic stuff
+.architect/
+.tmp/
