@@ -59,11 +59,11 @@ type ImplementationAgentStrategy =
 type ReviewAgentStrategy =
   | {
       supportsPermissionRequests: false;
-      run: (prompt: string) => Promise<{ success: boolean; output: string }>;
+      run: (prompt: string) => Promise<{ success: boolean; output: string; rawOutput?: string }>;
     }
   | {
       supportsPermissionRequests: true;
-      run: (prompt: string) => Promise<{ success: boolean; output: string }>;
+      run: (prompt: string) => Promise<{ success: boolean; output: string; rawOutput?: string }>;
       runContinue: (prompt: string) => Promise<{ success: boolean; output?: string }>;
     };
 
@@ -495,12 +495,14 @@ export class Orchestrator {
             workDir: this.workDir,
             prompt,
             timeoutMinutes: this.agentTimeoutMinutes,
+            outputMode: "review_json",
             eventEmitter: this.eventEmitter,
           });
 
           return {
             success: result.success,
-            output: result.output,
+            output: result.parsedOutput ?? result.output,
+            rawOutput: result.output,
           };
         },
       };
@@ -621,7 +623,7 @@ export class Orchestrator {
     iteration: Iteration,
     stepNumber: number,
     prompt: string,
-  ): Promise<{ success: boolean; output: string }> {
+  ): Promise<{ success: boolean; output: string; rawOutput?: string }> {
     const strategy = this.getReviewStrategy();
     let reviewRun = await strategy.run(prompt);
 
@@ -639,6 +641,7 @@ export class Orchestrator {
         return {
           success: reviewRun.success,
           output: latestOutput,
+          rawOutput: reviewRun.rawOutput,
         };
       }
 
@@ -663,6 +666,7 @@ export class Orchestrator {
       reviewRun = {
         success: continueResult.success,
         output: latestOutput,
+        rawOutput: undefined,
       };
 
       attempts += 1;
@@ -1786,7 +1790,7 @@ CRITICAL REQUIREMENTS:
 
         this.log(`\nRunning ${this.getAgentDisplayName(this.reviewAgent)} code review (${promptType})...`);
 
-        let reviewRun: { success: boolean; output: string };
+        let reviewRun: { success: boolean; output: string; rawOutput?: string };
         try {
           reviewRun = await this.runReviewAgentWithPermissions(
             previousIteration,
@@ -1823,7 +1827,7 @@ CRITICAL REQUIREMENTS:
         const reviewResult = reviewParser.parseReviewOutput(reviewRun.output);
 
         this.storage.updateIteration(previousIteration.id, {
-          codexLog: reviewRun.output,
+          codexLog: reviewRun.rawOutput ?? reviewRun.output,
           reviewStatus: reviewResult.result === 'PASS' ? 'passed' : 'failed',
           phase: reviewResult.result === 'PASS' ? 'done' : 'review',
         });
