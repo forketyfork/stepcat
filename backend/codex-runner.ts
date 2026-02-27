@@ -44,7 +44,7 @@ const REVIEW_OUTPUT_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        required: ["file", "severity", "description"],
+        required: ["file", "line", "severity", "description"],
         additionalProperties: false,
         properties: {
           file: { type: "string" },

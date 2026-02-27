@@ -559,7 +559,7 @@ Some text here.
       expect(issueRequired).toContain('file');
       expect(issueRequired).toContain('severity');
       expect(issueRequired).toContain('description');
-      expect(issueRequired).not.toContain('line');
+      expect(issueRequired).toContain('line');
     });
   });
 });
