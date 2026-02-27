@@ -338,6 +338,37 @@ More changes
       db2.close();
     });
 
+    it('should throw if fromStep is set without executionId', () => {
+      expect(() => {
+        new Orchestrator({
+          planFile,
+          workDir: tempDir,
+          githubToken: 'test-token',
+          fromStep: 2,
+        });
+      }).toThrow('fromStep requires executionId to be set');
+    });
+
+    it('should throw if fromStep does not exist in plan', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      db.createStep(plan.id, 1, 'Setup');
+      db.createStep(plan.id, 2, 'Implementation');
+      db.close();
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        fromStep: 99,
+      });
+
+      await expect(orchestrator.run()).rejects.toThrow(
+        'Cannot reset from step 99: step not found in current plan'
+      );
+    });
+
     it('should throw error if execution ID not found', () => {
       expect(() => {
         new Orchestrator({

@@ -140,6 +140,11 @@ export class Orchestrator {
     this.silent = config.silent ?? false;
     this.executionId = config.executionId;
     this.fromStep = config.fromStep;
+
+    if (this.fromStep !== undefined && this.executionId === undefined) {
+      throw new Error('fromStep requires executionId to be set');
+    }
+
     this.maxIterationsPerStep = config.maxIterationsPerStep ?? 3;
     this.implementationAgent = config.implementationAgent ?? 'claude';
     this.reviewAgent = config.reviewAgent ?? 'codex';
@@ -1039,6 +1044,13 @@ CRITICAL REQUIREMENTS:
     }
 
     const parsedSteps = this.parser.parseSteps();
+
+    if (!parsedSteps.some((step) => step.number === fromStepNumber)) {
+      throw new Error(
+        `Cannot reset from step ${fromStepNumber}: step not found in current plan`
+      );
+    }
+
     const stepsFromTarget = parsedSteps
       .filter((step) => step.number >= fromStepNumber)
       .map((step) => ({ stepNumber: step.number, title: step.title }));
