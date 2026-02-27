@@ -583,6 +583,84 @@ describe('Database', () => {
     });
   });
 
+  describe('resetStepsFrom', () => {
+    it('should delete steps, iterations, and issues from the given step number onward', () => {
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      const step2 = db.createStep(plan.id, 2, 'Implementation');
+      db.createStep(plan.id, 3, 'Testing');
+
+      db.updateStepStatus(step1.id, 'completed');
+      db.updateStepStatus(step2.id, 'completed');
+
+      const iter1 = db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      const iter2 = db.createIteration(step2.id, 1, 'implementation', 'claude', 'codex');
+      db.createIssue(iter1.id, 'codex_review', 'Issue in step 1');
+      db.createIssue(iter2.id, 'codex_review', 'Issue in step 2');
+
+      const result = db.resetStepsFrom(plan.id, 2, [
+        { stepNumber: 2, title: 'New Implementation' },
+        { stepNumber: 3, title: 'New Testing' },
+      ]);
+
+      expect(result.deletedCount).toBe(2);
+      expect(result.createdCount).toBe(2);
+
+      const steps = db.getSteps(plan.id);
+      expect(steps).toHaveLength(3);
+      expect(steps[0].status).toBe('completed');
+      expect(steps[0].title).toBe('Setup');
+      expect(steps[1].status).toBe('pending');
+      expect(steps[1].title).toBe('New Implementation');
+      expect(steps[2].status).toBe('pending');
+      expect(steps[2].title).toBe('New Testing');
+
+      // Iterations and issues for step 1 should remain
+      expect(db.getIterations(step1.id)).toHaveLength(1);
+      expect(db.getIssues(iter1.id)).toHaveLength(1);
+
+      // Iterations and issues for old step 2 should be gone
+      expect(db.getIterations(step2.id)).toHaveLength(0);
+      expect(db.getIssues(iter2.id)).toHaveLength(0);
+    });
+
+    it('should work when there are no iterations or issues to clean up', () => {
+      const plan = db.createPlan('/path/to/plan.md', '/path/to/workdir', 'test-owner', 'test-repo');
+      db.createStep(plan.id, 1, 'Setup');
+      db.createStep(plan.id, 2, 'Implementation');
+
+      const result = db.resetStepsFrom(plan.id, 1, [
+        { stepNumber: 1, title: 'Fresh Start' },
+      ]);
+
+      expect(result.deletedCount).toBe(2);
+      expect(result.createdCount).toBe(1);
+
+      const steps = db.getSteps(plan.id);
+      expect(steps).toHaveLength(1);
+      expect(steps[0].title).toBe('Fresh Start');
+      expect(steps[0].status).toBe('pending');
+    });
+
+    it('should not affect steps from other plans', () => {
+      const plan1 = db.createPlan('/path/to/plan1.md', '/path/to/workdir', 'owner', 'repo');
+      const plan2 = db.createPlan('/path/to/plan2.md', '/path/to/workdir', 'owner', 'repo');
+      db.createStep(plan1.id, 1, 'Plan 1 Step 1');
+      db.createStep(plan1.id, 2, 'Plan 1 Step 2');
+      const otherStep = db.createStep(plan2.id, 1, 'Plan 2 Step 1');
+      db.createIteration(otherStep.id, 1, 'implementation', 'claude', 'codex');
+
+      db.resetStepsFrom(plan1.id, 1, [
+        { stepNumber: 1, title: 'Reset' },
+      ]);
+
+      const plan2Steps = db.getSteps(plan2.id);
+      expect(plan2Steps).toHaveLength(1);
+      expect(plan2Steps[0].title).toBe('Plan 2 Step 1');
+      expect(db.getIterations(otherStep.id)).toHaveLength(1);
+    });
+  });
+
   describe('in-memory database', () => {
     it('should support in-memory database for testing', () => {
       const memDb = new Database(':memory:', ':memory:');

@@ -28,10 +28,18 @@ interface CliOptions {
   reviewAgent?: string;
   preflight?: boolean;
   status?: boolean;
+  fromStep?: number;
 }
 
 const writeErrorLine = (line: string): void => {
   process.stderr.write(`${line}\n`);
+};
+
+const parseStrictInt = (value: string): number => {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`Expected an integer, got: ${value}`);
+  }
+  return Number(value);
 };
 
 const program = new Command();
@@ -42,14 +50,15 @@ program
   .version('0.1.0')
   .option('-f, --file <path>', 'Path to the implementation plan file')
   .option('-d, --dir <path>', 'Path to the work directory')
-  .option('-e, --execution-id <id>', 'Resume existing execution by ID (positive integer)', parseInt)
+  .option('-e, --execution-id <id>', 'Resume existing execution by ID (positive integer)', parseStrictInt)
   .option('-t, --token <token>', 'GitHub token (defaults to GITHUB_TOKEN env var)')
-  .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseInt)
-  .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseInt)
-  .option('--max-iterations <count>', 'Maximum iterations per step (default: 3)', parseInt)
+  .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseStrictInt)
+  .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseStrictInt)
+  .option('--max-iterations <count>', 'Maximum iterations per step (default: 3)', parseStrictInt)
   .option('--exit-on-complete', 'Exit the TUI after execution completes (default: stay open)')
   .option('--implementation-agent <agent>', 'Agent to use for implementation (claude|codex)')
   .option('--review-agent <agent>', 'Agent to use for code review (claude|codex)')
+  .option('--from-step <number>', 'Restart from a specific step number (requires --execution-id)', parseStrictInt)
   .option('--preflight', 'Run preflight check to detect missing permissions')
   .option('--status', 'Show execution status without starting TUI')
   .action(async (options: CliOptions) => {
@@ -230,6 +239,19 @@ program
         maxIterationsPerStep = rawMaxIterations;
       }
 
+      if (options.fromStep !== undefined && !executionId) {
+        throw new Error(
+          '--from-step requires --execution-id.\n' +
+          'Example: stepcat --execution-id 123 --from-step 3'
+        );
+      }
+
+      if (options.fromStep !== undefined && (!Number.isInteger(options.fromStep) || options.fromStep <= 0)) {
+        throw new Error(
+          `Invalid --from-step: expected a positive integer, got: ${options.fromStep}`
+        );
+      }
+
       if (executionId) {
         if (!Number.isInteger(executionId) || executionId <= 0) {
           throw new Error(
@@ -345,6 +367,7 @@ program
         uiAdapters,
         silent: true,
         executionId,
+        fromStep: options.fromStep,
         storage,
         implementationAgent,
         reviewAgent,

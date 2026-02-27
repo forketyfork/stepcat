@@ -165,6 +165,33 @@ export class Database implements Storage {
     return transaction();
   }
 
+  resetStepsFrom(
+    planId: number,
+    fromStepNumber: number,
+    newSteps: PlanStepInput[]
+  ): { deletedCount: number; createdCount: number } {
+    const transaction = this.db.transaction(() => {
+      const deleteResult = this.db
+        .prepare('DELETE FROM steps WHERE planId = ? AND stepNumber >= ?')
+        .run(planId, fromStepNumber);
+
+      const insertStmt = this.db.prepare(
+        'INSERT INTO steps (planId, stepNumber, title, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      const now = new Date().toISOString();
+      for (const step of newSteps) {
+        insertStmt.run(planId, step.stepNumber, step.title, 'pending', now, now);
+      }
+
+      return {
+        deletedCount: deleteResult.changes,
+        createdCount: newSteps.length,
+      };
+    });
+
+    return transaction();
+  }
+
   createIteration(
     stepId: number,
     iterationNumber: number,

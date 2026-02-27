@@ -30,6 +30,7 @@ export interface OrchestratorConfig {
   uiAdapters?: UIAdapter[];
   silent?: boolean;
   executionId?: number;
+  fromStep?: number;
   maxIterationsPerStep?: number;
   databasePath?: string;
   storage?: Storage;
@@ -114,6 +115,7 @@ export class Orchestrator {
   private uiAdapters: UIAdapter[];
   private silent: boolean;
   private executionId?: number;
+  private fromStep?: number;
   private maxIterationsPerStep: number;
   private plan?: Plan;
   private planContent: string;
@@ -137,6 +139,12 @@ export class Orchestrator {
     this.uiAdapters = config.uiAdapters ?? [];
     this.silent = config.silent ?? false;
     this.executionId = config.executionId;
+    this.fromStep = config.fromStep;
+
+    if (this.fromStep !== undefined && this.executionId === undefined) {
+      throw new Error('fromStep requires executionId to be set');
+    }
+
     this.maxIterationsPerStep = config.maxIterationsPerStep ?? 3;
     this.implementationAgent = config.implementationAgent ?? 'claude';
     this.reviewAgent = config.reviewAgent ?? 'codex';
@@ -1030,6 +1038,35 @@ CRITICAL REQUIREMENTS:
     this.planContent = this.parser.getContent();
   }
 
+  private resetFromStep(fromStepNumber: number): void {
+    if (!this.plan) {
+      return;
+    }
+
+    const parsedSteps = this.parser.parseSteps();
+
+    if (!parsedSteps.some((step) => step.number === fromStepNumber)) {
+      throw new Error(
+        `Cannot reset from step ${fromStepNumber}: step not found in current plan`
+      );
+    }
+
+    const stepsFromTarget = parsedSteps
+      .filter((step) => step.number >= fromStepNumber)
+      .map((step) => ({ stepNumber: step.number, title: step.title }));
+
+    const { deletedCount, createdCount } = this.storage.resetStepsFrom(
+      this.plan.id,
+      fromStepNumber,
+      stepsFromTarget
+    );
+
+    this.log(
+      `Reset from step ${fromStepNumber}: removed ${deletedCount} steps (with iterations/issues), added ${createdCount} pending steps from plan`,
+      "info"
+    );
+  }
+
   private syncPendingStepsFromPlan(): void {
     if (!this.plan) {
       return;
@@ -1089,6 +1126,11 @@ CRITICAL REQUIREMENTS:
       this.planFile = plan.planFilePath;
       this.refreshPlanFromDisk();
       this.log(`Loaded plan from database: ${plan.planFilePath}`, "info");
+
+      if (this.fromStep !== undefined) {
+        this.resetFromStep(this.fromStep);
+      }
+
       this.syncPendingStepsFromPlan();
 
       // Emit initial state so UI updates immediately

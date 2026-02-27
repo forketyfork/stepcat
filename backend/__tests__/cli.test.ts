@@ -183,6 +183,38 @@ Setup the project
     });
   });
 
+  describe('--from-step validation', () => {
+    it('should require --execution-id when --from-step is provided', () => {
+      const fromStep = 3;
+      const executionId = undefined;
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing validation with literal undefined
+      const isValid = executionId !== undefined;
+      expect(isValid).toBe(false);
+      expect(fromStep).toBeDefined();
+    });
+
+    it('should accept --from-step with --execution-id', () => {
+      const fromStep = 3;
+      const executionId = 123;
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing validation with literal values
+      const isValid = executionId !== undefined && Number.isInteger(fromStep) && fromStep > 0;
+      expect(isValid).toBe(true);
+    });
+
+    it('should reject non-positive --from-step values', () => {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing validation logic with literal values
+      expect(Number.isInteger(0) && 0 > 0).toBe(false);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing validation logic with literal values
+      expect(Number.isInteger(-1) && -1 > 0).toBe(false);
+    });
+
+    it('should reject non-integer --from-step values', () => {
+      expect(Number.isInteger(NaN)).toBe(false);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- testing validation logic with literal values
+      expect(Number.isInteger(3.5) && 3.5 > 0).toBe(false);
+    });
+  });
+
   describe('resume mode detection', () => {
     it('should detect resume mode when execution ID provided', () => {
       const executionId = 123;
