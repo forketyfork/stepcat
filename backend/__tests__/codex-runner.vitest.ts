@@ -1,9 +1,63 @@
+import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import { join } from 'path';
+
+import { vi, type MockInstance } from 'vitest';
+
 import { CodexRunner } from '../codex-runner.js';
+
+const { mockExistsSync } = vi.hoisted(() => ({
+  mockExistsSync: vi.fn<typeof fs.existsSync>(),
+}));
+
+vi.mock('child_process', async () => {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Required for vi.importActual typing
+  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  return {
+    ...actual,
+    spawn: vi.fn(),
+    execSync: vi.fn(),
+  };
+});
+
+vi.mock('fs', async () => {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Required for vi.importActual typing
+  const actual = await vi.importActual<typeof import('fs')>('fs');
+  return {
+    ...actual,
+    existsSync: mockExistsSync,
+  };
+});
+
+function createMockChildProcess(
+  exitCode: number,
+  stdout: string,
+): EventEmitter & { stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> }; stdout: EventEmitter; stderr: EventEmitter } {
+  const child = new EventEmitter() as EventEmitter & {
+    stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+  };
+  child.stdin = { write: vi.fn(), end: vi.fn() };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+
+  process.nextTick(() => {
+    child.stdout.emit('data', Buffer.from(stdout));
+    child.emit('close', exitCode);
+  });
+
+  return child;
+}
 
 describe('CodexRunner', () => {
   let runner: CodexRunner;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- Required for vi.importActual typing
+    const { existsSync: realExistsSync } = await vi.importActual<typeof import('fs')>('fs');
+    mockExistsSync.mockImplementation(realExistsSync);
     runner = new CodexRunner();
   });
 
@@ -332,6 +386,180 @@ Some text here.
         expect(result.result).toBe('FAIL');
         expect(result.issues[0].description).toContain('invalid "severity"');
       });
+    });
+  });
+
+  describe('run with outputMode review_json', () => {
+    let spawnMock: MockInstance;
+
+    beforeEach(async () => {
+      const cp = await import('child_process');
+      spawnMock = vi.mocked(cp.spawn);
+      spawnMock.mockReset();
+    });
+
+    function stubCodexBinary(): void {
+      const codexBinPath = join(
+        import.meta.dirname,
+        '../../node_modules/.bin/codex',
+      );
+      const currentImpl = mockExistsSync.getMockImplementation();
+      mockExistsSync.mockImplementation(
+        (p) => String(p) === codexBinPath || (currentImpl ? currentImpl(p) : false),
+      );
+    }
+
+    it('should create temp files and pass --output-last-message and --output-schema flags', async () => {
+      stubCodexBinary();
+
+      spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+        const lastMsgIndex = args.indexOf('--output-last-message');
+        if (lastMsgIndex !== -1) {
+          const lastMsgPath = args[lastMsgIndex + 1];
+          fs.writeFileSync(lastMsgPath, JSON.stringify({ result: 'PASS', issues: [] }));
+        }
+        return createMockChildProcess(0, 'stdout output');
+      });
+
+      const result = await runner.run({
+        workDir: '/tmp',
+        prompt: 'review this',
+        outputMode: 'review_json',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.parsedOutput).toBe(JSON.stringify({ result: 'PASS', issues: [] }));
+
+      const spawnArgs = spawnMock.mock.calls[0][1] as string[];
+      expect(spawnArgs).toContain('--output-last-message');
+      expect(spawnArgs).toContain('--output-schema');
+    });
+
+    it('should return undefined parsedOutput when capture file is missing', async () => {
+      stubCodexBinary();
+
+      spawnMock.mockImplementation(() => createMockChildProcess(0, 'stdout'));
+
+      const result = await runner.run({
+        workDir: '/tmp',
+        prompt: 'review this',
+        outputMode: 'review_json',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.parsedOutput).toBeUndefined();
+    });
+
+    it('should return undefined parsedOutput when capture file is empty', async () => {
+      stubCodexBinary();
+
+      spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+        const lastMsgIndex = args.indexOf('--output-last-message');
+        if (lastMsgIndex !== -1) {
+          fs.writeFileSync(args[lastMsgIndex + 1], '');
+        }
+        return createMockChildProcess(0, 'stdout');
+      });
+
+      const result = await runner.run({
+        workDir: '/tmp',
+        prompt: 'review this',
+        outputMode: 'review_json',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.parsedOutput).toBeUndefined();
+    });
+
+    it('should not pass capture flags when outputMode is default', async () => {
+      stubCodexBinary();
+
+      spawnMock.mockImplementation(() => createMockChildProcess(0, 'stdout'));
+
+      await runner.run({
+        workDir: '/tmp',
+        prompt: 'do something',
+      });
+
+      const spawnArgs = spawnMock.mock.calls[0][1] as string[];
+      expect(spawnArgs).not.toContain('--output-last-message');
+      expect(spawnArgs).not.toContain('--output-schema');
+    });
+
+    it('should clean up temp directory after successful run', async () => {
+      stubCodexBinary();
+
+      let capturedTempDir: string | undefined;
+      spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+        const lastMsgIndex = args.indexOf('--output-last-message');
+        if (lastMsgIndex !== -1) {
+          const lastMsgPath = args[lastMsgIndex + 1];
+          capturedTempDir = join(lastMsgPath, '..');
+          fs.writeFileSync(lastMsgPath, '{"result":"PASS","issues":[]}');
+        }
+        return createMockChildProcess(0, 'stdout');
+      });
+
+      await runner.run({
+        workDir: '/tmp',
+        prompt: 'review',
+        outputMode: 'review_json',
+      });
+
+      expect(capturedTempDir).toBeDefined();
+      expect(fs.existsSync(capturedTempDir!)).toBe(false);
+    });
+
+    it('should clean up temp directory even when codex fails', async () => {
+      stubCodexBinary();
+
+      let capturedTempDir: string | undefined;
+      spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+        const lastMsgIndex = args.indexOf('--output-last-message');
+        if (lastMsgIndex !== -1) {
+          const lastMsgPath = args[lastMsgIndex + 1];
+          capturedTempDir = join(lastMsgPath, '..');
+        }
+        return createMockChildProcess(1, 'error output');
+      });
+
+      await expect(
+        runner.run({ workDir: '/tmp', prompt: 'review', outputMode: 'review_json' }),
+      ).rejects.toThrow();
+
+      expect(capturedTempDir).toBeDefined();
+      expect(fs.existsSync(capturedTempDir!)).toBe(false);
+    });
+
+    it('should write valid JSON schema to temp directory', async () => {
+      stubCodexBinary();
+
+      let schemaContent: string | undefined;
+      spawnMock.mockImplementation((_cmd: string, args: string[]) => {
+        const schemaIndex = args.indexOf('--output-schema');
+        if (schemaIndex !== -1) {
+          schemaContent = fs.readFileSync(args[schemaIndex + 1], 'utf-8');
+        }
+        return createMockChildProcess(0, 'stdout');
+      });
+
+      await runner.run({
+        workDir: '/tmp',
+        prompt: 'review',
+        outputMode: 'review_json',
+      });
+
+      expect(schemaContent).toBeDefined();
+      const schema = JSON.parse(schemaContent!);
+      expect(schema.type).toBe('object');
+      expect(schema.required).toContain('result');
+      expect(schema.required).toContain('issues');
+
+      const issueRequired = schema.properties.issues.items.required as string[];
+      expect(issueRequired).toContain('file');
+      expect(issueRequired).toContain('severity');
+      expect(issueRequired).toContain('description');
+      expect(issueRequired).not.toContain('line');
     });
   });
 });
