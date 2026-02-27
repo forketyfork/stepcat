@@ -8,6 +8,15 @@ Stepcat is a step-by-step agent orchestration solution that automates multi-step
 
 **Key Principle**: One commit per iteration (not per step) for complete audit trail. Each implementation agent execution creates a separate git commit, providing full transparency and traceability throughout the development process.
 
+## Infrastructure
+
+- **Source code hosting:** GitHub — URL: `https://github.com/forketyfork/stepcat` — CLI: `gh` — Skill: `managing-github`
+- **Issue tracker:** GitHub Issues — URL: `https://github.com/forketyfork/stepcat/issues` — CLI: `gh issue` — Skill: `managing-github`
+- **CI/CD:** GitHub Actions — config: `.github/workflows/`
+- **Issue/PR linkage convention:** Reference issues in commit messages and PR descriptions using `#<issue-number>`. Use `Closes #N` or `Fixes #N` in the PR body to auto-close issues on merge.
+
+Use the `managing-github` skill for all GitHub operations: creating issues, pull requests, fetching review threads, posting comments, and searching.
+
 ## Task Completion Requirements
 
 **CRITICAL: Before completing ANY task, you MUST:**
