@@ -165,6 +165,50 @@ export class Database implements Storage {
     return transaction();
   }
 
+  resetStepsFrom(
+    planId: number,
+    fromStepNumber: number,
+    newSteps: PlanStepInput[]
+  ): { deletedCount: number; createdCount: number } {
+    const transaction = this.db.transaction(() => {
+      const stepIds = this.db
+        .prepare('SELECT id FROM steps WHERE planId = ? AND stepNumber >= ?')
+        .all(planId, fromStepNumber) as Array<{ id: number }>;
+
+      if (stepIds.length > 0) {
+        const ids = stepIds.map((row) => row.id);
+        const placeholders = ids.map(() => '?').join(',');
+
+        this.db
+          .prepare(`DELETE FROM issues WHERE iterationId IN (SELECT id FROM iterations WHERE stepId IN (${placeholders}))`)
+          .run(...ids);
+
+        this.db
+          .prepare(`DELETE FROM iterations WHERE stepId IN (${placeholders})`)
+          .run(...ids);
+      }
+
+      const deleteResult = this.db
+        .prepare('DELETE FROM steps WHERE planId = ? AND stepNumber >= ?')
+        .run(planId, fromStepNumber);
+
+      const insertStmt = this.db.prepare(
+        'INSERT INTO steps (planId, stepNumber, title, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      const now = new Date().toISOString();
+      for (const step of newSteps) {
+        insertStmt.run(planId, step.stepNumber, step.title, 'pending', now, now);
+      }
+
+      return {
+        deletedCount: deleteResult.changes,
+        createdCount: newSteps.length,
+      };
+    });
+
+    return transaction();
+  }
+
   createIteration(
     stepId: number,
     iterationNumber: number,

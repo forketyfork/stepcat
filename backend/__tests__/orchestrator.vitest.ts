@@ -246,6 +246,98 @@ More changes
       db2.close();
     });
 
+    it('should reset steps from a specific step number with --from-step', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      const step2 = db.createStep(plan.id, 2, 'Implementation');
+      db.updateStepStatus(step1.id, 'completed');
+      db.updateStepStatus(step2.id, 'completed');
+      const iter1 = db.createIteration(step1.id, 1, 'implementation', 'claude', 'codex');
+      db.updateIteration(iter1.id, { status: 'completed', commitSha: 'aaa111' });
+      const iter2 = db.createIteration(step2.id, 1, 'implementation', 'claude', 'codex');
+      db.updateIteration(iter2.id, { status: 'completed', commitSha: 'bbb222' });
+      db.createIssue(iter2.id, 'codex_review', 'Old review issue');
+      db.close();
+
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'ccc333' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('ccc333');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('ccc333');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        fromStep: 2,
+        maxIterationsPerStep: 3,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const steps = db2.getSteps(plan.id);
+
+      expect(steps).toHaveLength(2);
+      expect(steps[0].status).toBe('completed');
+      expect(steps[0].title).toBe('Setup');
+      expect(steps[1].status).toBe('completed');
+      expect(steps[1].title).toBe('Implementation');
+
+      // Step 1 iterations should be untouched
+      const step1Iterations = db2.getIterations(steps[0].id);
+      expect(step1Iterations).toHaveLength(1);
+      expect(step1Iterations[0].commitSha).toBe('aaa111');
+
+      // Step 2 should have a fresh iteration (old one was deleted by reset)
+      const step2Iterations = db2.getIterations(steps[1].id);
+      expect(step2Iterations).toHaveLength(1);
+      expect(step2Iterations[0].commitSha).toBe('ccc333');
+
+      db2.close();
+    });
+
+    it('should re-read plan file and update step titles with --from-step', async () => {
+      const db = new Database(tempDir);
+      const plan = db.createPlan(planFile, tempDir, 'test-owner', 'test-repo');
+      const step1 = db.createStep(plan.id, 1, 'Setup');
+      const step2 = db.createStep(plan.id, 2, 'Old Title');
+      db.updateStepStatus(step1.id, 'completed');
+      db.updateStepStatus(step2.id, 'completed');
+      db.close();
+
+      // Plan file has "Implementation" as step 2 title
+      mockClaudeRunnerInstance.run = vi.fn().mockResolvedValue({ success: true, commitSha: 'abc123' });
+      mockGitHubCheckerInstance.waitForChecksToPass = vi.fn().mockResolvedValue(true);
+      mockGitHubCheckerInstance.getLatestCommitSha = vi.fn().mockReturnValue('abc123');
+      mockGitHubCheckerInstance.getLastTrackedSha = vi.fn().mockReturnValue('abc123');
+      mockCodexRunnerInstance.run = vi.fn().mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ result: 'PASS', issues: [] })
+      });
+
+      const orchestrator = new Orchestrator({
+        planFile,
+        workDir: tempDir,
+        githubToken: 'test-token',
+        executionId: plan.id,
+        fromStep: 2,
+        maxIterationsPerStep: 3,
+      });
+
+      await orchestrator.run();
+
+      const db2 = new Database(tempDir);
+      const steps = db2.getSteps(plan.id);
+      expect(steps[1].title).toBe('Implementation');
+      db2.close();
+    });
+
     it('should throw error if execution ID not found', () => {
       expect(() => {
         new Orchestrator({

@@ -29,6 +29,11 @@ export interface Storage {
     startStepNumber: number,
     steps: PlanStepInput[]
   ): { deletedCount: number; createdCount: number };
+  resetStepsFrom(
+    planId: number,
+    fromStepNumber: number,
+    newSteps: PlanStepInput[]
+  ): { deletedCount: number; createdCount: number };
 
   createIteration(
     stepId: number,

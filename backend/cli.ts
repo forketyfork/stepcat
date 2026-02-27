@@ -28,6 +28,7 @@ interface CliOptions {
   reviewAgent?: string;
   preflight?: boolean;
   status?: boolean;
+  fromStep?: number;
 }
 
 const writeErrorLine = (line: string): void => {
@@ -50,6 +51,7 @@ program
   .option('--exit-on-complete', 'Exit the TUI after execution completes (default: stay open)')
   .option('--implementation-agent <agent>', 'Agent to use for implementation (claude|codex)')
   .option('--review-agent <agent>', 'Agent to use for code review (claude|codex)')
+  .option('--from-step <number>', 'Restart from a specific step number (requires --execution-id)', parseInt)
   .option('--preflight', 'Run preflight check to detect missing permissions')
   .option('--status', 'Show execution status without starting TUI')
   .action(async (options: CliOptions) => {
@@ -230,6 +232,19 @@ program
         maxIterationsPerStep = rawMaxIterations;
       }
 
+      if (options.fromStep !== undefined && !executionId) {
+        throw new Error(
+          '--from-step requires --execution-id.\n' +
+          'Example: stepcat --execution-id 123 --from-step 3'
+        );
+      }
+
+      if (options.fromStep !== undefined && (!Number.isInteger(options.fromStep) || options.fromStep <= 0)) {
+        throw new Error(
+          `Invalid --from-step: expected a positive integer, got: ${options.fromStep}`
+        );
+      }
+
       if (executionId) {
         if (!Number.isInteger(executionId) || executionId <= 0) {
           throw new Error(
@@ -345,6 +360,7 @@ program
         uiAdapters,
         silent: true,
         executionId,
+        fromStep: options.fromStep,
         storage,
         implementationAgent,
         reviewAgent,
