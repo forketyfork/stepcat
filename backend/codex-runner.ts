@@ -44,11 +44,13 @@ const REVIEW_OUTPUT_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        required: ["file", "description"],
-        additionalProperties: true,
+        required: ["file", "line", "severity", "description"],
+        additionalProperties: false,
         properties: {
           file: { type: "string" },
-          line: { type: "number" },
+          line: {
+            type: ["number", "null"],
+          },
           severity: {
             type: "string",
             enum: ["error", "warning"],
