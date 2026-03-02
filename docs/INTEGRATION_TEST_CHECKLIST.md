@@ -15,7 +15,7 @@ This document provides a comprehensive checklist for manual integration testing 
 - [x] Create a test project with a simple 3-step plan
 - [x] Ensure test project has `justfile` with `build`, `lint`, `test` commands
 - [x] Ensure test project is a GitHub repo with Actions enabled
-- [x] Ensure GitHub token is available via `GITHUB_TOKEN` env var or `--token` flag
+- [x] Ensure GitHub token is available via `STEPCAT_GITHUB_TOKEN` env var or `--token` flag
 
 ### Execution
 - [ ] Run `npx ts-node backend/cli.ts --file plan.md --dir /path/to/test-project`

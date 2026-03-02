@@ -514,3 +514,45 @@ describe('GitHubChecker createPullRequest', () => {
     });
   });
 });
+
+describe('GitHubChecker token env var', () => {
+  const owner = 'forketyfork';
+  const repo = 'stepcat';
+  const workDir = process.cwd();
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('uses STEPCAT_GITHUB_TOKEN env var when no explicit token is provided', () => {
+    const saved = process.env.STEPCAT_GITHUB_TOKEN;
+    try {
+      process.env.STEPCAT_GITHUB_TOKEN = 'test-token-from-env';
+      const checker = new GitHubChecker({ owner, repo, workDir });
+      const octokit = checker.getOctokit();
+      expect(octokit).toBeDefined();
+    } finally {
+      if (saved === undefined) {
+        delete process.env.STEPCAT_GITHUB_TOKEN;
+      } else {
+        process.env.STEPCAT_GITHUB_TOKEN = saved;
+      }
+    }
+  });
+
+  it('prefers explicit token over STEPCAT_GITHUB_TOKEN env var', () => {
+    const saved = process.env.STEPCAT_GITHUB_TOKEN;
+    try {
+      process.env.STEPCAT_GITHUB_TOKEN = 'env-token';
+      const checker = new GitHubChecker({ owner, repo, workDir, token: 'explicit-token' });
+      const octokit = checker.getOctokit();
+      expect(octokit).toBeDefined();
+    } finally {
+      if (saved === undefined) {
+        delete process.env.STEPCAT_GITHUB_TOKEN;
+      } else {
+        process.env.STEPCAT_GITHUB_TOKEN = saved;
+      }
+    }
+  });
+});

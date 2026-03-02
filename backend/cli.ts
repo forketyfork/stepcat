@@ -51,7 +51,7 @@ program
   .option('-f, --file <path>', 'Path to the implementation plan file')
   .option('-d, --dir <path>', 'Path to the work directory')
   .option('-e, --execution-id <id>', 'Resume existing execution by ID (positive integer)', parseStrictInt)
-  .option('-t, --token <token>', 'GitHub token (defaults to GITHUB_TOKEN env var)')
+  .option('-t, --token <token>', 'GitHub token (defaults to STEPCAT_GITHUB_TOKEN env var)')
   .option('--build-timeout <minutes>', 'GitHub Actions check timeout in minutes (default: 30)', parseStrictInt)
   .option('--agent-timeout <minutes>', 'Agent execution timeout in minutes (default: 30)', parseStrictInt)
   .option('--max-iterations <count>', 'Maximum iterations per step (default: 3)', parseStrictInt)
@@ -340,11 +340,11 @@ program
 
       }
 
-      if (!options.token && !process.env.GITHUB_TOKEN) {
+      if (!options.token && !process.env.STEPCAT_GITHUB_TOKEN) {
         throw new Error(
           'GitHub token not provided.\n' +
           'Either:\n' +
-          '  1. Set GITHUB_TOKEN environment variable\n' +
+          '  1. Set STEPCAT_GITHUB_TOKEN environment variable\n' +
           '  2. Use --token flag'
         );
       }

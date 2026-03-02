@@ -675,7 +675,7 @@ If you see errors like `Cannot find module '/wrong/path/to/file'`:
 
 8. **Dependencies**: Required runtime deps include `@anthropic-ai/claude-code`, `@openai/codex` (specified as wildcard "*"), `better-sqlite3` for database, and `@octokit/rest` for GitHub integration
 
-9. **GitHub token**: Must be provided via `--token` flag or `GITHUB_TOKEN` env var
+9. **GitHub token**: Must be provided via `--token` flag or `STEPCAT_GITHUB_TOKEN` env var
 
 10. **Resume functionality**: Execution ID is the plan ID. Use `--execution-id <id>` to resume. Orchestrator loads state from database, marks any in_progress iterations as 'aborted', and continues from first pending/in_progress step. Aborted iterations don't count toward max iterations limit.
 
