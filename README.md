@@ -48,7 +48,7 @@ All execution state is stored in a SQLite database (`.stepcat/executions.db`), e
    ```
 4. Run with the terminal UI (default):
    ```bash
-   export GITHUB_TOKEN=your_token_here
+   export STEPCAT_GITHUB_TOKEN=your_token_here
    stepcat --file plan.md --dir /path/to/project
    ```
 
@@ -85,7 +85,7 @@ stepcat --file plan.md --dir /path/to/project
 - `-f, --file <path>` - Path to the implementation plan file (required for new executions)
 - `-d, --dir <path>` - Path to the work directory (required for new executions, optional for resume)
 - `-e, --execution-id <id>` - Resume existing execution by ID
-- `-t, --token <token>` - GitHub token (optional, defaults to `GITHUB_TOKEN` env var)
+- `-t, --token <token>` - GitHub token (optional, defaults to `STEPCAT_GITHUB_TOKEN` env var)
 - `--build-timeout <minutes>` - GitHub Actions check timeout in minutes (default: 30)
 - `--agent-timeout <minutes>` - Agent execution timeout in minutes (default: 30)
 - `--exit-on-complete` - Exit the TUI after execution completes (default: stay open)
@@ -272,7 +272,7 @@ For each pending step in the plan:
 
 ## Environment Variables
 
-- `GITHUB_TOKEN` - GitHub personal access token (required if not provided via `--token`)
+- `STEPCAT_GITHUB_TOKEN` - GitHub personal access token (required if not provided via `--token`)
 
 Authentication notes:
 - Required scopes: `repo` and `workflow` (to trigger and read check runs).
@@ -381,7 +381,7 @@ All tests are located in `backend/__tests__/` directory.
 
 - CI checks don't start:
   - Verify the repository remote is GitHub (`git remote -v`).
-  - Confirm GitHub Actions is enabled and your `GITHUB_TOKEN` has `repo` and `workflow` scopes.
+  - Confirm GitHub Actions is enabled and your `STEPCAT_GITHUB_TOKEN` has `repo` and `workflow` scopes.
   - Ensure there is an open PR or that your branch/Actions are configured to run checks on push.
 - `just` command not found:
   - Install `just` from `https://github.com/casey/just` or use the npm script equivalents in this README.

@@ -49,7 +49,7 @@ export class GitHubChecker {
 
   constructor(config: GitHubConfig) {
     this.octokit = new Octokit({
-      auth: config.token ?? process.env.GITHUB_TOKEN
+      auth: config.token ?? process.env.STEPCAT_GITHUB_TOKEN
     });
     this.owner = config.owner;
     this.repo = config.repo;
