@@ -855,14 +855,18 @@ export class Orchestrator {
           "info"
         );
 
-        // Update the iteration with the manual commit
+        // Record the commit SHA before pushing (so resume can find it if push fails)
         this.storage.updateIteration(latestIteration.id, {
           commitSha: currentHead,
-          status: 'completed',
         });
 
         // Push the recovered commit to the remote
         await this.pushCommit();
+
+        // Only mark completed after push succeeds
+        this.storage.updateIteration(latestIteration.id, {
+          status: 'completed',
+        });
 
         this.emitEvent({
           type: "iteration_complete",

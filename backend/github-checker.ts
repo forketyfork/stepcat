@@ -240,6 +240,8 @@ export class GitHubChecker {
               `Was the commit pushed to the remote?`
             );
           }
+        } else {
+          commitNotFoundCount = 0;
         }
 
         this.log(`Retrying in ${this.pollIntervalMs / 1000} seconds...`, 'warn');
