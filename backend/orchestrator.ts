@@ -798,7 +798,7 @@ export class Orchestrator {
     }
   }
 
-  private tryRecoverManualCommit(): void {
+  private async tryRecoverManualCommit(): Promise<void> {
     if (!this.plan) {
       return;
     }
@@ -860,6 +860,9 @@ export class Orchestrator {
           commitSha: currentHead,
           status: 'completed',
         });
+
+        // Push the recovered commit to the remote
+        await this.pushCommit();
 
         this.emitEvent({
           type: "iteration_complete",
@@ -1137,7 +1140,7 @@ CRITICAL REQUIREMENTS:
       this.emitInitialState();
 
       this.cleanupIncompleteIterations();
-      this.tryRecoverManualCommit();
+      await this.tryRecoverManualCommit();
       await this.tryRecoverUncommittedChanges();
 
       // Emit updated state after recovery

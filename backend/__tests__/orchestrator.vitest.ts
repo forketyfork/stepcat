@@ -570,6 +570,12 @@ More changes
       const recoveredEvent = iterationCompleteEvents.find(e => e.commitSha === manualCommitSha);
       expect(recoveredEvent).toBeDefined();
 
+      // Verify the recovered commit was pushed to the remote
+      const pushCalls = mockedExecSync.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('git push')
+      );
+      expect(pushCalls.length).toBeGreaterThanOrEqual(1);
+
       db2.close();
     });
 

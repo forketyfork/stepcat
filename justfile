@@ -31,13 +31,14 @@ install:
 dev *ARGS:
     npm run dev -- {{ARGS}}
 
-# Build and install locally
+# Build and install locally (symlink to ~/.local/bin)
 install-local: build
-    npm link
+    mkdir -p ~/.local/bin
+    ln -sf "$(pwd)/dist/cli.js" ~/.local/bin/stepcat
 
 # Uninstall local installation
 uninstall-local:
-    npm unlink
+    rm -f ~/.local/bin/stepcat
 
 # Format check
 format-check:

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { GitHubChecker } from '../github-checker.js';
+import { GitHubChecker, MergeConflictError } from '../github-checker.js';
 
 type CheckRun = {
   id: number;
@@ -448,5 +448,69 @@ describe('GitHubChecker createPullRequest', () => {
       head: 'feature/branch',
       base: 'develop',
     });
+  });
+
+  it('propagates MergeConflictError instead of retrying', async () => {
+    const sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    const listForRef = vi.fn().mockResolvedValue({
+      data: createCheckRunsResponse([]),
+    });
+
+    const pullsList = vi.fn().mockResolvedValue({
+      data: [
+        {
+          number: 10,
+          head: { sha, ref: 'feature/conflict' },
+        },
+      ],
+    });
+
+    const pullsGet = vi.fn().mockResolvedValue({
+      data: {
+        number: 10,
+        head: { sha, ref: 'feature/conflict' },
+        base: { ref: 'main' },
+        mergeable_state: 'dirty',
+      },
+    });
+
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    (checker as any).octokit = {
+      checks: { listForRef },
+      pulls: { list: pullsList, get: pullsGet },
+    };
+    (checker as any).log = noopLog;
+    vi.spyOn(checker as any, 'sleep').mockResolvedValue(undefined);
+    vi.spyOn(checker as any, 'getCurrentBranch').mockReturnValue('feature/conflict');
+
+    await expect(checker.waitForChecksToPass(sha, 1)).rejects.toThrow(MergeConflictError);
+    // Should fail on first attempt, not retry
+    expect(listForRef).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails fast after consecutive commit-not-found errors', async () => {
+    const sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    const listForRef = vi.fn().mockRejectedValue(
+      new Error(`No commit found for SHA: ${sha}`)
+    );
+
+    const pullsList = vi.fn().mockResolvedValue({ data: [] });
+
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    (checker as any).octokit = {
+      checks: { listForRef },
+      pulls: { list: pullsList },
+    };
+    (checker as any).log = noopLog;
+    vi.spyOn(checker as any, 'sleep').mockResolvedValue(undefined);
+    vi.spyOn(checker as any, 'getCurrentBranch').mockReturnValue('feature/test');
+
+    await expect(checker.waitForChecksToPass(sha, 30)).rejects.toThrow(
+      /not found on GitHub after 10 consecutive attempts/
+    );
+    // Should stop after 10 attempts, not keep going for 30 minutes
+    expect(listForRef).toHaveBeenCalledTimes(10);
   });
 });

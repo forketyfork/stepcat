@@ -10,7 +10,7 @@
   "scripts": {
     "build": "npm run build:backend && npm run postbuild",
     "build:backend": "tsc",
-    "postbuild": "node -e \"const fs = require('fs'); const path = 'dist/cli.js'; let content = fs.readFileSync(path, 'utf8'); if (!content.startsWith('#!')) { content = '#!/usr/bin/env node\\n' + content; fs.writeFileSync(path, content); fs.chmodSync(path, '755'); }\"",
+    "postbuild": "node -e \"const fs = require('fs'); const p = 'dist/cli.js'; const nodePath = process.execPath; let content = fs.readFileSync(p, 'utf8'); content = content.replace(/^#!.*\\n/, ''); content = '#!' + nodePath + '\\n' + content; fs.writeFileSync(p, content); fs.chmodSync(p, '755');\"",
     "start": "node dist/cli.js",
     "dev": "npm run build:backend && node dist/cli.js",
     "test": "jest && vitest run",

@@ -88,6 +88,9 @@ export class GitHubChecker {
     this.log(`Repository: ${this.owner}/${this.repo}`);
     this.log(`Commit: ${sha}`);
 
+    let commitNotFoundCount = 0;
+    const maxCommitNotFoundAttempts = 10;
+
     while (Date.now() - startTime < maxWaitMs) {
       try {
         const prDetails = await this.getPullRequestDetails();
@@ -123,6 +126,9 @@ export class GitHubChecker {
           repo: this.repo,
           ref: targetSha,
         });
+
+        // API call succeeded, reset the not-found counter
+        commitNotFoundCount = 0;
 
         const runsForTarget = checkRuns.check_runs.filter(run => run.head_sha === targetSha);
 
@@ -218,9 +224,24 @@ export class GitHubChecker {
           return false;
         }
       } catch (error) {
+        if (error instanceof MergeConflictError) {
+          throw error;
+        }
+
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
         const message = error instanceof Error ? error.message : String(error);
         this.log(`[${elapsed}s] Error checking GitHub status: ${message}`, 'error');
+
+        if (message.includes('No commit found for SHA')) {
+          commitNotFoundCount++;
+          if (commitNotFoundCount >= maxCommitNotFoundAttempts) {
+            throw new Error(
+              `Commit ${targetSha} not found on GitHub after ${commitNotFoundCount} consecutive attempts. ` +
+              `Was the commit pushed to the remote?`
+            );
+          }
+        }
+
         this.log(`Retrying in ${this.pollIntervalMs / 1000} seconds...`, 'warn');
         await this.sleep(this.pollIntervalMs);
       }
