@@ -447,7 +447,11 @@ program
       process.exit(0);
     } catch (error) {
       for (const adapter of uiAdapters) {
-        await adapter.shutdown();
+        try {
+          await adapter.shutdown();
+        } catch {
+          // Ignore shutdown errors so the primary error is always printed
+        }
       }
 
       if (storage) {

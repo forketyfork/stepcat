@@ -376,6 +376,30 @@ describe('GitHubChecker waitForChecksToPass', () => {
     expect(listForRef).toHaveBeenCalledTimes(1);
   });
 
+  it('fails fast on SAML SSO auth errors instead of retrying', async () => {
+    const sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    const samlError = Object.assign(
+      new Error('Resource protected by organization SAML enforcement. You must grant your Personal Access token access to an organization within this enterprise.'),
+      { status: 403 },
+    );
+
+    const listForRef = vi.fn().mockRejectedValue(samlError);
+    const pullsList = vi.fn().mockResolvedValue({ data: [] });
+
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    (checker as any).octokit = {
+      checks: { listForRef },
+      pulls: { list: pullsList },
+    };
+    (checker as any).log = noopLog;
+    vi.spyOn(checker as any, 'sleep').mockResolvedValue(undefined);
+    vi.spyOn(checker as any, 'getCurrentBranch').mockReturnValue('feature/test');
+
+    await expect(checker.waitForChecksToPass(sha, 30)).rejects.toThrow(/SAML/);
+    expect(listForRef).toHaveBeenCalledTimes(1);
+  });
+
   it('fails fast after consecutive commit-not-found errors', async () => {
     const sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -437,6 +461,23 @@ describe('GitHubChecker getDefaultBranch', () => {
     const result = await checker.getDefaultBranch();
 
     expect(result).toBe('main');
+  });
+
+  it('throws on SAML SSO auth errors instead of falling back', async () => {
+    const samlError = Object.assign(
+      new Error('Resource protected by organization SAML enforcement. The \'Org\' organization has enabled or enforced SAML SSO.'),
+      { status: 403 },
+    );
+
+    const checker = new GitHubChecker({ owner, repo, workDir });
+    (checker as any).octokit = {
+      repos: {
+        get: vi.fn().mockRejectedValue(samlError),
+      },
+    };
+    (checker as any).log = noopLog;
+
+    await expect(checker.getDefaultBranch()).rejects.toThrow(/SAML/);
   });
 });
 
