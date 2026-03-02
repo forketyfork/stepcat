@@ -446,6 +446,18 @@ program
 
       process.exit(0);
     } catch (error) {
+      for (const adapter of uiAdapters) {
+        try {
+          await adapter.shutdown();
+        } catch {
+          // Ignore shutdown errors so the primary error is always printed
+        }
+      }
+
+      if (storage) {
+        storage.close();
+      }
+
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
@@ -461,14 +473,6 @@ program
       if (error instanceof Error && error.stack && process.env.DEBUG) {
         writeErrorLine('\nStack trace (DEBUG mode):');
         writeErrorLine(error.stack);
-      }
-
-      for (const adapter of uiAdapters) {
-        await adapter.shutdown();
-      }
-
-      if (storage) {
-        storage.close();
       }
 
       process.exit(1);
