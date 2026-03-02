@@ -73,6 +73,17 @@ export class GitHubChecker {
     return this.lastTrackedSha;
   }
 
+  private isSamlOrAuthError(error: unknown): boolean {
+    if (typeof error === 'object' && error !== null && 'status' in error) {
+      const status = (error as { status: number }).status;
+      if (status === 403 || status === 401) {
+        const message = error instanceof Error ? error.message : '';
+        return message.includes('SAML') || message.includes('SSO');
+      }
+    }
+    return false;
+  }
+
   async waitForChecksToPass(
     sha: string,
     maxWaitMinutes: number = 30,
@@ -225,6 +236,10 @@ export class GitHubChecker {
         }
       } catch (error) {
         if (error instanceof MergeConflictError) {
+          throw error;
+        }
+
+        if (this.isSamlOrAuthError(error)) {
           throw error;
         }
 
@@ -454,6 +469,9 @@ export class GitHubChecker {
       });
       return response.data.default_branch;
     } catch (error) {
+      if (this.isSamlOrAuthError(error)) {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.log(`Failed to fetch default branch, falling back to 'main': ${message}`, 'warn');
       return 'main';
