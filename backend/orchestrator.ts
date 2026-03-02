@@ -798,7 +798,7 @@ export class Orchestrator {
     }
   }
 
-  private tryRecoverManualCommit(): void {
+  private async tryRecoverManualCommit(): Promise<void> {
     if (!this.plan) {
       return;
     }
@@ -855,9 +855,16 @@ export class Orchestrator {
           "info"
         );
 
-        // Update the iteration with the manual commit
+        // Record the commit SHA before pushing (so resume can find it if push fails)
         this.storage.updateIteration(latestIteration.id, {
           commitSha: currentHead,
+        });
+
+        // Push the recovered commit to the remote
+        await this.pushCommit();
+
+        // Only mark completed after push succeeds
+        this.storage.updateIteration(latestIteration.id, {
           status: 'completed',
         });
 
@@ -1137,7 +1144,7 @@ CRITICAL REQUIREMENTS:
       this.emitInitialState();
 
       this.cleanupIncompleteIterations();
-      this.tryRecoverManualCommit();
+      await this.tryRecoverManualCommit();
       await this.tryRecoverUncommittedChanges();
 
       // Emit updated state after recovery
