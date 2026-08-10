@@ -180,7 +180,7 @@ All Codex prompts expect JSON output: `{"result": "PASS"|"FAIL", "issues": [...]
 
 ### Stepcat Requirements
 
-- Node.js 18 or higher
+- Node.js 22.12 or higher
 - `@anthropic-ai/claude-code` npm package (installed as dependency)
 - `@openai/codex` npm package (installed as dependency)
 - GitHub repository with Actions enabled
