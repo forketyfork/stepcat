@@ -32,7 +32,7 @@
     "node": ">=22.12.0"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^2.1.220",
+    "@anthropic-ai/claude-code": "^2.1.221",
     "@octokit/rest": "^22.0.1",
     "@openai/codex": "^0.146.0",
     "better-sqlite3": "^13.0.2",
@@ -41,13 +41,13 @@
     "react": "^19.2.8"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.3",
+    "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.18",
     "@vitest/ui": "^4.1.10",
-    "eslint": "^9.39.3",
+    "eslint": "^10.8.0",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import-x": "^4.17.1",
     "eslint-plugin-n": "^18.2.2",
@@ -59,8 +59,8 @@
     "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
     "tsx": "^4.23.5",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.65.0",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.66.0",
     "vitest": "^4.0.18"
   },
   "overrides": {
